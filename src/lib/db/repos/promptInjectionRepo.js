@@ -217,23 +217,31 @@ function matchesPattern(target, pattern) {
  */
 export async function isRuleMatching(rule, { modelStr = "", comboName = "", provider = "", model = "", apiKey = "", userText = "" } = {}) {
   if (!rule || !rule.enabled) return false;
-  if (!rule.content || !rule.content.trim()) return false;
+  // Empty content = default KERNEL_PROMPT (allowed; engine injects kernel)
+  if (rule.content === null || rule.content === undefined) return false;
 
   // 1. Target API Keys restriction check
-  if (Array.isArray(rule.targetKeys) && rule.targetKeys.length > 0) {
-    if (!apiKey) return false;
-    let matchesKey = rule.targetKeys.includes(apiKey);
-    if (!matchesKey) {
-      try {
-        const { getApiKeyByKey } = await import("./apiKeysRepo.js");
-        const keyObj = await getApiKeyByKey(apiKey);
-        if (keyObj && (rule.targetKeys.includes(keyObj.id) || rule.targetKeys.includes(keyObj.name) || rule.targetKeys.includes(keyObj.key))) {
-          matchesKey = true;
-        }
-      } catch {}
+  const hasTargetKeys = Array.isArray(rule.targetKeys) && rule.targetKeys.length > 0;
+  let matchesKey = true;
+  if (hasTargetKeys) {
+    if (!apiKey) {
+      matchesKey = false;
+    } else {
+      matchesKey = rule.targetKeys.includes(apiKey);
+      if (!matchesKey) {
+        try {
+          const { getApiKeyByKey } = await import("./apiKeysRepo.js");
+          const keyObj = await getApiKeyByKey(apiKey);
+          if (keyObj && (rule.targetKeys.includes(keyObj.id) || rule.targetKeys.includes(keyObj.name) || rule.targetKeys.includes(keyObj.key))) {
+            matchesKey = true;
+          }
+        } catch {}
+      }
     }
-    if (!matchesKey) return false;
   }
+
+  // If rule has targetKeys, matching the key is required!
+  if (hasTargetKeys && !matchesKey) return false;
 
   // 2. Keyword / Regex trigger condition check
   if (rule.matchCondition && rule.matchCondition.type && rule.matchCondition.type !== "always") {
@@ -258,10 +266,11 @@ export async function isRuleMatching(rule, { modelStr = "", comboName = "", prov
     }
   }
 
-  // 3. Target Scope check (Combos / Models / Global / Custom)
+  // 3. Target Scope check (Global / Per Model / Per API Key / Combos / Custom)
   const targetType = rule.targetType || "models";
 
-  if (targetType === "all") {
+  // Target Scope: GLOBAL (Semua Model & Request)
+  if (targetType === "all" || targetType === "global") {
     return true;
   }
 
@@ -278,12 +287,22 @@ export async function isRuleMatching(rule, { modelStr = "", comboName = "", prov
     return rule.targetModels.some((pat) => candidates.some((cand) => matchesPattern(cand, pat)));
   };
 
-  if (targetType === "combos") {
-    return matchesCombo();
+  // Target Scope: PER MODEL
+  if (targetType === "models" || targetType === "per_model") {
+    return matchesModel();
   }
 
-  if (targetType === "models") {
-    return matchesModel();
+  // Target Scope: PER API KEY
+  if (targetType === "keys" || targetType === "per_key") {
+    // If targetModels is also defined, refine by model; otherwise applies to all models for that API key
+    if (Array.isArray(rule.targetModels) && rule.targetModels.length > 0) {
+      return matchesModel();
+    }
+    return matchesKey;
+  }
+
+  if (targetType === "combos") {
+    return matchesCombo();
   }
 
   if (targetType === "custom") {
@@ -457,7 +476,7 @@ export async function applyPromptInjectionsToBody(body, context = {}) {
 
     // Array of applied rule IDs on this body to guarantee idempotency and JSON safety
     if (!Array.isArray(body._appliedPromptInjections)) {
-      body._appliedPromptInjections = [];
+      Object.defineProperty(body, '_appliedPromptInjections', { value: [], writable: true, enumerable: false, configurable: true });
     }
 
     const userText = context.userText !== undefined ? context.userText : extractUserText(body);
@@ -497,11 +516,17 @@ export async function applyPromptInjectionsToBody(body, context = {}) {
       if (rule.normalizeTriggers === true) {
         normalizeTriggerWordsInBody(body);
       }
+
+      // S6b Refusal Stripper: Mark body so response output gets sanitized
+      if (rule.stripRefusal === true) {
+        Object.defineProperty(body, '_stripRefusal', { value: true, writable: true, enumerable: false, configurable: true });
+      }
     }
 
     return {
       modified: appliedRuleNames.length > 0,
       injectedRules: appliedRuleNames,
+      stripRefusal: body._stripRefusal === true,
     };
   } catch (err) {
     // Fail-open: never break chat requests
