@@ -6,6 +6,7 @@ import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbe
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, resolveXiaomiTokenplanBaseUrl, PROVIDERS } from "open-sse/config/providers.js";
 import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
+import { buildCommandCodeHeaders } from "open-sse/shared/commandCodeHeaders.js";
 import { resolveQoderCredentials, resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { probeBedrockCredentials } from "open-sse/executors/bedrock.js";
 import { probeGeminiWebCookie } from "open-sse/services/geminiWebCookie.js";
@@ -385,6 +386,26 @@ export async function POST(request) {
           break;
         }
 
+        case "llmtr": {
+          // GET /v1/models is public (200 with or without a key), so it cannot
+          // tell a bad key from a good one. Chat returns 401 for a bad key.
+          const res = await fetch("https://llmtr.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "qwen/qwen3.8-27b-free",
+              messages: [{ role: "user", content: "ping" }],
+              max_tokens: 1,
+            }),
+            signal: AbortSignal.timeout(8000),
+          });
+          isValid = res.status !== 401 && res.status !== 403;
+          break;
+        }
+
         case "deepseek":
         case "groq":
         case "xai":
@@ -454,12 +475,7 @@ export async function POST(request) {
           }, false);
           const res = await fetch(cfg.baseUrl, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(cfg.headers || {}),
-              "x-session-id": crypto.randomUUID(),
-              "Authorization": `Bearer ${apiKey}`,
-            },
+            headers: buildCommandCodeHeaders({ apiKey, sessionId: payload.threadId }),
             body: JSON.stringify(payload),
           });
           isValid = res.status !== 401 && res.status !== 403;
@@ -532,6 +548,30 @@ export async function POST(request) {
           isValid = probe.valid;
           if (!isValid) error = probe.error;
           else if (probe.warning) warning = probe.warning;
+          break;
+        }
+
+        case "deepseek-web": {
+          const raw = String(apiKey || "").trim();
+          let token = raw;
+          if (raw.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(raw);
+              token = parsed.value || parsed.userToken || parsed.token || raw;
+            } catch {
+              token = raw;
+            }
+          }
+          if (token.toLowerCase().startsWith("bearer ")) {
+            token = token.slice(7).trim();
+          }
+          token = token.replace(/^["']|["']$/g, "").trim();
+          if (!token) {
+            isValid = false;
+            error = "Token is required. Copy the 'userToken' value from chat.deepseek.com Local Storage.";
+            break;
+          }
+          isValid = true;
           break;
         }
 

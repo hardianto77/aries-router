@@ -12,12 +12,11 @@ import { CodexExecutor } from "./codex.js";
 import { CursorExecutor } from "./cursor.js";
 import { VertexExecutor } from "./vertex.js";
 import { OpenCodeExecutor } from "./opencode.js";
-import { OpenCodeV2Executor } from "./opencode-v2.js";
 import { OpenCodeGoExecutor } from "./opencode-go.js";
 import { OpenCodeZenExecutor } from "./opencode-zen.js";
+import { OpenCodeV2Executor } from "./opencodeV2.js";
+import { OpenCodeLaneExecutor } from "./opencodeLane.js";
 import { GrokCliExecutor } from "./grok-cli.js";
-import { DeepSeekWebExecutor } from "./deepseek-web.js";
-import { KimiWebExecutor } from "./kimi-web.js";
 import { OllamaLocalExecutor } from "./ollama-local.js";
 import { CommandCodeExecutor } from "./commandcode.js";
 import { XiaomiTokenplanExecutor } from "./xiaomi-tokenplan.js";
@@ -31,6 +30,8 @@ import WindsurfExecutor from "./windsurf.js";
 import { DefaultExecutor } from "./default.js";
 import { MinimaxCodeExecutor } from "./minimax-code.js";
 import { DevinCliExecutor } from "./devin-cli.js";
+import { DeepSeekWebExecutor } from "./deepseek-web.js";
+import { ZCodeExecutor } from "./zcode.js";
 
 const executors = {
   antigravity: new AntigravityExecutor(),
@@ -50,22 +51,15 @@ const executors = {
   cu: new CursorExecutor(), // Alias for cursor
   vertex: new VertexExecutor("vertex"),
   "vertex-partner": new VertexExecutor("vertex-partner"),
-  opencode: new OpenCodeExecutor(),
-  oc1: new OpenCodeExecutor(),
-  oc: new OpenCodeExecutor(),
-  "opencode-v2": new OpenCodeV2Executor(),
-  oc2: new OpenCodeV2Executor(),
+  opencode: new OpenCodeLaneExecutor("opencode"),
+  oc: new OpenCodeLaneExecutor("opencode"),
   "opencode-go": new OpenCodeGoExecutor(),
   "opencode-zen": new OpenCodeZenExecutor(),
+  "opencode-v2": new OpenCodeLaneExecutor("opencode-v2"),
+  oc2: new OpenCodeLaneExecutor("opencode-v2"),
   "grok-cli": new GrokCliExecutor(),
   gcli: new GrokCliExecutor(), // Alias
   gb: new GrokCliExecutor(), // Alias (Grok Build)
-  "deepseek-web": new DeepSeekWebExecutor(),
-  dsw: new DeepSeekWebExecutor(),
-  "deepseek-cookie": new DeepSeekWebExecutor(),
-  "kimi-web": new KimiWebExecutor(),
-  kweb: new KimiWebExecutor(),
-  "kimi-cookie": new KimiWebExecutor(),
   "ollama-local": new OllamaLocalExecutor(),
   commandcode: new CommandCodeExecutor(),
   "xiaomi-tokenplan": new XiaomiTokenplanExecutor(),
@@ -89,6 +83,11 @@ const executors = {
   // vertex / vertex-partner already uses.
   "bedrock-xai": new BedrockExecutor("bedrock-xai"),
   brx: new BedrockExecutor("bedrock-xai"), // Alias for bedrock-xai
+  "deepseek-web": new DeepSeekWebExecutor(),
+  dsw: new DeepSeekWebExecutor(),
+  "deepseek-cookie": new DeepSeekWebExecutor(),
+  zcode: new ZCodeExecutor(),
+  zc: new ZCodeExecutor(),
 };
 
 const defaultCache = new Map();
@@ -119,9 +118,10 @@ export { CursorExecutor } from "./cursor.js";
 export { VertexExecutor } from "./vertex.js";
 export { DefaultExecutor } from "./default.js";
 export { OpenCodeExecutor } from "./opencode.js";
-export { OpenCodeV2Executor } from "./opencode-v2.js";
 export { OpenCodeGoExecutor } from "./opencode-go.js";
 export { OpenCodeZenExecutor } from "./opencode-zen.js";
+export { OpenCodeV2Executor } from "./opencodeV2.js";
+export { OpenCodeLaneExecutor } from "./opencodeLane.js";
 export { GrokCliExecutor } from "./grok-cli.js";
 export { OllamaLocalExecutor } from "./ollama-local.js";
 export { CommandCodeExecutor } from "./commandcode.js";
@@ -134,3 +134,5 @@ export { default as TraeExecutor } from "./trae.js";
 export { default as ZedExecutor } from "./zed.js";
 export { default as WindsurfExecutor } from "./windsurf.js";
 export { DevinCliExecutor } from "./devin-cli.js";
+export { DeepSeekWebExecutor } from "./deepseek-web.js";
+export { ZCodeExecutor } from "./zcode.js";

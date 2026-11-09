@@ -1,7 +1,5 @@
 import PropTypes from "prop-types";
 import { CapacityBadges, ModelTierBadge } from "@/shared/components";
-import PluginMark from "@/shared/components/PluginMark";
-import { useModelPluginMarks } from "./useModelPluginMarks";
 
 export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, onDisable, caps, thinkingSuffix }) {
   const displayModel = thinkingSuffix ? `${fullModel}(${thinkingSuffix})` : fullModel;
@@ -10,8 +8,6 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
     : testStatus === "error"
     ? "border-red-500/40"
     : "border-border";
-
-  const pluginMarks = useModelPluginMarks(model.id);
 
   const iconColor = testStatus === "ok"
     ? "#22c55e"
@@ -33,15 +29,6 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
           <span className="flex min-w-0 items-center text-[9px] gap-1.5 pl-0.5 flex-wrap leading-none">
             {model.name && <span className="break-all sm:truncate text-[9px] italic text-text-muted/70 leading-none">{model.name}</span>}
             <ModelTierBadge model={model} providerId={fullModel?.split("/")?.[0] || ""} isFree={isFree} />
-            {pluginMarks?.map((key) => (
-              <PluginMark
-                key={key}
-                name={key}
-                size={12}
-                strokeWidth={2.4}
-                className="shrink-0 text-text-muted/70 align-middle"
-              />
-            ))}
             <CapacityBadges caps={caps} colorOverride="text-text-muted/70" size={12} />
           </span>
         </div>
@@ -65,7 +52,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
           <button
             onClick={() => onCopy(displayModel, `model-${model.id}`)}
             title={copied === `model-${model.id}` ? "Copied" : "Copy"}
-            className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all shrink-0"
+            className="p-1 hover:bg-surface-2 rounded text-text-muted hover:text-primary transition-all shrink-0"
           >
             <span className="material-symbols-outlined text-[14px] leading-none">
               {copied === `model-${model.id}` ? "check" : "content_copy"}

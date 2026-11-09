@@ -16,10 +16,10 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
   const isCookie = authType === "cookie";
   const isXaiApiKey = provider === "xai" && !isCookie;
   const credentialLabel = isCookie
-    ? (provider === "gemini-web" ? "Session" : "Cookie Value")
+    ? (provider === "gemini-web" ? "Session" : provider === "deepseek-web" ? "User Token" : "Cookie Value")
     : provider === "qoder" || provider === "qoder-cn" ? "Personal Access Token (PAT)" : "API Key";
   const credentialPlaceholder = isCookie
-    ? (provider === "gemini-web" ? "__Secure-1PSID value" : "eyJhbGciOi...")
+    ? (provider === "gemini-web" ? "__Secure-1PSID value" : provider === "deepseek-web" ? "Paste 'userToken' from chat.deepseek.com Local Storage" : "eyJhbGciOi...")
     : (isXaiApiKey ? "xai-..." : provider === "qoder" || provider === "qoder-cn" ? "pt-..." : "");
 
   const isGeminiWeb = provider === "gemini-web";
@@ -220,6 +220,8 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
       progress: 0,
       href: typeof window !== "undefined" ? window.location.pathname : null,
     });
+    // Close modal so user can navigate elsewhere while the bulk key verification runs
+    onClose();
     let success = 0;
     let failed = 0;
     let processed = 0;
@@ -278,9 +280,6 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     : null;
 
   const handleClose = () => {
-    // Block closing while a bulk import loop is running so a partial batch
-    // is never left behind an unmounted modal.
-    if (saving && bulkProgress) return;
     onClose();
   };
 
@@ -321,7 +320,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
               <Button onClick={handleBulkSubmit} fullWidth disabled={saving || !bulkText.trim()}>
                 Add All Keys
               </Button>
-              <Button onClick={handleClose} variant="ghost" fullWidth disabled={!!bulkProgress}>Cancel</Button>
+              <Button onClick={handleClose} variant="ghost" fullWidth>Cancel</Button>
             </div>
           </div>
         )}

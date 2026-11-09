@@ -757,6 +757,24 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
         const res = await fetchWithConnectionProxy("https://api.hyperbolic.xyz/v1/models", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
+      case "llmtr": {
+        // /v1/models answers 200 for any bearer token. A one-token chat call
+        // returns 401 for a bad key and anything else for a key the gateway accepts.
+        const res = await fetchWithConnectionProxy("https://llmtr.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${connection.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "qwen/qwen3.8-27b-free",
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 1,
+          }),
+        }, effectiveProxy);
+        const valid = res.status !== 401 && res.status !== 403;
+        return { valid, error: valid ? null : "Invalid API key" };
+      }
       case "tokenharbor":
       case "dahl":
       case "atria":
@@ -879,6 +897,22 @@ case "llm7": {
         // invalid" while the session was perfectly alive.
         const probe = await probeGeminiWebCookie(connection.apiKey);
         return { valid: probe.valid, error: probe.valid ? null : probe.error, warning: probe.warning || null, refreshed: false };
+      }
+      case "deepseek-web": {
+        const raw = String(connection?.apiKey || "").trim();
+        let token = raw;
+        if (raw.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(raw);
+            token = parsed.value || parsed.userToken || parsed.token || raw;
+          } catch {
+            token = raw;
+          }
+        }
+        if (token.toLowerCase().startsWith("bearer ")) token = token.slice(7).trim();
+        token = token.replace(/^["']|["']$/g, "").trim();
+        if (!token) return { valid: false, error: "UserToken is required", refreshed: false };
+        return { valid: true, error: null, refreshed: false };
       }
       default:
         return { valid: false, error: "Provider test not supported" };

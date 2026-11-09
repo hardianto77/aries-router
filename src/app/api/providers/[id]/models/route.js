@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getProviderConnectionById } from "@/models";
+import { getProviderConnectionById, getProviderNodeById } from "@/models";
 
 export const dynamic = "force-dynamic";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
@@ -12,11 +12,13 @@ import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
 import { resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { resolveGrokCliModels } from "open-sse/services/grokCliModels.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
+import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
 import { resolveCursorModels } from "open-sse/services/cursorModels.js";
 import { resolveZedModels } from "open-sse/shared/zedAuth.js";
 import { resolveClineModels, resolveClinepassModels } from "open-sse/services/clinepassModels.js";
 import { NOUS_MODELS_URL, normalizeNousModels } from "open-sse/services/nous.js";
 import codexProvider from "open-sse/providers/registry/codex.js";
+import { routeLlmtrModel } from "@/lib/llmtrModels";
 
 const GEMINI_CLI_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
 
@@ -26,52 +28,10 @@ const GEMINI_CLI_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fe
 // list" with no end in sight. 20s matches what the retry budget elsewhere
 // treats as a dead upstream: long enough for a slow catalog, short enough
 // that a hung socket cannot pass for progress.
-const MODELS_TIMEOUT_MS = 30000;
+const MODELS_TIMEOUT_MS = 20000;
 
-async function fetchModelList(url, options = {}, providerSpecificData = null) {
-  let proxyFetch = null;
-  try {
-    const mod = await import("open-sse/utils/proxyFetch.js");
-    proxyFetch = mod.proxyAwareFetch;
-  } catch {}
-
-  const timeoutMs = MODELS_TIMEOUT_MS;
-
-  // 1. Try with proxy if configured and proxyAwareFetch is available
-  if (proxyFetch && providerSpecificData?.connectionProxyEnabled && providerSpecificData?.connectionProxyUrl) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 12000);
-      const res = await proxyFetch(url, {
-        ...options,
-        cache: "no-store",
-        signal: ctrl.signal,
-      }, providerSpecificData);
-      clearTimeout(timer);
-      if (res && res.status < 500) {
-        return res;
-      }
-    } catch (err) {
-      console.warn(`[models/route] Fetch via proxy failed (${err.message}), retrying direct: ${url}`);
-    }
-  }
-
-  // 2. Direct fetch (native / proxyAwareFetch direct)
-  const fn = proxyFetch || globalThis.fetch;
-  const ctrlDirect = new AbortController();
-  const timerDirect = setTimeout(() => ctrlDirect.abort(), timeoutMs);
-  try {
-    const res = await fn(url, {
-      ...options,
-      cache: "no-store",
-      signal: ctrlDirect.signal,
-    }, null);
-    clearTimeout(timerDirect);
-    return res;
-  } catch (err) {
-    clearTimeout(timerDirect);
-    throw err;
-  }
+function withModelTimeout(init = {}) {
+  return { ...init, signal: AbortSignal.timeout(MODELS_TIMEOUT_MS) };
 }
 
 // Model discovery must identify as the same Codex CLI version as inference.
@@ -134,6 +94,8 @@ const createOpenAIModelsConfig = (url) => ({
   authPrefix: "Bearer ",
   parseResponse: parseOpenAIStyleModels
 });
+
+const parseLlmtrModels = (data) => parseOpenAIStyleModels(data).map(routeLlmtrModel).filter(Boolean);
 
 const normalizeRoutedNousModels = (data) => normalizeNousModels(data).map((model) => ({
   ...model,
@@ -378,6 +340,14 @@ const PROVIDER_MODELS_CONFIG = {
   assemblyai: createOpenAIModelsConfig("https://api.assemblyai.com/v1/models"),
   "vercel-ai-gateway": createOpenAIModelsConfig("https://ai-gateway.vercel.sh/v1/models"),
   // OpenAI-compatible aggregators.
+  llmtr: {
+    url: "https://llmtr.com/v1/models",
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    parseResponse: parseLlmtrModels,
+  },
   tokenharbor: createOpenAIModelsConfig("https://tokenharbor.ai/v1/models"),
   dahl: createOpenAIModelsConfig("https://inference.dahl.global/v1/models"),
   atria: createOpenAIModelsConfig("https://api.atria-asi.ai/v1/models"),
@@ -610,21 +580,27 @@ export async function GET(request, { params }) {
     }
 
     if (isOpenAICompatibleProvider(connection.provider)) {
-      const baseUrl = connection.providerSpecificData?.baseUrl;
+      let baseUrl = connection.providerSpecificData?.baseUrl;
+      if (!baseUrl) {
+        const node = await getProviderNodeById(connection.provider);
+        baseUrl = node?.baseUrl;
+      }
       if (!baseUrl) {
         return NextResponse.json({ error: "No base URL configured for OpenAI compatible provider" }, { status: 400 });
       }
       const url = `${baseUrl.replace(/\/$/, "")}/models`;
-      const response = await fetchModelList(
+      const proxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+      const response = await proxyAwareFetch(
         url,
-        {
+        withModelTimeout({
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${connection.apiKey}`,
+            "User-Agent": "9router/0.5 (models-discovery)",
+            ...(connection.apiKey ? { "Authorization": `Bearer ${connection.apiKey}` } : {}),
           },
-        },
-        connection.providerSpecificData
+        }),
+        proxy
       );
 
       if (!response.ok) {
@@ -637,7 +613,12 @@ export async function GET(request, { params }) {
       }
 
       const data = await response.json();
-      const models = data.data || data.models || [];
+      const rawList = Array.isArray(data) ? data : (data.data || data.models || data.results || []);
+      const models = rawList.map((m) => {
+        if (typeof m === "string") return { id: m, name: m };
+        const id = m?.id || m?.name || m?.model;
+        return { id, name: m?.display_name || m?.displayName || m?.name || id };
+      }).filter((m) => Boolean(m.id));
 
       return NextResponse.json({
         provider: connection.provider,
@@ -649,6 +630,10 @@ export async function GET(request, { params }) {
     if (isAnthropicCompatibleProvider(connection.provider)) {
       let baseUrl = connection.providerSpecificData?.baseUrl;
       if (!baseUrl) {
+        const node = await getProviderNodeById(connection.provider);
+        baseUrl = node?.baseUrl;
+      }
+      if (!baseUrl) {
         return NextResponse.json({ error: "No base URL configured for Anthropic compatible provider" }, { status: 400 });
       }
 
@@ -658,18 +643,22 @@ export async function GET(request, { params }) {
       }
 
       const url = `${baseUrl}/models`;
-      const response = await fetchModelList(
+      const proxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+      const response = await proxyAwareFetch(
         url,
-        {
+        withModelTimeout({
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "x-api-key": connection.apiKey,
+            "User-Agent": "9router/0.5 (models-discovery)",
             "anthropic-version": "2023-06-01",
-            "Authorization": `Bearer ${connection.apiKey}`,
+            ...(connection.apiKey ? {
+              "x-api-key": connection.apiKey,
+              "Authorization": `Bearer ${connection.apiKey}`,
+            } : {}),
           },
-        },
-        connection.providerSpecificData
+        }),
+        proxy
       );
 
       if (!response.ok) {
@@ -682,7 +671,12 @@ export async function GET(request, { params }) {
       }
 
       const data = await response.json();
-      const models = data.data || data.models || [];
+      const rawList = Array.isArray(data) ? data : (data.data || data.models || data.results || []);
+      const models = rawList.map((m) => {
+        if (typeof m === "string") return { id: m, name: m };
+        const id = m?.id || m?.name || m?.model;
+        return { id, name: m?.display_name || m?.displayName || m?.name || id };
+      }).filter((m) => Boolean(m.id));
 
       return NextResponse.json({
         provider: connection.provider,
@@ -756,7 +750,7 @@ export async function GET(request, { params }) {
       fetchOptions.body = JSON.stringify(config.body);
     }
 
-    const response = await fetchModelList(url, fetchOptions, connection.providerSpecificData);
+    const response = await fetch(url, withModelTimeout(fetchOptions));
 
     if (!response.ok) {
       const errorText = await response.text();

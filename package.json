@@ -1,7 +1,7 @@
 {
-  "name": "aries",
-  "version": "0.5.344",
-  "description": "Aries - AI Infrastructure Management Gateway",
+  "name": "9router-app",
+  "version": "0.5.387",
+  "description": "9Router web dashboard",
   "private": true,
   "scripts": {
     "dev": "cross-env NEXT_DIST_DIR=.next-dev next dev --port 20128 --hostname 127.0.0.1",

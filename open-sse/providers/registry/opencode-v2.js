@@ -4,6 +4,7 @@ export default {
   hasFree: true,
   alias: "oc2",
   uiAlias: "oc2",
+  hidden: true,
   display: {
     name: "OpenCode Free V2",
     icon: "terminal",

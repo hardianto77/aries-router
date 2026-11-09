@@ -1,3 +1,439 @@
+# v0.5.387 (2026-11-07) · 1 commit
+
+## Auto Harvester: working proxy probe + verified imports
+
+- Root cause of 0/500 harvests: the route statically imported undici, which Next bundles into its compiled undici copy whose ProxyAgent fails at runtime. Probes now use the same pattern as open-sse/proxyFetch (dynamic import + global fetch), verified returning ok:true with egress IP and location.
+- End-to-end verified: start target 5, ran the real cycle, imported FreeProxy-<ip>_<port>-[LOC] entries (status working, active) into Proxy Pools.
+- Removed the temporary ?debug=1 endpoint.
+
+# v0.5.384 (2026-11-07) · 1 commit
+
+## Auto Harvester: candidate shuffle fix
+
+- Candidates were taken in feed order, so the first 500 all came from the first feed (jetkai), which was 100% dead on this network. The harvester always finished 0/500.
+- Candidates are now shuffled before the scan window is picked, so live proxies from healthy feeds (monosans, TheSpeedX, sunny9577) are reached in every run.
+
+# v0.5.383 (2026-11-07) · 1 commit
+
+## Auto Harvester: dead feed pruning, English UI, de-slopped
+
+- Pruned 3 dead/empty proxy feeds (MuRongPIG, KangProxy, stormsia), added TheSpeedX/PROXY-List (2.7k live). 12 feeds total, all verified reachable.
+- Page copy now English (was Indonesian). Removed the fake-terminal status box, icon clutter and the generic 3-step explainer card.
+
+# v0.5.382 (2026-11-07) · 1 commit
+
+## FEATURE+ — Auto Harvester
+
+- New dedicated page under FEATURE+ that auto-fills the proxy pool from 15 public free-proxy feeds.
+- Pipeline: parallel feed fetch (4s cap) -> sub-second TCP ping pre-check -> HTTP verification via Cloudflare trace (captures egress IP + location, drops duplicate egress so quota buckets stay distinct).
+- Configurable target (1-200 live proxies) and loop interval (once / 2m aggressive / 5m / 15m / 30m / 60m), with live status, progress bar, cycle history and per-run stats.
+- Backend worker lives at /api/harvester with its own isolated state; imported proxies land in Proxy Pools as FreeProxy-<ip>_<port>[-<loc>].
+
+# v0.5.378 (2026-11-07) · 1 commit
+
+## Remove Z.ai web cookie provider (`zai-web`)
+
+- Removed the `zai-web` registry (`open-sse/providers/registry/zai-web.js`),
+  its registry slot `p159`, and the provider logo `public/providers/zai-web.png`.
+- `zcode-bridge` fallback no longer resolves `zai-web` connections; it now
+  prefers GLM, then `zcode`/`zc`.
+- Deleted the leftover `zai-web` connection (and its usage history) from the
+  preview database.
+
+# v0.5.377 (2026-11-07) · 1 commit
+
+## ZCode bonus start plan — visible claim + in-app Aliyun verification
+
+- The bonus banner now also shows for `zcode` / `zc` connections (previously only
+  `glm`), and the bonus endpoint scans the whole ZCode family — connected ZCode
+  accounts can now see their promotional start-plan bonuses right after connect.
+- Claiming a plan that needs Aliyun NoCaptcha (HTTP code 3007) now returns
+  `verifyRequired` with the verify URL and app deep link instead of failing
+  silently. The banner opens a verification panel with a "Buka Aplikasi ZCode"
+  deep link, a `zcode.z.ai` fallback, and a field to paste the
+  `X-Aliyun-Captcha-Verify-Param` captured in-app before retrying the claim.
+
+# v0.5.376 (2026-11-06) · 1 commit
+
+## Live Requests Stream — model name only
+
+- The stream no longer prints the small provider/channel chip and resolved-model
+  arrow under each model name — each row now shows just the model, matching the
+  previous compact style. Column header renamed `Model & Channel` → `Model`.
+
+# v0.5.375 (2026-11-06) · 1 commit
+
+## ZCode provider parity (zcode seren)
+
+- Ported the full ZCode provider stack: `ZCodeExecutor` (GLM-5.3-Flash /
+  GLM-5.3 / GLM-5.2 / GLM-5-Turbo, Bearer + ZCode JWT dual-lane), plan selection
+  (`zcodePlan`), prompt builder, TLS client, service bridge, usage tracking, and the
+  `zcode-bridge` API route.
+- Added `zcode` (OAuth) and `zai-web` (webCookie) registries (p159/p160), plus
+  `zcode`/`zc` executor wiring and the ZCode OAuth provider + `ZCODE_CONFIG`.
+- Brought secondary dependencies up to parity: `zai-anthropic` thinking
+  wire with `mapEffortToSupportedLevel`, ZCode capability table, GLM-5.x effort
+  levels in `PATTERN_THINKING`, and ZCode quota normalization in ProviderLimits.
+- Added `zcode` + `zai-web` provider logos and the ported unit test
+  (`tests/unit/zcode-provider.test.js`: 21 pass / 4 fail — identical to the
+  reference run, the 4 failures are stale upstream expectations).
+
+# v0.5.374 (2026-11-06) · 1 commit
+
+## CLI Tools logo tiles — transparent background, logo only
+- The logo tile in the CLI Tools summary cards and the per-tool setup header
+  carried `bg-bg-secondary`, which renders as a white-tinted glass box
+  (`rgba(255,255,255,0.11)`) behind every provider logo — that's the white
+  background the user kept seeing. Removed the tile background and border
+  entirely; each card now shows just the provider logo on the card surface.
+
+# v0.5.373 (2026-11-06) · 1 commit
+
+## Runcrate — real logo instead of the RC text tile
+- Fetched the Runcrate brand mark from runcrate.ai (favicon) and shipped it as a
+  transparent `public/providers/runcrate.png` (256px) — the provider previously
+  fell back to the `RC` text fallback in the logo tile.
+
+# v0.5.372 (2026-11-06) · 1 commit
+
+## 9router sidebar logo — replaced with the new brand mark
+- Swapped the sidebar logo asset to the updated 9router mark the user provided
+  (`public/providers/9router-logo.png`), replacing the earlier 4 MB image with a
+  295 KB square glyph. Renders transparent at 36×36 in the sidebar header.
+
+# v0.5.371 (2026-11-06) · 1 commit
+
+## Provider logos — transparent backgrounds, uniform size, 9router + LLMTR marks
+- **9router sidebar logo**: replaced the gradient `hub` icon tile with the
+  official 9router brand mark (`public/providers/9router-logo.png`) the user
+  provided — rendered transparent in the sidebar header.
+- **Stripped baked backgrounds** from 21 provider logos that shipped with opaque
+  white/coloured boxes (`droid`, `roo`, `kiro`, `forge`, `openclaw`, `oai-cc`,
+  `oai-r`, `poolside`, `mimocode`, `xiaomi-mimo`, `xiaomi-tokenplan`, and
+  others) — corners are now transparent so they sit cleanly on the glass theme.
+  Logos whose mark is same-colour as the bg (would be destroyed by stripping)
+  are left intact.
+- **Uniform logo size**: CLI Tools cards and the providers menu now render every
+  provider logo with `object-cover` filling a fixed tile (44px / 32px), so all
+  logos appear the same size regardless of source aspect ratio.
+- **LLMTR logo**: fetched the official LLMTR brand mark from llmtr.com
+  (`favicon.svg`) and rendered it as a transparent `public/providers/llmtr.png`
+  — it previously fell back to the `LT` text tile.
+
+# v0.5.370 (2026-11-04) · 1 commit
+
+## CLI Tools provider logos — uniform, larger, no background tint
+- Every CLI tool card logo now fills the whole icon tile (`object-cover`, 44px)
+  so all logos render at the same size regardless of their source aspect ratio —
+  previously they were 28px `object-contain` and varied in size.
+- Dropped the brand-color background tint on the icon tile (used the neutral
+  `bg-bg-secondary` surface) so transparent logos sit cleanly instead of on a
+  coloured box. Applies to both the summary grid cards and the per-tool setup
+  header.
+
+# v0.5.369 (2026-11-04) · 1 commit
+
+## CLI Tools dashboard — richer setup cards
+- **Tool summary cards redesigned**: each CLI tool card now shows the tool's
+  description (was hidden), wraps its icon in a brand-colored rounded tile
+  (8% background + matching border from the tool's brand colour), and gets a
+  status badge with a coloured dot plus a hover lift (`elev-2` shadow) and a
+  chevron nudge on hover.
+- **Setup detail cards**: the expandable per-tool setup header uses the same
+  brand-colored icon tile for visual consistency with the summary grid.
+
+# v0.5.368 (2026-11-04) · 1 commit
+
+## CodeBuddy Intl OAuth login fix, 4 upstream PRs ported, Kimi Code CLI setup
+- **Fix CodeBuddy Intl OAuth login**: the intl OAuth endpoints pointed at
+  `www.codebuddy.ai`, which is blackholed (DNS → 0.0.0.1) — login failed at the
+  device-code step. Repointed the OAuth state/token/refresh URLs and the
+  `X-Domain` identity header to the live `www.workbuddy.ai` endpoint set
+  (verified: POST /v2/plugin/auth/state returns 200). Applies to the registry,
+  the OAuth provider flow, the token-refresh service, and the intl executor
+  comment. CN (`copilot.tencent.com`) was already healthy and is untouched.
+- **Port upstream PR #5431 — Anthropic API-key system identity drop**: on the
+  `anthropic` provider, any leading "You are Claude Code" / Claude Agent SDK /
+  `x-anthropic-billing-header` identity block now trips a misleading "credit
+  balance is too low" 400. `prepareClaudeRequest()` strips the leading identity
+  text/block for the API-key `anthropic` provider only (OAuth `claude` and
+  `anthropic-compatible-*` nodes untouched).
+- **Port upstream PR #5432 — Anthropic live model catalog**: registered
+  `anthropic` in `LIVE_MODEL_RESOLVERS`; `/v1/models` now fetches the key's
+  live catalog from `api.anthropic.com/v1/models?limit=1000` (falls back to the
+  static list on failure or when an explicit `enabledModels` list exists).
+- **Port upstream PR #5458 — LLMTR provider**: new `llmtr` OpenAI-compatible
+  gateway provider (alias `lt`), API-key validation via one-token chat probe,
+  live model catalog resolution, and reasoning-as-boolean coercion. Resolved the
+  registry-index, paramSupport, baseline and golden-snapshot conflicts against
+  the fork's custom provider set.
+- **Port upstream PR #5423 — Headroom reliability**: resolve symlinked venvs for
+  Python 3.14 detection, reclaim listening ports on restart, strict process
+  identity verification, reject external proxy URLs, and rewrite dashboard proxy
+  assets/API endpoints (fetchJson, /stats, /health, /settings) with a styled 503
+  fallback.
+- **Kimi Code setup in CLI Tools**: added a `kimi-code` guide card to the CLI
+  Tools dashboard — install (`curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash`
+  or `npm install -g @moonshot-ai/kimi-code`), 9Router base URL + API key, model
+  picker, and a ready-to-paste `~/.kimi-code/config.toml` provider+models block
+  (OpenAI-compatible type).
+
+# v0.5.367 (2026-11-04) · 1 commit
+
+## Background loading-in-the-bell: all surfaces verified, stale tests fixed
+The bell now carries every long operation — batch testing, backup/import, bulk
+key imports, Codex/Grok accounts import, Qoder/Cline model imports and proxy
+import — while the operator clicks around and switches menus. The feature was
+already wired across all six surfaces; several tests that guard it could not
+run because they read files from `process.cwd()` (the tests dir) instead of the
+repo root, and a couple asserted removed patterns.
+- **Test paths anchored to the repo root** (`resolve(__dirname, "../..")`) in
+  `bell-all-loading`, `bell-done`, `notification-links`, `model-import`,
+  `dashboard-six`, `shutdown-gate`, `context-install` and `update-banner-anim`
+  — previously all failed at collection with `ENOENT`.
+- **`studio-banner-update`**: the proxy import now cancels via a server-side
+  dashboard job (`cancelProxyImportJob`) rather than a client `AbortController`;
+  the assertion now checks the job-cancel contract.
+- **`shutdown-gate`**: dropped the stale `canChangeTheme` sibling check (the
+  theme switcher was removed with the glass-only theme lock) and asserts no
+  removed rule is referenced.
+- **`dashboard-six`**: replaced the model-benchmark block (feature removed with
+  Custom Plugins) with a guard that the benchmark files no longer ship.
+- Suite result: 8 previously-broken suites now green; full unit run fell
+  176 → 168 failures, all remaining being pre-existing network / macOS /
+  integration-environment tests unrelated to the bell.
+
+# v0.5.366 (2026-11-04) · 1 commit
+
+## Changelog UI: composite category headings now render in colour
+The changelog modal painted every unrecognised category heading grey with a
+"help" icon instead of the usual coloured "WHAT'S …?" pill. Headings the fork
+writes like `Providers & Usage Fixes`, `Providers & UI`, `UI & Theme System`,
+`Documentation & Maintenance`, `Features & Cleanup` and the `Upstream … Port`
+release-section titles fell through to the unknown-category fallback.
+- Added the missing composite aliases to `CATEGORY_ALIAS` so they collapse to a
+  coloured category: `Providers & Usage Fixes` → Fixes, `Providers & UI` /
+  `UI & Theme System` / `UI & Visual Design` → UI, `Documentation & Maintenance`
+  → Docs, `Providers & Features` / `Features & Cleanup` / `Features & Improvements`
+  → Features, `Providers & Web Cookie` → Features, `Testing` / `Upstream … Port`
+  / `OpenCode Free lane divergence clean-up` → Internal.
+- Verified with the shipped guard: the category-style suite confirms **no
+  heading in CHANGELOG.md renders with the grey unknown fallback**.
+
+# v0.5.365 (2026-11-04) · 1 commit
+
+## OpenCode Free lane divergence clean-up (post-v0.5.112 port)
+The fork's "OpenCode Free" card is a two-lane toggle behind `OpenCodeLaneExecutor`
+(V1 CLI lane / V2 direct TLS lane). The ported tests still asserted the single-
+executor era's contract, so they failed against the current split.
+- **`_tryCliExecute` no longer crashes on a Responses-shaped body**: the CLI
+  prompt formatter call moved inside the try/catch, so a body it can't format
+  falls through to the fetch path instead of throwing a `TypeError` on
+  `dialogMsgs[0].text`. This is a real runtime bug — a request with an `input[]`
+  body used to crash when a host `opencode` binary was present.
+- **Session/UA wire tests point at the CLI executor explicitly** (`OpenCodeExecutor`),
+  since the lane shell's sync delegates default to the V2/direct lane. The
+  sidecar-spawning `execute` assertion was rewritten as a request-preparation
+  check (session + bearer auth minted, source credentials unmutated).
+- **Fingerprint tests updated to the current gate contract**: the free tier
+  requires the `<env>` marker, so `instructions`/first `messages`/`system`
+  carry it; the "placeholder note" is only suppressed when the caller already
+  brings the exact fingerprint definitions.
+- Unit result: the 5 opencode suites (92 tests) are green; full suite fell
+  178 → 176 pre-existing failures (none from this change).
+
+# v0.5.364 (2026-11-03) · 1 commit
+
+## Upstream Port Completion (decolua/9router v0.5.112)
+- **System One URL Normalization**:
+  - Added `buildSystemoneUrl()`: a saved host override is now joined with the registry `path` without doubling an existing `/v1` or `/v1/systemone` segment.
+  - Restricted the `x-opencode-session` header to the OpenCode lanes (`opencode`, `opencode-zen`) — other System One providers no longer receive a foreign client session id.
+- **Lazy Runtime (published-build fix, upstream `e70ea24d`)**:
+  - Resolves `createRequire` through a runtime `import()` with `webpackIgnore`, anchors npm to a generated manifest inside the runtime dir, and turns a partially-extracted install into an actionable error instead of a silent failure.
+- **Codex GPT-6.1 Terra pricing corrected** to the published official rate (input 1.00 / output 5.00 / cached 0.05).
+- **Test coverage restored for the port**:
+  - Added the upstream suites for GitHub Copilot Claude 5.5 thinking rules and CodeBuddy channel headers; added the GPT-6.1 Terra cases to the Codex Lite suite.
+  - CodeBuddy pairing assertion now follows the fork's desktop-client capture (X-Request-ID pairs with X-Conversation-Message-ID), and the Codex header-version assertion reads the live `CODEX_CLI_VERSION` instead of a stale literal.
+
+# v0.5.363 (2026-11-03) · 1 commit
+
+## Upstream Feature Port (decolua/9router v0.5.112)
+- **MiniMax Code (Desktop Lease Mode)**:
+  - Added lease auth mode that connects to the official desktop app sign-in via Unix domain socket / named pipe broker.
+  - Added MinimaxLeaseButton to the dashboard provider connection controls and automated usage tracking.
+- **Nace Drex Provider**:
+  - Registered `nace` provider in System One lane with models `drex`, `drex-v2.0`, and `drex-max`.
+- **Codex GPT-6.1 Terra**:
+  - Added `gpt-6.1-terra` to Codex responses-lite catalog with GPT-6-Lite thinking levels and 500k context window.
+- **CommandCode CLI 1.88.0 Sync**:
+  - Unified request headers (`User-Agent: cli`, version `1.88.0`, `x-cli-environment: production`, `x-project-slug`) and conversation-stable thread session UUID mapping.
+- **Upstream Fixes & Enhancements**:
+  - **Noble-Hashes Keccak PoW**: Replaced vendored DeepSeek PoW hash with lightweight, optimized noble-hashes keccak port.
+  - **GitHub Copilot Claude 5.5**: Applied Claude 5.5 adaptive thinking rules to Copilot's dotted model IDs (`claude-opus-5.5*`, `claude-sonnet-5.5`, `claude-haiku-5.5`).
+  - **CodeBuddy Channel Verification**: Injected official plugin `X-Request-ID` and `X-Conversation-ID` headers to prevent HTTP 400 illegal request errors.
+  - **NVIDIA NIM Reasoning**: Normalized `reasoning` parameter aliases to `reasoning_content` before forwarding.
+  - **Gemini Protobuf Schema Predicates**: Enforced type predicates on array items and properties in schema conversions.
+  - **Non-Streaming SSE Errors**: Transparently surface upstream HTTP errors (4xx/5xx) from SSE error frames instead of converting to generic 502.
+  - **Muse Multi-Pipe Key Preservation**: Keep `LLM|id|secret` key format opaque during bulk-add.
+
+# v0.5.362 (2026-11-02) · 1 commit
+
+## Features & Improvements
+- **Remove Unused Quota Check**:
+  - Removed the unused `Quota check` toggle and `/credits` quota path input from both `AddCompatibleModal` and `EditCompatibleNodeModal`.
+- **Fix Custom Provider "Import from /models"**:
+  - Automatically resolve base URL from the provider node when connection-specific base URL is empty.
+  - Added support for proxy routing (`resolveConnectionProxyConfig` + `proxyAwareFetch`) when importing models for custom OpenAI and Anthropic compatible providers.
+  - Normalized diverse response structures (`data`, `models`, or bare array) so models are correctly parsed and imported into the custom catalog.
+- **Background Task Non-Blocking Navigation**:
+  - Modals for bulk operations (`BulkImportCodexModal`, `BulkImportGrokCliModal`, `AddApiKeyModal`) now dismiss upon kickoff, allowing seamless tab navigation while tracking progress in the notification bell (`useTaskStore`).
+  - Swapped intrusive blocking browser `alert()` popups during model imports for silent task store progress and completion updates in the notification bell.
+- **Bulk Proxy Import Performance & Immediate Feedback**:
+  - Chunked proxy pool bulk insertions into batches of 50 via `createProxyPools` in a transaction.
+  - Scheduled frequent intermediate progress updates and yielded to the event loop so the notification bell reflects import progress instantly without delay or frozen sockets.
+
+# v0.5.361 (2026-11-02) · 1 commit
+
+## Documentation & Maintenance
+- **Evergreen Routing Overview in README**:
+  - Replaced hardcoded provider table lists with high-level conceptual connection tiers (OAuth & Device Auth, Direct API Keys, Free Tier Relays, Web Cookie Sessions, and Local/Self-Hosted).
+  - Completely removed volatile lists of individual provider brand names from `README.md` so the documentation stays permanently fresh without needing manual updates when providers are added or removed.
+
+# v0.5.360 (2026-11-02) · 1 commit
+
+## UI & Visual Design
+- **Redesign Z.ai / ZCode Brand Icon**:
+  - Replaced the dull, shrunken asset with an official high-contrast Z.ai royal cobalt-blue squircle badge (`glm.png`, `glm-cn.png`, `zcode.png`).
+  - Balanced glyph proportions, increased scale, and applied smooth rounded squircle geometry so the icon matches other premier provider logos.
+
+# v0.5.359 (2026-11-02) · 1 commit
+
+## Documentation & Maintenance
+- **Evergreen README Restructure**:
+  - Replaced the volatile "What this fork adds" section with timeless "Architecture & Core Design" documentation covering protocol adaptation, unified credentials, routing policies, and enterprise controls.
+  - Offloaded all version-specific changelog details exclusively to `CHANGELOG.md` so the main README never requires recurring manual edits.
+
+# v0.5.358 (2026-11-02) · 1 commit
+
+## UI & Visual Design
+- **Official Z.ai Logo for ZCode**:
+  - Replaced ZCode / GLM brand assets with the official Z.ai vector brand mark (`glm.png`, `glm-cn.png`, `zcode.png`).
+  - Rendered with transparent background and high-resolution geometry matching Z.ai's official brand guidelines.
+
+# v0.5.357 (2026-11-02) · 1 commit
+
+## Documentation & Maintenance
+- **Changelog Date Alignment**:
+  - Audited and updated release dates in `CHANGELOG.md` to match exact commit timestamps (`2026-11-02`).
+  - Aligned chronological entries for v0.5.353 through v0.5.356.
+
+# v0.5.356 (2026-11-02) · 1 commit
+
+## UI & Visual Design
+- **Rounded Corners for Provider Logos**:
+  - Added gentle rounded corners (`rounded-xl` / `rounded-2xl`) directly to `ProviderIcon` and provider header images.
+  - Eliminated sharp square edges on all logo images across provider lists, model selectors, and detail pages.
+
+# v0.5.355 (2026-11-02) · 1 commit
+
+## UI & Visual Design
+- **Transparent Background for Provider Logos**:
+  - Removed container background color tint (`style={{ backgroundColor: ... }}`) across all provider cards and detail headers.
+  - Logos now render cleanly on a fully transparent background, blending seamlessly into the glass dashboard theme.
+
+# v0.5.354 (2026-11-02) · 1 commit
+
+## UI & Visual Design
+- **Complete Refresh of Provider Logos**:
+  - Replaced over 85 provider icons with modern, high-resolution official brand marks sourced from LobeHub AI Icons and SVGL vector libraries.
+  - Standardized transparency, aspect ratios, and padding across all AI labs, cloud hyperscalers, and code editor providers (OpenAI, Anthropic, Gemini, DeepSeek, Groq, xAI, Qwen, Z.ai/Zhipu, Mistral, Perplexity, Cohere, Meta, Azure, AWS Bedrock, Cloudflare, etc.).
+  - Preserved internal and tool-specific assets intact with high-fidelity fallbacks.
+
+# v0.5.353 (2026-11-02) · 1 commit
+
+## Providers & Features
+- **ZCode Promotional Bonus Claim System**:
+  - Added `zcodeClaimService.js` to preview and claim ZCode promotional token plans (e.g. `ZCODE WEEKEND BUILD`, `Trust Build`).
+  - Added `/api/providers/glm/bonus` endpoint for detecting and claiming bonuses directly from connected ZCode accounts.
+  - Implemented desktop client request emulation with `X-Device-Mid`, `X-ZCode-App-Version`, and headless browser Aliyun verification fallback.
+  - Added dedicated Bonus Voucher card and 1-click "Claim Bonus" button in the ZCode (`glm`) provider dashboard.
+
+# v0.5.352 (2026-11-01) · 1 commit
+
+## Providers & Web Cookie
+- **Remove Z.ai Web Cookie Provider (`zai-web`)**:
+  - Removed `zai-web` provider registry, executor, browser transport, and unit tests cleanly.
+  - Purged all references in UI modals, test utils, probe budgets, and settings repos.
+- **Add DeepSeek Web Cookie Provider (`deepseek-web`)**:
+  - Registered `deepseek-web` under the Web Cookie category with full SHA3-256 / DeepSeekHashV1 PoW challenge solver and SSE parser.
+  - Added native support for full model catalogue: `deepseek-chat` (V3 / V4.1), `deepseek-reasoner` (R1 / V4.1 Thinking), `deepseek-v4.1-flash`, `deepseek-v4.1-pro`, `deepseek-v4.1-reasoner`, `deepseek-v3`, and `deepseek-r1`.
+  - Added OpenAI-compatible tool calling bridge support (`deepseekWebToolBridge.js`) and in-page toggle banner with dynamic DB settings integration.
+  - Added connection testing, validation routes, and UI session credential placeholders (`userToken`).
+- **Update ZCode Integration**:
+  - Refined `glm` provider as official `ZCode (Z.ai GLM)` with dual-auth (OAuth CLI polling flow + GLM Coding Plan API Key) supporting both OpenAI and Anthropic Claude formats.
+
+# v0.5.351 (2026-11-01) · 1 commit
+
+## Providers & Infrastructure
+- **Z.ai Web Browser Transport (Playwright Integration)**:
+  - Fixed runtime resolution of Playwright for Z.ai browser transport by lazily resolving installed browser drivers from `/root/shot/node_modules` without triggering Webpack static bundle errors.
+  - Added essential Linux container Chromium launch flags (`--no-sandbox`, `--disable-setuid-sandbox`) to allow headless browser automation in root environments.
+  - Ensured reliable fallback to Playwright bundled Chromium when system browser channels are absent.
+
+# v0.5.350 (2026-11-01) · 1 commit
+
+## Providers & UI
+- **Gemini Web Cookie Info Banner**:
+  - Added notice text to `gemini-web` provider registry with explicit instructions for extracting `__Secure-1PSID` and optional `__Secure-1PSIDTS` cookies.
+  - Aligned blue info banner appearance across both `gemini-web` and `zai-web` web cookie providers.
+  - Changed action link text from generic "Get API Key" to "Open Web" for web cookie providers.
+
+# v0.5.349 (2026-11-01) · 1 commit
+
+## UI & Theme System
+- **Enforce glass theme exclusively across the dashboard**:
+  - Removed theme switch button and `ThemeModal` completely from `HeaderMenu` and component tree.
+  - Locked site-wide theme strictly to `glass` across `themeStore`, `ThemeProvider`, RootLayout, `settingsRepo`, and `/api/theme`.
+  - Removed 'dark' theme option and ensured `<html class="dark glass">` is applied prior to first paint.
+  - Comprehensive design system audit: eliminated ad-hoc raw colors, replaced hardcoded dark-mode utility classes with official semantic tokens (`bg-surface`, `bg-surface-2`, `bg-surface-3`, `border-border`, `border-border-subtle`, `text-success`, `text-warning`, `text-info`, `text-danger`).
+  - Strengthened frosted borders and backdrop blur for cards, dialogs, and panels under the glass theme in `globals.css`.
+
+## Providers & Usage Fixes
+- **Web Cookie Token Usage Tracking (Fix Output Tokens 0)**:
+  - Added fallback character and token counting logic in `usageTracking.js`, `gemini-web.js`, `webCookieToolBridge.js`, and stream/non-stream handlers so completion tokens are accurately estimated and logged in `usageHistory` even when web providers return 0 tokens.
+- **Gemini Web Cookie Models**:
+  - Validated and audited full model catalogue (`gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro`, `gemini-4-argon`, and all `-thinking` variants).
+  - Verified active Google RPC HEX mappings, multi-format prompt normalization, and auto-retry session refresh.
+- **Z.ai Web Cookie Provider (`zai-web`)**:
+  - Registered `zai-web` as a full webCookie provider supporting GLM-5.3, GLM-5.3 Flash, GLM-5.2, GLM-5.1, GLM-5 Turbo, and GLM-5V Turbo.
+  - Implemented token validation and connection testing against `chat.z.ai`.
+  - Configured session token input guidance and token usage estimation.
+
+# v0.5.348 (2026-10-29) · 1 commit
+
+## UI
+- **Fixed Tool Calling toggle placement.** The switch is now aligned directly to the right side of the banner across all screen widths rather than stacking below the text description.
+
+# v0.5.347 (2026-10-29) · 1 commit
+
+## Features & Cleanup
+- **Removed Custom Plugins system and menu.** The Custom Plugins sidebar navigation, route page, mark badges, and runtime interceptors have been completely removed for streamlined production stability.
+- **Web Cookie Provider Tool Calling Banner.** All web-cookie providers (e.g. Gemini Web) now feature an in-page banner card allowing users to toggle OpenAI-compatible tool calling support on or off per provider.
+
+# v0.5.346 (2026-10-29) · 1 commit
+
+## UI
+- **Evergreen welcome banner content.** Replaced hardcoded feature highlights in the post-login Welcome modal with enduring, general-purpose platform copy so frequent upstream feature additions no longer cause description drift.
+
+# v0.5.345 (2026-10-29) · 1 commit
+
+## UI
+- **OpenCode Free lane switch button & confirmation banner.**
+  - The mode toggle button (hammer icon) is positioned at the far edge of the OpenCode Free provider card, vertically centered.
+  - Displays as an icon-only button without crowding text labels.
+  - Clicking the icon opens a modal banner explaining the difference between Direct Mode (default, fast impersonated TLS, no local CLI needed) and CLI Mode (runs local `opencode` binary & Bun sidecar), with Cancel and Confirm buttons.
+  - The same confirmation modal is available from the provider detail page header.
+
 # v0.5.344 (2026-10-29) · 1 commit
 
 ## UI
