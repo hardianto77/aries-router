@@ -346,6 +346,32 @@ export function formatOpencodeCliPrompt(body) {
     }
   }
 
+  // OpenCode Responses requests use `input` items instead of Chat Completions
+  // `messages`. Preserve their user prompt when preparing the optional CLI fallback.
+  if (dialogMsgs.length === 0 && Array.isArray(body.input)) {
+    for (const item of body.input) {
+      if (item?.type !== "message") continue;
+      const role = String(item.role || "").toLowerCase();
+      const content = item.content;
+      const text = typeof content === "string"
+        ? content.trim()
+        : Array.isArray(content)
+          ? content
+              .map((part) => (typeof part === "string" ? part : part?.text || ""))
+              .filter(Boolean)
+              .join("\n")
+              .trim()
+          : "";
+      if (!text) continue;
+      if (role === "system" || role === "developer") systemParts.push(text);
+      else if (role === "user" || role === "assistant") dialogMsgs.push({ role, text });
+    }
+  } else if (dialogMsgs.length === 0 && typeof body.input === "string" && body.input.trim()) {
+    dialogMsgs.push({ role: "user", text: body.input.trim() });
+  }
+
+  if (dialogMsgs.length === 0) return "";
+
   // If there are no system parts and only 1 user message, return it directly
   if (systemParts.length === 0 && dialogMsgs.length === 1 && dialogMsgs[0].role === "user") {
     return dialogMsgs[0].text;

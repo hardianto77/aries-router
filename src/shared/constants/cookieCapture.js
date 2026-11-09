@@ -20,31 +20,15 @@
 // profile badge) - do not add it here.
 
 export const COOKIE_CAPTURE = {
-  "chatgpt-web": {
-    label: "Capture from ChatGPT",
-    domains: ["chatgpt.com"],
-    cookies: ["__Secure-next-auth.session-token"],
-  },
-  "claude-web": {
-    label: "Capture from Claude",
-    domains: ["claude.ai"],
-    cookies: ["sessionKey", "cf_clearance"],
-  },
   "gemini-web": {
     label: "Capture from Gemini",
     domains: ["gemini.google.com"],
     cookies: ["__Secure-1PSID", "__Secure-1PSIDTS"],
   },
-  "deepseek-web": {
-    label: "Capture from DeepSeek",
-    domains: ["chat.deepseek.com"],
-    localStorage: ["userToken"],
-    mode: "bare",
-  },
-  "kimi-web": {
-    label: "Capture from Kimi",
-    domains: ["www.kimi.com"],
-    cookies: ["kimi-auth"],
+  "claude-web": {
+    label: "Capture from Claude",
+    domains: ["claude.ai"],
+    cookies: ["sessionKey", "cf_clearance"],
   },
   "grok-web": {
     label: "Capture from Grok",

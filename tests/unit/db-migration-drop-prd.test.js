@@ -27,15 +27,15 @@ afterEach(() => {
 });
 
 describe("drop prd builder leftovers (migration 004)", () => {
-  it("appends to the chain after 003 and stamps a fresh DB at 4", async () => {
+  it("appends to the chain after 003 and stamps a fresh DB at 5", async () => {
     const { MIGRATIONS, latestVersion } = await import("@/lib/db/migrations/index.js");
-    expect(MIGRATIONS.map((m) => m.version)).toEqual([1, 2, 3, 4]);
-    expect(latestVersion()).toBe(4);
+    expect(MIGRATIONS.map((m) => m.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(latestVersion()).toBe(5);
 
     const { getAdapter } = await import("@/lib/db/driver.js");
     const db = await getAdapter();
     const row = db.get(`SELECT value FROM _meta WHERE key='schemaVersion'`);
-    expect(parseInt(row.value, 10)).toBe(4);
+    expect(parseInt(row.value, 10)).toBe(5);
   });
 
   it("purges PRD storage from an existing install and leaves other scopes alone", async () => {
@@ -64,6 +64,6 @@ describe("drop prd builder leftovers (migration 004)", () => {
     expect(db2.all(`SELECT key FROM kv WHERE scope='otherScope'`)).toHaveLength(1);
 
     const row = db2.get(`SELECT value FROM _meta WHERE key='schemaVersion'`);
-    expect(parseInt(row.value, 10)).toBe(4);
+    expect(parseInt(row.value, 10)).toBe(5);
   });
 });

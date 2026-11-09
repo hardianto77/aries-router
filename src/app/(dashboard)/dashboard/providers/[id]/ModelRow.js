@@ -62,19 +62,15 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
               </span>
             </div>
           )}
-          <div className="relative shrink-0 group/btn">
-            <button
-              onClick={() => onCopy(displayModel, `model-${model.id}`)}
-              className="rounded p-1 text-text-muted hover:bg-sidebar hover:text-primary inline-flex items-center justify-center"
-            >
-              <span className="material-symbols-outlined text-sm leading-none">
-                {copied === `model-${model.id}` ? "check" : "content_copy"}
-              </span>
-            </button>
-            <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
-              {copied === `model-${model.id}` ? "Copied!" : "Copy"}
+          <button
+            onClick={() => onCopy(displayModel, `model-${model.id}`)}
+            title={copied === `model-${model.id}` ? "Copied" : "Copy"}
+            className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all shrink-0"
+          >
+            <span className="material-symbols-outlined text-[14px] leading-none">
+              {copied === `model-${model.id}` ? "check" : "content_copy"}
             </span>
-          </div>
+          </button>
           {isCustom ? (
             <button
               onClick={onDeleteAlias}

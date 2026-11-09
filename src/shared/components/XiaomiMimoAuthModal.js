@@ -18,11 +18,11 @@ import { translate } from "@/i18n/runtime";
  */
 
 const CLUSTERS = [
-  { id: "cn", flag: "🇨🇳", name: "China (Mainland)", host: "mimo-server-cn" },
-  { id: "sgp", flag: "🇸🇬", name: "Singapore", host: "mimo-server-sgp" },
-  { id: "ams", flag: "🇪🇺", name: "Europe · Amsterdam", host: "mimo-server-ams" },
-  { id: "ru", flag: "🇷🇺", name: "Russia", host: "mimo-server-ru" },
-  { id: "in", flag: "🇮🇳", name: "India", host: "mimo-server-in" },
+  { id: "cn", tag: "CN", name: "China (Mainland)", host: "mimo-server-cn" },
+  { id: "sgp", tag: "SG", name: "Singapore", host: "mimo-server-sgp" },
+  { id: "ams", tag: "EU", name: "Europe · Amsterdam", host: "mimo-server-ams" },
+  { id: "ru", tag: "RU", name: "Russia", host: "mimo-server-ru" },
+  { id: "in", tag: "IN", name: "India", host: "mimo-server-in" },
 ];
 
 export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
@@ -370,7 +370,7 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
                     onClick={() => startSessionLogin(c.id)}
                     className="p-3 rounded-lg border border-border hover:border-primary hover:bg-primary/5 transition-all text-left flex items-start gap-3 group cursor-pointer"
                   >
-                    <span className="text-2xl mt-0.5">{c.flag}</span>
+                    <LocaleBadge tag={c.tag} className="mt-0.5 h-6 min-w-[32px] text-[11px]" />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold group-hover:text-primary transition-colors">
                         {c.name}

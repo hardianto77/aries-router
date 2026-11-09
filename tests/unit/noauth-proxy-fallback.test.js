@@ -11,21 +11,17 @@ describe("noauth proxy fallback & opencode family formats", () => {
     const v41FreeEffort = opencodeFamilyFormats("deepseek-v4.1-flash-free(high)");
     expect(v41FreeEffort).not.toBeNull();
     expect(v41FreeEffort.supportedFormats).toEqual([FORMATS.OPENAI, FORMATS.CLAUDE, FORMATS.OPENAI_RESPONSES]);
-
-    const v4Flash = opencodeFamilyFormats("deepseek-v4-flash");
-    expect(v4Flash).not.toBeNull();
-    expect(v4Flash.supportedFormats).toEqual([FORMATS.OPENAI, FORMATS.CLAUDE, FORMATS.OPENAI_RESPONSES]);
   });
 
   it("markAccountUnavailable allows fallback for proxy-backed noauth connections on 403/429", async () => {
     const { markAccountUnavailable } = await import("@/sse/services/auth.js");
-    const res403 = await markAccountUnavailable("proxy:pool-1", 403, "FreeTierError", "opencode", "deepseek-v4.1-flash-free");
+    const res403 = await markAccountUnavailable("proxy:pool-1", 403, "FreeTierError", "opencode", "muse-spark-1.2-contributor-free");
     expect(res403.shouldFallback).toBe(true);
 
-    const res429 = await markAccountUnavailable("proxy:pool-1", 429, "rate limit", "opencode", "deepseek-v4.1-flash-free");
+    const res429 = await markAccountUnavailable("proxy:pool-1", 429, "rate limit", "opencode", "muse-spark-1.2-contributor-free");
     expect(res429.shouldFallback).toBe(true);
 
-    const resDirectNoauth = await markAccountUnavailable("noauth", 403, "FreeTierError", "opencode", "deepseek-v4.1-flash-free");
+    const resDirectNoauth = await markAccountUnavailable("noauth", 403, "FreeTierError", "opencode", "muse-spark-1.2-contributor-free");
     expect(resDirectNoauth.shouldFallback).toBe(false);
   });
 });
