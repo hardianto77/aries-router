@@ -32,6 +32,16 @@ function applyAuth(headers, desc, credentials) {
     if (desc.anthropicVersion && !headers["anthropic-version"]) headers["anthropic-version"] = ANTHROPIC_API_VERSION;
     return;
   }
+  // Registry transports for cookie-backed providers declare one concrete
+  // header instead of separate apiKey/oauth branches.
+  if (desc.header) {
+    if (desc.header !== "aws-sigv4") {
+      const token = credentials.apiKey || credentials.accessToken;
+      if (token) setAuth(headers, desc, token);
+    }
+    if (desc.anthropicVersion && !headers["anthropic-version"]) headers["anthropic-version"] = ANTHROPIC_API_VERSION;
+    return;
+  }
   // split apiKey/oauth: set only the matching branch (legacy: anthropic-compatible skips when both absent)
   if (credentials.apiKey) setAuth(headers, desc.apiKey, credentials.apiKey);
   else if (credentials.accessToken) setAuth(headers, desc.oauth, credentials.accessToken);

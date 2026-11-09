@@ -17,7 +17,7 @@ const SPECIAL_CRED = {
 // Provider cần executor riêng (buildUrl/buildHeaders không nằm ở DefaultExecutor) → bỏ qua ở golden này.
 // Chúng được lock riêng ở 11-provider edge tests / unit test chuyên biệt.
 const SPECIALIZED = new Set([
-  "antigravity", "azure", "gemini-cli", "github", "iflow", "qoder", "kiro",
+  "antigravity", "azure", "bedrock", "bedrock-xai", "gemini-cli", "github", "iflow", "qoder", "kiro",
   "codex", "cursor", "vertex", "vertex-partner", "opencode",
   "opencode-go", "grok-web", "perplexity-web", "ollama-local", "commandcode",
   "xiaomi-tokenplan", "mimo-free",
@@ -27,11 +27,19 @@ const SPECIALIZED = new Set([
 function sanitize(headers) {
   const out = {};
   for (const [k, v] of Object.entries(headers)) {
-    out[k] = typeof v === "string"
-      ? v.replace(/Bearer .+/, "Bearer <TOK>")
-          .replace(/sk-test-APIKEY|tok-test-ACCESS/g, "<CRED>")
-          .replace(/kimi-\d{10,}/g, "kimi-<TS>")
-      : v;
+    if (k === "X-Msh-Device-Name") {
+      out[k] = "<HOST>";
+    } else if (k === "X-PLATFORM-VERSION") {
+      out[k] = "<NODE_VERSION>";
+    } else if (k === "X-Mavis-Session-Id") {
+      out[k] = "<UUID>";
+    } else {
+      out[k] = typeof v === "string"
+        ? v.replace(/Bearer .+/, "Bearer <TOK>")
+            .replace(/sk-test-APIKEY|tok-test-ACCESS/g, "<CRED>")
+            .replace(/kimi-\d{10,}/g, "kimi-<TS>")
+        : v;
+    }
   }
   return out;
 }

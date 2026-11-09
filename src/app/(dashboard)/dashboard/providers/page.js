@@ -797,7 +797,14 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle, opencod
               />
             </div>
             <div className="min-w-0">
-              <h3 className="truncate font-semibold">{provider.name}</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="truncate font-semibold">{provider.name}</h3>
+                {provider.tag && (
+                  <span className="shrink-0 text-[11px] font-medium text-text-muted">
+                    · {provider.tag}
+                  </span>
+                )}
+              </div>
               <div className="flex min-w-0 items-center gap-1.5 text-xs flex-wrap">
                 {allDisabled ? (
                   <Badge variant="default" size="sm">
@@ -810,17 +817,11 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle, opencod
                   </Badge>
                 ) : isNoAuth ? (
                   <Badge
-                    variant={
-                      providerId === "opencode-v2" && !opencodeInstalled
-                        ? "warning"
-                        : provider.statusBadge?.variant || "success"
-                    }
+                    variant={provider.statusBadge?.variant || "success"}
                     size="sm"
                     dot
                   >
-                    {providerId === "opencode-v2" && !opencodeInstalled
-                      ? "Need Configuration"
-                      : provider.statusBadge?.label || "Ready"}
+                    {provider.statusBadge?.label || "Ready"}
                   </Badge>
                 ) : (
                   <>
@@ -941,7 +942,14 @@ function ApiKeyProviderCard({
               />
             </div>
             <div className="min-w-0">
-              <h3 className="truncate font-semibold">{provider.name}</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="truncate font-semibold">{provider.name}</h3>
+                {provider.tag && (
+                  <span className="shrink-0 text-[11px] font-medium text-text-muted">
+                    · {provider.tag}
+                  </span>
+                )}
+              </div>
               <div className="flex min-w-0 items-center gap-1.5 text-xs flex-wrap">
                 {allDisabled ? (
                   <Badge variant="default" size="sm">

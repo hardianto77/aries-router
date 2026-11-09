@@ -16,15 +16,20 @@ import {
 } from "../../open-sse/executors/webCookieToolBridge.js";
 
 describe("gemini-web model table", () => {
-  it("defaults to 3.6 Flash", () => {
-    expect(resolveGeminiWebModel("").id).toBe("gemini-3.6-flash");
+  it("defaults to 3.8 Flash", () => {
+    expect(resolveGeminiWebModel("").id).toBe("gemini-3.8-flash");
   });
 
   it("resolves each shipped model to a server-side hex", () => {
-    expect(resolveGeminiWebModel("gemini-3.1-pro").hexID).toBe("9d8ca3786ebdfbea");
-    expect(resolveGeminiWebModel("gemini-3.6-flash").hexID).toBe("fbb127bbb056c959");
-    expect(resolveGeminiWebModel("gemini-3.5-flash-lite").hexID).toBe("cf41b0e0dd7d53e5");
+    expect(resolveGeminiWebModel("gemini-3.1-pro").hexID).toBe("e6fa609c3fa255c0");
+    expect(resolveGeminiWebModel("gemini-3.8-flash").hexID).toBe("56fdd199312815e2");
+    expect(resolveGeminiWebModel("gemini-3.5-flash-lite").hexID).toBe("8c46e95b1a07cecc");
     expect(resolveGeminiWebModel("gemini-4-argon").hexID).toBe("95a4c0abcba24364");
+  });
+
+  it("keeps the previous hexes resolving to their replacement", () => {
+    expect(resolveGeminiWebModel("9d8ca3786ebdfbea").id).toBe("gemini-3.1-pro");
+    expect(resolveGeminiWebModel("cf41b0e0dd7d53e5").id).toBe("gemini-3.5-flash-lite");
   });
 
   it("treats 3.7 as an alias of 3.8 (same hex)", () => {
@@ -34,13 +39,13 @@ describe("gemini-web model table", () => {
   });
 
   it("marks -thinking variants as thinking, base models as not", () => {
-    expect(resolveGeminiWebModel("gemini-3.6-flash-thinking").thinking).toBe(true);
-    expect(resolveGeminiWebModel("gemini-3.6-flash").thinking).toBe(false);
+    expect(resolveGeminiWebModel("gemini-3.8-flash-thinking").thinking).toBe(true);
+    expect(resolveGeminiWebModel("gemini-3.8-flash").thinking).toBe(false);
   });
 
-  it("gates pro/3.8/argon behind a cookie, leaves 3.6 open", () => {
+  it("gates pro/argon behind a cookie, leaves flash-lite open", () => {
     expect(resolveGeminiWebModel("gemini-3.1-pro").needsCookie).toBe(true);
-    expect(resolveGeminiWebModel("gemini-3.6-flash").needsCookie).toBe(false);
+    expect(resolveGeminiWebModel("gemini-3.5-flash-lite").needsCookie).toBe(false);
   });
 
   it("selects argon by mode 8", () => {

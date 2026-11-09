@@ -482,8 +482,9 @@ export default function CoworkToolCard({
                           );
                         })}
                       </div>
-                      <p className="text-[10px] text-text-muted leading-snug">
-                        ⚠️ Local plugins run as subprocess via <code className="px-1.5 py-0.5 rounded-[var(--r-chip)] bg-surface-2 border border-border-subtle text-text-main">npx</code>. Requires Node.js installed.
+                      <p className="flex items-start gap-1 text-[10px] text-text-muted leading-snug">
+                        <span className="material-symbols-outlined mt-0.5 text-[12px] leading-none">warning</span>
+                        <span>Local plugins run as subprocess via <code className="px-1.5 py-0.5 rounded-[var(--r-chip)] bg-surface-2 border border-border-subtle text-text-main">npx</code>. Requires Node.js installed.</span>
                       </p>
                     </div>
                   </div>

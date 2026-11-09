@@ -3,7 +3,8 @@ import { indexDeclaredTools, rescueStreamedNames } from "../translator/concerns/
 import { FORMATS } from "../translator/formats.js";
 import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb.js";
 import { extractUsage, mergeUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
-import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE } from "./streamHelpers.js";
+import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE, buildStreamErrorBytes } from "./streamHelpers.js";
+import { maskErrorPayload } from "./error.js";
 import { getOpenAIResponsesEventName, isOpenAIResponsesTerminalEvent, formatIncompleteOpenAIResponsesStreamFailure } from "./responsesStreamHelpers.js";
 import { dbg, isDebugEnabled } from "./debugLog.js";
 import { applyModelAlias } from "./modelAlias.js";
@@ -85,7 +86,8 @@ export function createSSEStream(options = {}) {
     onStreamComplete = null,
     apiKey = null,
     credentials = null,
-    aliasModel = null
+    aliasModel = null,
+    hideError = false
   } = options;
 
   // The live request panel and the usage log name the model the caller spoke.
@@ -163,6 +165,10 @@ export function createSSEStream(options = {}) {
     }
   };
 
+  // With Hide Raw Errors on, an upstream error frame is rewritten before it is
+  // forwarded - passthrough clients would otherwise read the provider text.
+  const hiddenErrorChunk = (parsed) => Boolean(hideError && parsed && parsed.error);
+
   return new TransformStream({
     transform(chunk, controller) {
       if (!ttftAt) ttftAt = Date.now();
@@ -206,6 +212,10 @@ export function createSSEStream(options = {}) {
 
               // Ensure OpenAI-required fields are present on streaming chunks (Letta compat)
               let fieldsInjected = false;
+              if (hiddenErrorChunk(parsed)) {
+                maskErrorPayload(parsed.error);
+                fieldsInjected = true;
+              }
               if (parsed.choices !== undefined) {
                 if (!parsed.object) { parsed.object = "chat.completion.chunk"; fieldsInjected = true; }
                 if (!parsed.created) { parsed.created = Math.floor(Date.now() / 1000); fieldsInjected = true; }
@@ -343,6 +353,16 @@ export function createSSEStream(options = {}) {
 
         const parsed = parseFrameLine(trimmed, targetFormat);
         if (!parsed) continue;
+
+        // An upstream error frame cannot be translated into a normal chunk, so
+        // it used to vanish and the client saw an empty stream. With Hide Raw
+        // Errors on, emit a real - masked - error frame in the client format.
+        if (hiddenErrorChunk(parsed)) {
+          const masked = buildStreamErrorBytes(502, parsed.error?.message || "Upstream stream error", sourceFormat, true);
+          reqLogger?.appendConvertedChunk?.(decoder.decode(masked));
+          controller.enqueue(masked);
+          continue;
+        }
 
         // Responses API same-format passthrough: preserve event framing + track terminal state
         const isOpenAIResponsesStream = targetFormat === FORMATS.OPENAI_RESPONSES;
@@ -613,7 +633,7 @@ export function createSSEStream(options = {}) {
   });
 }
 
-export function createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider = null, reqLogger = null, toolNameMap = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null, customToolNames = null, credentials = null, aliasModel = null) {
+export function createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider = null, reqLogger = null, toolNameMap = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null, customToolNames = null, credentials = null, aliasModel = null, hideError = false) {
   return createSSEStream({
     mode: STREAM_MODE.TRANSLATE,
     targetFormat,
@@ -629,10 +649,11 @@ export function createSSETransformStreamWithLogger(targetFormat, sourceFormat, p
     apiKey,
     credentials,
     aliasModel,
+    hideError,
   });
 }
 
-export function createPassthroughStreamWithLogger(provider = null, reqLogger = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null, aliasModel = null) {
+export function createPassthroughStreamWithLogger(provider = null, reqLogger = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null, aliasModel = null, hideError = false) {
   return createSSEStream({
     mode: STREAM_MODE.PASSTHROUGH,
     provider,
@@ -643,5 +664,6 @@ export function createPassthroughStreamWithLogger(provider = null, reqLogger = n
     onStreamComplete,
     apiKey,
     aliasModel,
+    hideError,
   });
 }

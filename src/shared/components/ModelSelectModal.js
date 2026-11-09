@@ -8,11 +8,12 @@ import CapacityBadges from "./CapacityBadges";
 import ModelTierBadge from "./ModelTierBadge";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
-import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, AI_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, getProviderAlias } from "@/shared/constants/providers";
+import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, AI_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, getProviderAlias } from "@/shared/constants/providers";
 import { buildStudioTargetIndex } from "@/shared/utils/studioModelVisibility";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { resolveProviderName, findOwningGroupId, humanizeCompatId } from "@/shared/utils/providerDisplay";
 import { formatContextWindow } from "@/shared/utils/contextWindow";
+import { batchWouldClearAllSelectedValues, getModelBatchDelta, isModelValueSelected } from "@/shared/utils/modelSelection";
 
 // Same matching rules the server applies to allowedModels: exact name, `prefix*`
 // and `*suffix`, case-insensitive. Mirrored here so a scoped session only ever sees
@@ -135,6 +136,7 @@ export default function ModelSelectModal({
   capFilter = null,
   addedModelValues = [],
   closeOnSelect = true,
+  preventClearAll = false,
   showStudioTargets = false,
   allowedModelPatterns = null,
   allowProviderWildcard = false,
@@ -221,7 +223,7 @@ export default function ModelSelectModal({
         // Jev ids are free-tier but have no chat route (upstream answers
         // ModelProtocolUnsupported on /chat/completions for them), so they are
         // dropped here the same way the panel filter drops them.
-        return [id, Array.isArray(data) ? data.filter((m) => m?.isFree === true && m?.id !== "jev-1.13" && m?.id !== "jev-1.13-free" && m?.id !== "minimax-m3.1-flash-free") : []];
+        return [id, Array.isArray(data) ? data.filter((m) => (m?.isFree === true || m?.id?.endsWith("-free")) && m?.id !== "jev-1.13" && m?.id !== "jev-1.13-free" && m?.id !== "minimax-m3.1-flash-free") : []];
       })
     ).then((lists) => {
       if (cancelled) return;
@@ -385,6 +387,16 @@ export default function ModelSelectModal({
       ...compatibleNodeIds,    // Compatible nodes with user-added models
     ].filter((id) => !deactivatedProviderIds.has(id)));
 
+    // Built-in providers keyed by every alias they answer to, so a custom
+    // model can be traced back to the provider that owns it.
+    const registryIdByAlias = new Map();
+    for (const providerId of [...Object.keys(allProviders), ...Object.keys(WEB_COOKIE_PROVIDERS)]) {
+      for (const alias of [providerId, getProviderAlias(providerId)]) {
+        if (alias) registryIdByAlias.set(String(alias).toLowerCase(), providerId);
+      }
+    }
+    const registryIdForAlias = (alias) => (alias ? registryIdByAlias.get(String(alias).toLowerCase()) || null : null);
+
     // Sort by PROVIDER_ORDER
     const sortedProviderIds = [...providerIdsToShow].sort((a, b) => {
       const indexA = PROVIDER_ORDER.indexOf(a);
@@ -394,7 +406,12 @@ export default function ModelSelectModal({
 
     sortedProviderIds.forEach((providerId) => {
       const alias = getProviderAlias(providerId);
-      const providerInfo = allProviders[providerId] || { name: providerId, color: "#666" };
+      // Web-cookie providers live in their own registry bucket; without it the
+      // heading fell back to the storage alias ("gemini-web") and their real
+      // model list never reached the picker.
+      const registryInfo = allProviders[providerId] || WEB_COOKIE_PROVIDERS[providerId];
+      // An unregistered compatible node used to head its group with the raw id.
+      const providerInfo = registryInfo || { name: resolveProviderName(providerId) || providerId, color: "#666" };
       const isCustomProvider = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
 
       // For provider-as-model kinds (webSearch/webFetch): emit a single entry where value === providerId
@@ -426,36 +443,20 @@ export default function ModelSelectModal({
             isCustom: true,
           }));
 
-        // For typed kinds, only include hardcoded typed models (aliases are typically LLM-only and lack type info)
+        // For typed kinds, only include user-added typed models (aliases are typically LLM-only and lack type info)
         let combined = aliasModels;
         if (kindFilter && TYPED_KINDS.has(kindFilter)) {
           const registeredTyped = customRegisteredModels.filter((m) => getModelKind(m) === kindFilter);
-          combined = [
-            ...registeredTyped,
-            ...getModelsByProviderId(providerId)
-            .filter((m) => getModelKind(m) === kindFilter)
-            .map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m) }))
-            .filter((m) => !registeredTyped.some((registered) => registered.value === m.value)),
-          ];
-          // Fallback: provider-as-model when no hardcoded models match (tts/image/webFetch only)
+          combined = [...registeredTyped];
+          // Fallback: provider-as-model when no user-added models match (tts/image/webFetch only)
           if (combined.length === 0 && ALLOW_PROVIDER_FALLBACK_KINDS.has(kindFilter)) {
             const supports = (providerInfo.serviceKinds || ["llm"]).includes(kindFilter);
             if (supports) combined = [{ id: providerId, name: providerInfo.name, value: alias }];
           }
         } else {
-          // LLM/null kind: merge hardcoded models (e.g. mimo-free → mimo-auto) with user-added models
+          // LLM/null kind: only show user-added models (registered + aliases)
           const registeredLlms = customRegisteredModels.filter((m) => !getModelKind(m) || getModelKind(m) === "llm");
-          const seen = new Set([...aliasModels, ...registeredLlms].map((m) => m.value));
-          const hardcoded = getModelsByProviderId(providerId)
-            .filter((m) => !getModelKind(m) || getModelKind(m) === "llm")
-            .map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m) }))
-            .filter((m) => !seen.has(m.value));
-          const liveFreeRows = (freeCatalogModels[providerId] || [])
-            .filter((m) => m?.id && !getModelKind(m))
-            .map((m) => ({ id: m.id, name: m.name || m.id, value: `${alias}/${m.id}` }))
-            .filter((m) => !seen.has(m.value) && !hardcoded.some((h) => h.value === m.value));
-          hardcoded.push(...liveFreeRows);
-          combined = [...registeredLlms, ...aliasModels.filter((m) => !registeredLlms.some((registered) => registered.value === m.value)), ...hardcoded];
+          combined = [...registeredLlms, ...aliasModels.filter((m) => !registeredLlms.some((registered) => registered.value === m.value))];
         }
 
         if (combined.length > 0) {
@@ -525,14 +526,8 @@ export default function ModelSelectModal({
         };
       } else {
         const liveModels = providerId === "cursor" ? cursorModels : providerId === "cline" ? clineModels : providerId === "clinepass" ? clinepassModels : [];
-        const baseModels = liveModels.length > 0 ? liveModels : getModelsByProviderId(providerId);
-        const liveFreeIds = new Set(baseModels.map((m) => m.id));
-        const hardcodedModels = [
-          ...baseModels,
-          ...(freeCatalogModels[providerId] || [])
-            .filter((m) => m?.id && !liveFreeIds.has(m.id))
-            .map((m) => ({ id: m.id, name: m.name || m.id })),
-        ];
+        // Only show user-added models; cursor/cline/clinepass show account models from their live APIs
+        const hardcodedModels = liveModels.length > 0 ? liveModels.map((m) => ({ id: m.id, name: m.name || m.id })) : [];
         const hardcodedIds = new Set(hardcodedModels.map((m) => m.id));
 
         // Custom models: if no hardcoded models (e.g. openrouter), show all aliases for this provider
@@ -556,7 +551,6 @@ export default function ModelSelectModal({
           .map((m) => ({ id: m.id, name: m.name || m.id, value: `${alias}/${m.id}`, isCustom: true, isFree: m.isFree }));
 
         const merged = [
-          ...hardcodedModels.map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m), isFree: m.isFree })),
           ...customAliasModels,
           ...customRegisteredModels,
         ];
@@ -631,6 +625,12 @@ export default function ModelSelectModal({
         // "OpenAI Compatible (xxxx)" heading via humanizeCompatId, so the
         // model is hidden instead of opening that group.
         if (isOrphanCompatAlias(modelAlias, providerNodes)) continue;
+        // A custom model whose built-in provider is not connected would open a
+        // group for a provider the user cannot route to: the heading names a
+        // provider that is absent from the dashboard, and the rows are dead.
+        // Compatible nodes are exempt - they legitimately live without a key.
+        const ownerProviderId = registryIdForAlias(modelAlias);
+        if (ownerProviderId && !providerIdsToShow.has(ownerProviderId)) continue;
         const entry = {
           id: m.id,
           name: m.name || m.id,
@@ -651,10 +651,11 @@ export default function ModelSelectModal({
         const groupId = modelAlias || "__custom";
         if (!groups[groupId]) {
           const node = providerNodes.find((n) => n.id === modelAlias);
+          const registryEntry = ownerProviderId ? allProviders[ownerProviderId] || WEB_COOKIE_PROVIDERS[ownerProviderId] : null;
           groups[groupId] = {
-            name: resolveProviderName(modelAlias, { node }) || "Custom Models",
+            name: resolveProviderName(modelAlias, { node, registry: registryEntry }) || "Custom Models",
             alias: modelAlias || "custom",
-            color: node?.color || CUSTOM_GROUP_COLOR,
+            color: node?.color || registryEntry?.color || CUSTOM_GROUP_COLOR,
             models: [],
             isCustom: true,
           };
@@ -769,8 +770,8 @@ export default function ModelSelectModal({
 
   // Sort models alphabetically, with added models floated to top
   const sortModels = (models) => {
-    const added = models.filter(m => addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
-    const rest = models.filter(m => !addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
+    const added = models.filter((m) => isModelValueSelected(m.value, addedModelValues)).sort((a, b) => a.name.localeCompare(b.name));
+    const rest = models.filter((m) => !isModelValueSelected(m.value, addedModelValues)).sort((a, b) => a.name.localeCompare(b.name));
     return [...added, ...rest];
   };
 
@@ -866,37 +867,55 @@ export default function ModelSelectModal({
     return list;
   }, [filteredGroups]);
 
-  const visibleUnadded = useMemo(() => {
-    return visibleModels.filter((m) => !addedModelValues.includes(m.value));
-  }, [visibleModels, addedModelValues]);
+  const visibleUnadded = useMemo(
+    () => getModelBatchDelta(visibleModels, addedModelValues, "add"),
+    [visibleModels, addedModelValues]
+  );
 
-  const visibleAdded = useMemo(() => {
-    return visibleModels.filter((m) => addedModelValues.includes(m.value));
-  }, [visibleModels, addedModelValues]);
+  const visibleAdded = useMemo(
+    () => getModelBatchDelta(visibleModels, addedModelValues, "remove"),
+    [visibleModels, addedModelValues]
+  );
 
-  const handleSelectAllVisible = () => {
-    if (visibleUnadded.length === 0) return;
+  const visibleDeselectWouldClearAll = preventClearAll &&
+    batchWouldClearAllSelectedValues(visibleModels, addedModelValues);
+
+  const handleSelectModels = (models) => {
+    const unadded = getModelBatchDelta(models, addedModelValues, "add");
+    if (unadded.length === 0) return;
     if (onSelectBatch) {
-      onSelectBatch(visibleUnadded);
+      onSelectBatch(unadded);
     } else {
-      visibleUnadded.forEach((model) => onSelect(model));
+      unadded.forEach((model) => onSelect(model));
     }
   };
 
-  const handleDeselectAllVisible = () => {
-    if (visibleAdded.length === 0) return;
+  const handleDeselectModels = (models) => {
+    const added = getModelBatchDelta(models, addedModelValues, "remove");
+    if (added.length === 0 || (preventClearAll && batchWouldClearAllSelectedValues(models, addedModelValues))) return;
     if (onDeselectBatch) {
-      onDeselectBatch(visibleAdded);
+      onDeselectBatch(added);
     } else if (onDeselect) {
-      visibleAdded.forEach((model) => onDeselect(model));
+      added.forEach((model) => onDeselect(model));
     }
   };
+
+  const handleRemoveSelectedValue = (value) => {
+    const model = { value, name: value };
+    if (preventClearAll && batchWouldClearAllSelectedValues([model], addedModelValues)) return;
+    if (onDeselectBatch) onDeselectBatch([model]);
+    else if (onDeselect) onDeselect(model);
+  };
+
+  const handleSelectAllVisible = () => handleSelectModels(visibleModels);
+  const handleDeselectAllVisible = () => handleDeselectModels(visibleModels);
 
   const handleSelect = (model) => {
     const value = model?.value || model?.name || model;
-    const isAdded = addedModelValues.includes(value);
+    const isAdded = isModelValueSelected(value, addedModelValues);
 
     if (isAdded && onDeselect) {
+      if (preventClearAll && batchWouldClearAllSelectedValues([model], addedModelValues)) return;
       onDeselect(model);
     } else {
       onSelect(model);
@@ -918,7 +937,23 @@ export default function ModelSelectModal({
       title={title}
       size={size}
       className="p-4!"
-      footer={null}
+      footer={!closeOnSelect ? (
+        <>
+          <span className="mr-auto text-xs text-text-muted">
+            {addedModelValues.length} selected
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              setSearchQuery("");
+            }}
+            className="px-3 py-1.5 rounded-md bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            Done
+          </button>
+        </>
+      ) : null}
     >
       {/* Info bar */}
       <div className="flex items-center gap-2 mb-3 px-2.5 py-2 bg-primary/8 border border-primary/20 rounded-lg text-xs text-text-muted">
@@ -932,8 +967,11 @@ export default function ModelSelectModal({
           <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted text-[16px]">
             search
           </span>
+          <label htmlFor="model-select-search" className="sr-only">Search models</label>
           <input
+            id="model-select-search"
             type="text"
+            aria-label="Search models"
             placeholder={
               allowProviderWildcard
                 ? "Search models (e.g. claude -haiku, oc/*, /regex/)..."
@@ -958,6 +996,7 @@ export default function ModelSelectModal({
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
+                aria-label="Clear search"
                 className="text-text-muted hover:text-text-main cursor-pointer p-0.5 rounded"
                 title="Clear search"
               >
@@ -966,6 +1005,33 @@ export default function ModelSelectModal({
             )}
           </div>
         </div>
+
+        {!closeOnSelect && addedModelValues.length > 0 && (
+          <section className="rounded-lg border border-border-subtle bg-surface-2/50 p-2" aria-label="Selected models">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <h3 className="text-[11px] font-medium text-text-main">Selected models</h3>
+              <span className="text-[10px] tabular-nums text-text-muted">{addedModelValues.length}</span>
+            </div>
+            <ul className="mt-1 flex max-h-24 flex-wrap gap-1 overflow-y-auto custom-scrollbar" aria-label="Selected model list">
+              {addedModelValues.map((value, index) => (
+                <li key={`${value}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border-subtle bg-surface px-1.5 py-1">
+                  <span className="max-w-[16rem] truncate text-[10px] text-text-main" title={value}>{value}</span>
+                  {(onDeselect || onDeselectBatch) && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSelectedValue(value)}
+                      disabled={preventClearAll && batchWouldClearAllSelectedValues([{ value }], addedModelValues)}
+                      aria-label={`Remove selected model ${value}`}
+                      className="shrink-0 rounded text-text-muted hover:text-text-main disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">close</span>
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {!closeOnSelect && visibleModels.length > 0 && (
           <div className="flex items-center justify-between px-1 text-[11px] text-text-muted">
@@ -990,8 +1056,9 @@ export default function ModelSelectModal({
                 <button
                   type="button"
                   onClick={handleDeselectAllVisible}
-                  className="px-2 py-0.5 rounded text-[11px] font-medium bg-border/40 text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer"
-                  title="Deselect all filtered models"
+                  disabled={visibleDeselectWouldClearAll}
+                  className="px-2 py-0.5 rounded text-[11px] font-medium bg-border/40 text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={visibleDeselectWouldClearAll ? "Keep at least one explicit model; an empty allowlist means all models." : "Deselect all filtered models"}
                 >
                   Deselect All ({visibleAdded.length})
                 </button>
@@ -1015,20 +1082,20 @@ export default function ModelSelectModal({
               {filteredCombos.map((combo) => {
                 const isSelected = selectedModel === combo.name;
                 return (
-                  <button
+                    <button
                     key={combo.id}
                     onClick={() => handleSelect({ id: combo.name, name: combo.name, value: combo.name })}
                     className={`
                       px-2 py-1 rounded-xl text-xs font-medium transition-all border hover:cursor-pointer flex items-center gap-1
                       ${isSelected
                         ? "bg-primary text-white border-primary"
-                        : addedModelValues.includes(combo.name)
+                        : isModelValueSelected(combo.name, addedModelValues)
                           ? "bg-primary border-primary text-white hover:bg-primary-hover"
                           : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
                   >
-                    {addedModelValues.includes(combo.name) && (
+                    {isModelValueSelected(combo.name, addedModelValues) && (
                       <span className="material-symbols-outlined leading-none" style={{ fontSize: "10px" }}>check</span>
                     )}
                     {combo.name}
@@ -1062,13 +1129,13 @@ export default function ModelSelectModal({
                       px-2 py-1 rounded-xl text-xs font-medium transition-all border hover:cursor-pointer flex items-center gap-1
                       ${isSelected
                         ? "bg-primary text-white border-primary"
-                        : addedModelValues.includes(studio.callName)
+                        : isModelValueSelected(studio.callName, addedModelValues)
                           ? "bg-primary border-primary text-white hover:bg-primary-hover"
                           : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
                   >
-                    {addedModelValues.includes(studio.callName) && (
+                    {isModelValueSelected(studio.callName, addedModelValues) && (
                       <span className="material-symbols-outlined leading-none" style={{ fontSize: "10px" }}>check</span>
                     )}
                     {studio.callName}
@@ -1086,12 +1153,16 @@ export default function ModelSelectModal({
         {/* Provider models */}
         {Object.entries(groupsFinal).map(([providerId, group]) => {
           const wildcardValue = `${group.alias || providerId}/*`;
-          const isWildcardAdded = allowProviderWildcard && addedModelValues.includes(wildcardValue);
+          const isWildcardAdded = allowProviderWildcard && isModelValueSelected(wildcardValue, addedModelValues);
+          const groupUnadded = getModelBatchDelta(group.models, addedModelValues, "add");
+          const groupAdded = getModelBatchDelta(group.models, addedModelValues, "remove");
+          const groupDeselectWouldClearAll = preventClearAll &&
+            batchWouldClearAllSelectedValues(group.models, addedModelValues);
 
           return (
             <div key={providerId}>
               {/* Provider header */}
-              <div className="flex items-center gap-1.5 mb-1.5 sticky top-0 bg-surface py-0.5 z-10">
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-1.5 sticky top-0 bg-surface py-0.5 z-10">
                 <ProviderIcon
                   src={`/providers/${providerId}.png`}
                   alt={group.name}
@@ -1137,6 +1208,31 @@ export default function ModelSelectModal({
                     · {disabledCountFor(providerId, group.alias)} disabled
                   </span>
                 )}
+                {!closeOnSelect && (groupUnadded.length > 0 || groupAdded.length > 0) && (
+                  <div className="ml-auto flex flex-wrap items-center gap-1">
+                    {groupUnadded.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleSelectModels(group.models)}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                        title={`Select all visible ${group.name} models`}
+                      >
+                        Select All ({groupUnadded.length})
+                      </button>
+                    )}
+                    {groupAdded.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeselectModels(group.models)}
+                        disabled={groupDeselectWouldClearAll}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-border/40 text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={groupDeselectWouldClearAll ? "Keep at least one explicit model; an empty allowlist means all models." : `Deselect visible ${group.name} models`}
+                      >
+                        Deselect All ({groupAdded.length})
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
             <div className="flex flex-wrap gap-1.5">
@@ -1154,14 +1250,14 @@ export default function ModelSelectModal({
                         ? "border-dashed border-border text-text-muted hover:border-primary/50 hover:text-primary bg-surface italic"
                         : isSelected
                           ? "bg-primary text-white border-primary"
-                          : addedModelValues.includes(model.value)
+                          : isModelValueSelected(model.value, addedModelValues)
                             ? "bg-primary border-primary text-white hover:bg-primary-hover"
                             : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
                   >
                     <span className="flex items-center gap-1">
-                      {addedModelValues.includes(model.value) && !isPlaceholder && (
+                      {isModelValueSelected(model.value, addedModelValues) && !isPlaceholder && (
                         <span className="material-symbols-outlined leading-none" style={{ fontSize: "10px" }}>check</span>
                       )}
                       {isPlaceholder ? (
@@ -1226,6 +1322,7 @@ ModelSelectModal.propTypes = {
   kindFilter: PropTypes.string,
   addedModelValues: PropTypes.arrayOf(PropTypes.string),
   closeOnSelect: PropTypes.bool,
+  preventClearAll: PropTypes.bool,
   showStudioTargets: PropTypes.bool,
   allowedModelPatterns: PropTypes.arrayOf(PropTypes.string),
   allowProviderWildcard: PropTypes.bool,

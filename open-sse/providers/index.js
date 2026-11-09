@@ -36,7 +36,12 @@ for (const entry of REGISTRY) {
     PROVIDERS[entry.id] = buildTransport(entry.transport, entry.oauth);
     if (entry.transports) PROVIDERS[entry.id].transports = entry.transports;
   }
-  if (entry.models !== undefined) PROVIDER_MODELS[entry.alias || entry.id] = entry.models.map(normalizeModel);
+  if (entry.models !== undefined) {
+    const normalized = entry.models.map(normalizeModel);
+    PROVIDER_MODELS[entry.alias || entry.id] = normalized;
+    if (entry.id) PROVIDER_MODELS[entry.id] = normalized;
+    // `entry.aliases` are routing compatibility names, not separate catalogues.
+  }
   if (entry.oauth) PROVIDER_OAUTH[entry.id] = entry.oauth;
   // Build PROVIDER_MEDIA from top-level fields (post-migration) + legacy entry.media
   const mediaFields = {};

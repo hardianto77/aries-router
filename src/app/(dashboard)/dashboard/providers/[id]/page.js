@@ -45,7 +45,7 @@ export default function ProviderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const providerId = resolveProviderId(params.id);
-  const isOpenCode = providerId === "opencode" || providerId === "opencode-v2";
+  const isOpenCode = providerId === "opencode";
   const { getCaps } = useModelCaps();
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1410,8 +1410,8 @@ export default function ProviderDetailPage() {
           const notAdded = uniqueAvailable.filter(
             (m) => !addedFullModels.has(`${providerStorageAlias}/${m.id}`) && !addedFullModels.has(m.id)
           );
-          const freeSuggested = notAdded.filter((m) => m.isFree === true);
-          const paidSuggested = notAdded.filter((m) => m.isFree !== true);
+          const freeSuggested = notAdded.filter((m) => m.isFree === true || m.id.endsWith("-free"));
+          const paidSuggested = notAdded.filter((m) => m.isFree !== true && !m.id.endsWith("-free"));
 
           if (notAdded.length === 0 && !suggestedModelsError) return null;
           return (
@@ -1569,6 +1569,11 @@ export default function ProviderDetailPage() {
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">{providerInfo.name}</h1>
+              {providerInfo.tag && (
+                <span className="text-sm font-normal text-text-muted">
+                  · {providerInfo.tag}
+                </span>
+              )}
               {(providerInfo.notice?.apiKeyUrl || providerInfo.notice?.signupUrl || providerInfo.website) && (
                 <a
                   href={providerInfo.notice?.apiKeyUrl || providerInfo.notice?.signupUrl || providerInfo.website}
@@ -1581,18 +1586,9 @@ export default function ProviderDetailPage() {
                 </a>
               )}
             </div>
-            {providerId === "opencode-v2" && !opencodeInstalled ? (
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="warning" size="sm" dot>
-                  Need Configuration
-                </Badge>
-                <span className="text-xs text-amber-500/90 font-medium">OpenCode CLI binary not found on host</span>
-              </div>
-            ) : (
-              <p className="text-text-muted">
-                {connections.length} connection{connections.length === 1 ? "" : "s"}
-              </p>
-            )}
+            <p className="text-text-muted">
+              {connections.length} connection{connections.length === 1 ? "" : "s"}
+            </p>
           </div>
         </div>
       </div>

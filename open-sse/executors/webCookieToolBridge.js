@@ -49,7 +49,7 @@ function fnOf(tool) {
 }
 
 /** Tool definitions the model is allowed to name, honouring a forced function. */
-function selectableTools(body) {
+export function selectableTools(body) {
   const raw = Array.isArray(body?.tools) && body.tools.length
     ? body.tools
     : (Array.isArray(body?.functions) && body.functions.length ? body.functions : []);
@@ -152,15 +152,23 @@ export function buildToolInstructions(body, style = "marker") {
  * long agent system prompt, and states plainly that a shell code block is not
  * an execution channel.
  */
-export function buildToolReminder(style = "marker") {
-  return [
+export function buildToolReminder(style = "marker", options = {}) {
+  const { forced = "", mode = "auto" } = options || {};
+  const forcedLine = forced
+    ? `This turn is FORCED: the client set tool_choice to the tool "${forced}". Emit exactly one tool_call block calling "${forced}" with valid arguments and nothing else - answering in prose is a protocol violation, even if you already know the answer.`
+    : mode === "required"
+      ? "This turn is FORCED: the client set tool_choice to require a tool. Emit one tool_call block and nothing else - answering in prose is a protocol violation."
+      : "";
+  const lines = [
     "[System instruction - highest priority]: To run a command or read a file you MUST output a tool_call block - this is the ONLY execution channel. A code block is NOT executed, it is only shown to the user; never use one to run anything, and never claim you lack tools.",
-    "Act, do not explain: when the request needs a tool, your reply is ONE tool_call block and nothing else - do not list the commands you 'would' run, do not output more than one tool_call, do not add prose. If several steps are needed, do the FIRST one now; you will be called again with its result to continue.",
+    "Act, do not explain: when the request needs a tool, your reply is ONE tool_call block and nothing else - do not list the commands you 'would' run, do not add prose. Emit several blocks only when the user asks for several independent things at once (one block per call, nothing else); when the steps depend on each other, do the FIRST one now and you will be called again with its result.",
     "Know when to STOP: once a tool result shows a step succeeded (for example it exited with code 0, even with no printed output), that step is DONE - do not run it again and do not retry the same thing a different way. When the whole request is accomplished, stop calling tools and reply with a short final answer instead of another tool_call.",
     "Example of a correct turn - user asks \"list the files here and tell me the size of README.md\", you reply with exactly one block and nothing else:",
     exampleBlock(style),
     "(In your block use one of the real tool names listed above with its own arguments.) When the request needs a tool, emit the tool_call block now.",
-  ].join("\n");
+  ];
+  if (forcedLine) lines.push(forcedLine);
+  return lines.join("\n");
 }
 
 // ------------------------------------------------------------------ transcript

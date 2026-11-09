@@ -36,6 +36,32 @@ function touch(job) {
   job.updatedAt = new Date().toISOString();
 }
 
+/**
+ * A proxy URL in the one shape two spellings of the same proxy agree on:
+ * scheme and host lowercased, the port made explicit, no trailing slash.
+ * Credentials are part of the identity - a rotating provider hands out the same
+ * host:port with different user:pass, and those are different proxies.
+ * Anything unparseable falls back to the trimmed lowercase string, so a malformed
+ * URL still cancels out against its own exact repeat.
+ */
+function normalizeProxyUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    const scheme = url.protocol.toLowerCase();
+    const host = url.hostname.toLowerCase();
+    const port =
+      url.port || (scheme === "https:" ? "443" : scheme === "http:" ? "80" : "");
+    const auth = url.username
+      ? `${url.username}${url.password ? `:${url.password}` : ""}@`
+      : "";
+    return `${scheme}//${auth}${host}${port ? `:${port}` : ""}`;
+  } catch {
+    return value.toLowerCase();
+  }
+}
+
 function scheduleResultCleanup(jobId) {
   const timers = getTimers();
   if (timers.has(jobId)) return;
@@ -73,10 +99,39 @@ async function drainQueue() {
     let failed = 0;
     let processed = 0;
 
-    // Names already taken: the table has no uniqueness constraint, so a
-    // duplicate import would otherwise create a second pool with the same name
-    // and leave the operator with two rows to tell apart. Skip those instead.
-    const existingNames = new Set((await getProxyPools()).map((p) => String(p.name || "").trim()));
+    // What makes two rows the same proxy is the URL, not the name. The client
+    // derives a name from the host, so every line sharing a host:port - the
+    // normal shape of a provider that rotates credentials - arrived with an
+    // identical name, and skipping on the NAME dropped all but the first line of
+    // a pasted list. Skip on the URL now; a repeated name only gets a numeric
+    // suffix so the rows stay tellable apart. The table has no uniqueness
+    // constraint, and none is added here.
+    const existingPools = await getProxyPools();
+    const existingUrls = new Set(
+      existingPools.map((p) => normalizeProxyUrl(p.proxyUrl)).filter(Boolean)
+    );
+    const takenNames = new Set(
+      existingPools.map((p) => String(p.name || "").trim()).filter(Boolean)
+    );
+
+    const uniqueName = (base) => {
+      const name = String(base || "").trim() || "Imported proxy";
+      if (!takenNames.has(name)) {
+        takenNames.add(name);
+        return name;
+      }
+      for (let n = 2; n < 10000; n += 1) {
+        const candidate = `${name} #${n}`;
+        if (!takenNames.has(candidate)) {
+          takenNames.add(candidate);
+          return candidate;
+        }
+      }
+      const fallback = `${name} #${Date.now().toString(36)}`;
+      takenNames.add(fallback);
+      return fallback;
+    };
+
     let skipped = 0;
 
     for (const entry of next.entries || []) {
@@ -89,19 +144,19 @@ async function drainQueue() {
         return;
       }
 
-      const name = String(entry.name || "").trim();
-      if (existingNames.has(name)) {
+      const key = normalizeProxyUrl(entry.proxyUrl);
+      if (key && existingUrls.has(key)) {
         skipped += 1;
       } else {
         try {
           await createProxyPool({
-            name,
+            name: uniqueName(entry.name),
             proxyUrl: entry.proxyUrl,
             noProxy: "",
             type: "http",
             isActive: true,
           });
-          existingNames.add(name);
+          if (key) existingUrls.add(key);
           created += 1;
         } catch (err) {
           failed += 1;
@@ -118,7 +173,7 @@ async function drainQueue() {
 
     next.progress = 100;
     next.status = "done";
-    next.message = `Imported ${created}` + (skipped ? `, skipped ${skipped} existing` : "") +
+    next.message = `Imported ${created}` + (skipped ? `, skipped ${skipped} duplicate` : "") +
       (failed ? `, failed ${failed}` : "");
     next.counts = { created, skipped, failed, processed, total };
     // The entries are the bulk of the record; drop them once counted.

@@ -27,6 +27,12 @@ const PLUGINS = [
     description:
       "Automatically extracts and transcribes visual text, charts, diagrams, and metadata from images via intelligent OCR scripting. Converts image payloads into structured text blocks so that non-vision models (or vision models needing precise OCR) can process image contents accurately.",
   },
+  {
+    key: "openaiToolBridge",
+    title: "Tool Calling Bridge",
+    description:
+      "Gives function calling to upstreams that have none. The request's tools are folded into the prompt, the reply's own tool call is parsed back into standard tool_calls, and the client's handlers run unchanged. Select the models whose provider cannot call tools (browser-session providers and any model reported as text-only); leave natively tool-capable models out so their real schema is untouched.",
+  },
 ];
 
 function defaultPluginsFrom(stored) {

@@ -20,6 +20,7 @@
 //    executor answered 400 "Gemini Web does not support OpenAI function tools".
 
 import { BaseExecutor } from "./base.js";
+import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { createHash } from "node:crypto";
 import {
   buildToolInstructions,
@@ -29,6 +30,7 @@ import {
   hasTools,
   parseToolCallReply,
   renderToolTranscript,
+  selectableTools,
 } from "./webCookieToolBridge.js";
 
 const GEMINI_URL = "https://gemini.google.com/app";
@@ -52,13 +54,22 @@ const THINKING_NORMAL = 1;
 const THINKING_EXTENDED = 2;
 
 // Server-side model ids, taken from the authoritative batchexecute?rpcids=otAQ7b
-// listing rather than guessed from marketing names.
+// listing. Hex ids rotate whenever Google swaps the served build, so these are
+// re-read from the listing instead of being trusted forever; the aliases below
+// keep the previous ids working.
 const HEX = {
-  flash36: "fbb127bbb056c959",
-  flashLite35: "cf41b0e0dd7d53e5",
-  pro31: "9d8ca3786ebdfbea",
-  flash38: "56fdd199312815e2",
-  argon4: "95a4c0abcba24364",
+  flashLite: "8c46e95b1a07cecc",
+  flash: "56fdd199312815e2",
+  pro: "e6fa609c3fa255c0",
+  argon: "95a4c0abcba24364",
+};
+
+// Superseded ids still seen in older listings. Resolving one of these falls
+// through to the model that replaced it.
+const LEGACY_HEX = {
+  fbb127bbb056c959: "gemini-3.8-flash",
+  cf41b0e0dd7d53e5: "gemini-3.5-flash-lite",
+  "9d8ca3786ebdfbea": "gemini-3.1-pro",
 };
 
 /**
@@ -66,7 +77,7 @@ const HEX = {
  *
  * `mode` is the legacy inner[79] slot; the header's slot 14 carries the same
  * value and is what the server reads. Argon needs mode 8 - mode selects it, hex
- * alone returns 3.8 Flash.
+ * alone returns Flash.
  *
  * `needsCookie` gates the models that are silently downgraded for an anonymous
  * or free account. We still list them (the executor returns a clear error when
@@ -74,27 +85,28 @@ const HEX = {
  * occasional downgrade report.
  */
 export const GEMINI_WEB_MODELS = {
-  "gemini-3.6-flash": { hexID: HEX.flash36, mode: 1, needsCookie: false },
-  "gemini-3.5-flash-lite": { hexID: HEX.flashLite35, mode: 6, needsCookie: false },
-  "gemini-3.1-pro": { hexID: HEX.pro31, mode: 3, needsCookie: true },
-  "gemini-3.8-flash": { hexID: HEX.flash38, mode: 1, needsCookie: true },
+  "gemini-3.5-flash-lite": { hexID: HEX.flashLite, mode: 6, needsCookie: false },
+  "gemini-3.8-flash": { hexID: HEX.flash, mode: 1, needsCookie: true },
   // Google renamed 3.7 to 3.8 in place; the hex is identical.
-  "gemini-3.7-flash": { hexID: HEX.flash38, mode: 1, needsCookie: true, aliasOf: "gemini-3.8-flash" },
-  "gemini-4-argon": { hexID: HEX.argon4, mode: 8, needsCookie: true },
+  "gemini-3.7-flash": { hexID: HEX.flash, mode: 1, needsCookie: true, aliasOf: "gemini-3.8-flash" },
+  "gemini-3.6-flash": { hexID: HEX.flash, mode: 1, needsCookie: true, aliasOf: "gemini-3.8-flash" },
+  "gemini-3.1-pro": { hexID: HEX.pro, mode: 3, needsCookie: true },
+  "gemini-4-argon": { hexID: HEX.argon, mode: 8, needsCookie: true },
   // Extended thinking variants: orthogonal to the base models, so a
   // -thinking entry pairs with a base hex rather than being its own model.
-  "gemini-3.6-flash-thinking": { hexID: HEX.flash36, mode: 1, thinking: true, needsCookie: true },
-  "gemini-3.5-flash-lite-thinking": { hexID: HEX.flashLite35, mode: 6, thinking: true, needsCookie: true },
-  "gemini-3.1-pro-thinking": { hexID: HEX.pro31, mode: 3, thinking: true, needsCookie: true },
-  "gemini-3.8-flash-thinking": { hexID: HEX.flash38, mode: 1, thinking: true, needsCookie: true },
-  "gemini-3.7-flash-thinking": { hexID: HEX.flash38, mode: 1, thinking: true, needsCookie: true, aliasOf: "gemini-3.8-flash-thinking" },
-  "gemini-4-argon-thinking": { hexID: HEX.argon4, mode: 8, thinking: true, needsCookie: true },
+  "gemini-3.5-flash-lite-thinking": { hexID: HEX.flashLite, mode: 6, thinking: true, needsCookie: true },
+  "gemini-3.8-flash-thinking": { hexID: HEX.flash, mode: 1, thinking: true, needsCookie: true },
+  "gemini-3.7-flash-thinking": { hexID: HEX.flash, mode: 1, thinking: true, needsCookie: true, aliasOf: "gemini-3.8-flash-thinking" },
+  "gemini-3.6-flash-thinking": { hexID: HEX.flash, mode: 1, thinking: true, needsCookie: true, aliasOf: "gemini-3.8-flash-thinking" },
+  "gemini-3.1-pro-thinking": { hexID: HEX.pro, mode: 3, thinking: true, needsCookie: true },
+  "gemini-4-argon-thinking": { hexID: HEX.argon, mode: 8, thinking: true, needsCookie: true },
 };
 
-export const DEFAULT_MODEL = "gemini-3.6-flash";
+export const DEFAULT_MODEL = "gemini-3.8-flash";
 
 export function resolveGeminiWebModel(model) {
   const id = String(model ?? "").trim() || DEFAULT_MODEL;
+  if (LEGACY_HEX[id]) return resolveGeminiWebModel(LEGACY_HEX[id]);
   const cfg = GEMINI_WEB_MODELS[id];
   // Default thinking to false explicitly: callers branch on truthiness and a
   // missing key would read as undefined.
@@ -239,7 +251,8 @@ export function buildPromptWithTools(messages, body) {
   const toolMode = hasTools(body);
   if (!toolMode) return { prompt: buildGeminiPrompt(messages), toolMode: false };
   const instructions = buildToolInstructions(body, "fenced");
-  const reminder = buildToolReminder("fenced");
+  const { mode, forced } = selectableTools(body);
+  const reminder = buildToolReminder("fenced", { mode, forced });
   const transcript = renderToolTranscript(messages, "fenced");
   const base = buildGeminiPrompt(messages);
   const parts = [];
@@ -337,19 +350,19 @@ export function parseStreamReasoning(raw) {
 const SESSION_TTL_MS = 10 * 60 * 1000;
 const sessionCache = new Map(); // cookie -> { at, bl, expiresAt }
 
-async function fetchSessionParams(cookie, force = false) {
+async function fetchSessionParams(cookie, force = false, proxyOptions = null) {
   const hit = sessionCache.get(cookie);
   const now = Date.now();
   if (!force && hit && hit.expiresAt > now) return { at: hit.at, bl: hit.bl };
 
-  const res = await fetch(GEMINI_URL, {
+  const res = await geminiFetch(GEMINI_URL, {
     headers: {
       Cookie: cookie,
       "User-Agent": GEMINI_USER_AGENT,
       Accept: "text/html",
       "Accept-Language": "en-US,en;q=0.9",
     },
-  });
+  }, proxyOptions);
   if (!res.ok) return null;
   const html = await res.text();
   const m = html.match(/"SNlM0e":"([^"]+)"/) || html.match(/SNlM0e\\?":\\?"([^"\\]+)/);
@@ -391,6 +404,54 @@ function errorResponse(status, message) {
 }
 
 /**
+ * `fetch failed` alone hides every actionable detail: undici puts the real
+ * reason (ENOTFOUND, ECONNRESET, CERT_HAS_EXPIRED, ...) on err.cause. Without
+ * it a dead egress IP and a mangled cookie look identical to the operator.
+ */
+function describeFetchError(err) {
+  if (!(err instanceof Error)) return "unknown";
+  const cause = err.cause;
+  const detail = cause?.code || cause?.message;
+  if (!detail) return err.message;
+  return `${err.message} (${detail})`;
+}
+
+// Containers with a broken IPv6 route (Railway among them) fail the connect
+// phase for hosts that advertise AAAA records, which surfaces as a bare
+// "fetch failed" while the same request works from a laptop. Retrying once over
+// IPv4 turns that deployment bug into a working request.
+const IPV4_RETRY_CODES = new Set([
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+let ipv4Dispatcher = null;
+
+async function ipv4Fetch(url, options) {
+  if (!ipv4Dispatcher) {
+    const { Agent } = await import("undici");
+    ipv4Dispatcher = new Agent({ connect: { family: 4 } });
+  }
+  return fetch(url, { ...options, dispatcher: ipv4Dispatcher });
+}
+
+async function geminiFetch(url, options, proxyOptions) {
+  try {
+    return await proxyAwareFetch(url, options, proxyOptions);
+  } catch (err) {
+    const code = err?.cause?.code || err?.code;
+    if (!IPV4_RETRY_CODES.has(code)) throw err;
+    const proxied = proxyOptions?.connectionProxyUrl || proxyOptions?.url;
+    if (proxied) throw err;
+    return ipv4Fetch(url, options);
+  }
+}
+
+/**
  * Read the Bard stream to completion - or to the first parseable answer.
  *
  * StreamGenerate is chunked and Google frequently never closes it: the probe
@@ -402,7 +463,9 @@ function errorResponse(status, message) {
  * silence after the last byte, and a hard 150s ceiling (measured replies on this
  * box run 4-45s, but the same prompt has been observed at 108s).
  */
-async function readGeminiStream(res, externalSignal) {
+const END_FRAME_RE = /\[\["e",\d+/;
+
+export async function readGeminiStream(res, externalSignal) {
   if (!res.body) return "";
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -425,10 +488,10 @@ async function readGeminiStream(res, externalSignal) {
       lastData = Date.now();
       gotFirst = true;
       buf += decoder.decode(r.value, { stream: true });
-      // Stop on the first frame that carries an actual answer. Partial frames
-      // do not parse (parseStreamResponse walks complete wrb.fr lines), so a
-      // successful parse here means the reply is complete enough to return.
-      if (parseStreamResponse(buf)) break;
+      // Each mid-stream frame carries the answer so far, so parsing the first
+      // parseable frame returns a half-written reply - and cut tool-call JSON in
+      // half. Read until Google sends its terminal `["e",...]` frame instead.
+      if (END_FRAME_RE.test(buf)) break;
     }
   } catch {
     // Timeout/abort below: whatever accumulated is what we can use.
@@ -454,7 +517,7 @@ export class GeminiWebExecutor extends BaseExecutor {
     }
   }
 
-  async execute({ model, body, stream, credentials, signal, log }) {
+  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
     const bodyObj = body || {};
     const rawCreds = credentials || {};
     const cookie = normalizeGeminiCookieInput(rawCreds.apiKey || rawCreds.cookie || "");
@@ -472,10 +535,10 @@ export class GeminiWebExecutor extends BaseExecutor {
 
     let session;
     try {
-      session = await fetchSessionParams(cookie);
+      session = await fetchSessionParams(cookie, false, proxyOptions);
     } catch (err) {
       return {
-        response: errorResponse(502, `Gemini session fetch failed: ${err instanceof Error ? err.message : "unknown"}`),
+        response: errorResponse(502, `Gemini session fetch failed: ${describeFetchError(err)}`),
         url: GEMINI_URL,
         headers: {},
         transformedBody: body,
@@ -554,7 +617,7 @@ export class GeminiWebExecutor extends BaseExecutor {
       // it the server answers 400 immediately. It is bound to the cookie
       // session, so it has to be fetched per request rather than cached.
       if (session.at) form.set("at", session.at);
-      upstream = await fetch(`${STREAM_URL}?${params.toString()}`, {
+      upstream = await geminiFetch(`${STREAM_URL}?${params.toString()}`, {
         method: "POST",
         headers: {
           ...headers,
@@ -562,10 +625,10 @@ export class GeminiWebExecutor extends BaseExecutor {
         },
         body: form.toString(),
         signal: signal ?? undefined,
-      });
+      }, proxyOptions);
     } catch (err) {
       return {
-        response: errorResponse(502, `Gemini fetch failed: ${err instanceof Error ? err.message : "unknown"}`),
+        response: errorResponse(502, `Gemini fetch failed: ${describeFetchError(err)}`),
         url: GEMINI_URL,
         headers: {},
         transformedBody: body,
@@ -616,18 +679,23 @@ export class GeminiWebExecutor extends BaseExecutor {
       const base = { id, object: "chat.completion.chunk", created, model: modelId };
       const readable = new ReadableStream({
         start(controller) {
-          const push = (obj) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-          if (reasoning) push({ ...base, choices: [{ index: 0, delta: { reasoning_content: reasoning } }] });
-          if (content) push({ ...base, choices: [{ index: 0, delta: { content } }] });
+          const push = (delta, finishReason) =>
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, ...(finishReason ? { finish_reason: finishReason } : {}) }] })}\n\n`
+              )
+            );
+          if (reasoning) push({ reasoning_content: reasoning }, null);
+          if (content) push({ content }, null);
           let sentCalls = false;
           if (calls.length) {
             sentCalls = emitToolCallChunks(
-              (delta) => push({ ...base, choices: [{ index: 0, delta }] }),
-              () => push({ ...base, choices: [{ index: 0, delta: { role: "assistant", content: "" } }] }),
+              (delta, finishReason) => push(delta, finishReason),
+              () => push({ role: "assistant", content: "" }, null),
               calls
             );
           }
-          if (!sentCalls) push({ ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+          if (!sentCalls) push({}, "stop");
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         },
