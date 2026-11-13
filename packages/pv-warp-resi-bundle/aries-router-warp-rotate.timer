@@ -1,0 +1,10 @@
+[Unit]
+Description=Rotasi WARP fresh IP tiap hari
+
+[Timer]
+OnBootSec=5min
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
