@@ -7,7 +7,7 @@ WorkingDirectory=/home/ubuntu/proxyvault
 ExecStart=/home/ubuntu/venvs/proxyvault/bin/python run.py
 Environment=PV_PORT=8022
 Environment=PV_ADMIN_USER=admin
-Environment=PV_ADMIN_PASS=Ar13sV4ult2026
+Environment=PV_ADMIN_PASS=[REDACTED]
 Restart=on-failure
 RestartSec=5
 
