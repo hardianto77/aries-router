@@ -81,6 +81,35 @@ export async function deleteApiKey(id) {
   return (res?.changes ?? 0) > 0;
 }
 
+// Allowed-model patterns of a key, or null when the key may use every model.
+// Backed by the per-key access columns (accessRestricted + accessAllow JSON list);
+// the /v1/models listing reads these through getAllowedModelsOfKey.
+export function matchesAllowedModels(patterns, requestedModel) {
+  if (!patterns) return true;
+  const req = String(requestedModel || "").trim().toLowerCase();
+  if (!req) return false;
+  return patterns.some((allowed) => {
+    if (allowed === "*" || allowed === req) return true;
+    if (allowed.endsWith("*")) return req.startsWith(allowed.slice(0, -1));
+    if (allowed.startsWith("*")) return req.endsWith(allowed.slice(1));
+    return false;
+  });
+}
+
+export async function getAllowedModelsOfKey(key) {
+  const raw = typeof key === "string" ? key.trim() : "";
+  if (!raw) return null;
+  try {
+    const db = await getAdapter();
+    const row = db.get(`SELECT accessRestricted, accessAllow FROM apiKeys WHERE key = ?`, [raw]);
+    if (!row) return null;
+    const access = keyAccessFromColumns(row.accessRestricted, row.accessAllow);
+    return access.allow.length ? access.allow : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function validateApiKey(key) {
   const db = await getAdapter();
   const row = db.get(`SELECT isActive FROM apiKeys WHERE key = ?`, [key]);
