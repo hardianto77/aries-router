@@ -445,10 +445,14 @@ export default function ProxyPoolsPage() {
   const handlePvSync = async () => {
     setPvBusy(true);
     try {
-      const r = await fetch("/api/proxy-pools/pv-sync", { method: "POST" });
+      const r = await fetch("/api/proxy-pools/pv-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rotateWarp: true, allRotate: false }),
+      });
       const d = await r.json();
       if (d.success) {
-        notify.success("Sync OK: " + d.poolAdded + " proxies + WARP | " + d.rotatedProviders + " accounts rotated");
+        notify.success(`Sync OK: ${d.replacedFresh} proxy direct diinjeksi fresh, ${d.aliveKept} aktif terjaga (Strict 1-on-1, WARP: ${d.warpEgressIp || "Active"})`);
         await loadPvStatus();
       } else notify.error(d.error || "Sync failed");
     } catch (e) {

@@ -1,8 +1,0 @@
-[Unit]
-Description=Aries Router - ProxyVault/Residential pool sync (per-account, no groups)
-After=network.target aries-router.service
-
-[Service]
-Type=oneshot
-User=ubuntu
-ExecStart=/usr/bin/python3 /opt/aries-router/scripts/pv_pool_sync.py

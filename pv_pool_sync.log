@@ -1,0 +1,85 @@
+[PV] alive: 100
+[pool] PV rows: 100 + WARP = 101
+[rotate] non-TH: 2331 | TH recent: 0 | pool: 101
+[PV] alive: 100
+[pool] PV rows: 100 + WARP = 101
+[rotate] non-TH: 2332 | TH recent: 0 | pool: 101
+[PV] alive: 100
+[pool] PV rows: 100 + WARP = 101
+[rotate] non-TH: 2332 | TH recent: 0 | pool: 101
+[PV] alive: 100
+[pool] PV rows: 100 + WARP = 101
+[rotate] non-TH: 2332 | TH recent: 0 | pool: 101
+[PV] alive: 100
+[pool] PV rows: 100 + WARP = 101
+[rotate] non-TH: 2332 | TH recent: 0 | pool: 101
+[PV] alive: 100
+[pool] PV rows: 100 + WARP = 101
+[rotate] non-TH: 2332 | TH recent: 0 | pool: 101
+[PV] alive: 100
+[pool] PV rows: 100 + WARP = 101
+[rotate] non-TH: 2334 | TH recent: 0 | pool: 101
+[PV] alive: 100
+[pool] PV rows: 100 + WARP = 101
+[rotate] non-TH: 2334 | TH recent: 0 | pool: 101
+[PV] candidates: 260
+[PV] healthy: 56
+[WARP] alive: True
+[pool] total egress sehat: 57
+[pool] rows: 57 (WARP ON)
+[rotate] akun provider ter-assign: 76753
+[PV] candidates: 260
+[PV] healthy: 69
+[WARP] alive: True
+[pool] total egress sehat: 70
+[pool] rows: 70 (WARP ON)
+[rotate] akun provider ter-assign: 76755
+[PV] candidates: 260
+[PV] healthy: 66
+[WARP] alive: True
+[pool] total egress sehat: 67
+[pool] rows: 67 (WARP ON)
+[rotate] akun provider ter-assign: 76756
+[failover] pv_pool.json updated
+[PV] candidates: 260
+[PV] healthy: 70
+[WARP] alive: True
+[pool] total egress sehat: 71
+[pool] rows: 71 (WARP ON)
+[rotate] akun provider ter-assign: 76756
+[failover] pv_pool.json updated
+[PV] candidates: 260
+[PV] healthy: 59
+[WARP] alive: True
+[pool] total egress sehat: 60
+[pool] rows: 60 (WARP ON)
+[rotate] akun provider ter-assign: 151574
+[failover] pv_pool.json updated
+[PV] candidates: 260
+[PV] healthy: 75
+[WARP] alive: True
+[pool] total egress sehat: 76
+[pool] rows: 76 (WARP ON)
+[rotate] akun provider ter-assign: 151574
+[failover] pv_pool.json updated
+[PV] candidates: 260
+[PV] healthy: 60
+[WARP] alive: True
+[pool] total egress sehat: 61
+[pool] rows: 61 (WARP ON)
+[rotate] akun provider ter-assign: 600470
+[failover] pv_pool.json updated
+[PV] candidates: 120
+[PV] healthy: 27
+[WARP] alive: True
+[pool] total egress sehat: 28
+[pool] rows: 28 (WARP ON)
+[rotate] akun provider ter-assign: 1941
+[failover] pv_pool.json updated
+[PV] candidates: 120
+[PV] healthy: 33
+[WARP] alive: True
+[pool] total egress sehat: 34
+[pool] rows: 34 (WARP ON)
+[rotate] akun provider ter-assign: 1944
+[failover] pv_pool.json updated

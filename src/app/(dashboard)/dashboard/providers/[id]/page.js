@@ -107,6 +107,8 @@ export default function ProviderDetailPage() {
   const [showAgRiskModal, setShowAgRiskModal] = useState(false);
   const [oneByOneRunning, setOneByOneRunning] = useState(false);
   const [oneByOneStopping, setOneByOneStopping] = useState(false);
+  const [pvDirectSyncing, setPvDirectSyncing] = useState(false);
+  const [pvSyncStatusMsg, setPvSyncStatusMsg] = useState(null);
   const [oneByOneCurrentConnectionId, setOneByOneCurrentConnectionId] = useState(null);
   const [oneByOneResults, setOneByOneResults] = useState({});
   const [oneByOneSummary, setOneByOneSummary] = useState(null);
@@ -1035,6 +1037,35 @@ export default function ProviderDetailPage() {
         }
       }
     });
+  };
+
+  const handleSyncDirectProxy = async () => {
+    if (pvDirectSyncing) return;
+    setPvDirectSyncing(true);
+    setPvSyncStatusMsg("Sinkronisasi ProxyVault, Residensial Fresh & WARP Egress...");
+    try {
+      const res = await fetch("/api/proxy-pools/pv-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: provider?.id || "",
+          rotateWarp: true,
+          allRotate: false,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPvSyncStatusMsg(`Sync Sukses: ${data.replacedFresh} proxy diinjeksi fresh, ${data.aliveKept} aktif terjaga. Strict 1-on-1 (WARP: ${data.warpEgressIp || "Active"}).`);
+        await fetchConnections();
+      } else {
+        setPvSyncStatusMsg(`Gagal: ${data.error || "Gagal sinkronisasi"}`);
+      }
+    } catch (err) {
+      setPvSyncStatusMsg(`Error: ${err.message || "Network Error"}`);
+    } finally {
+      setPvDirectSyncing(false);
+      setTimeout(() => setPvSyncStatusMsg(null), 8000);
+    }
   };
 
   const handleBulkDelete = () => {
@@ -1972,6 +2003,18 @@ export default function ProviderDetailPage() {
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">Connections</h2>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              {connections.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  icon="refresh"
+                  onClick={handleSyncDirectProxy}
+                  disabled={pvDirectSyncing}
+                  className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                >
+                  {pvDirectSyncing ? "Syncing PV & WARP Fresh..." : "Sync PV & WARP Fresh"}
+                </Button>
+              )}
               {connections.length > 0 && proxyPools.length > 0 && (
                 <Button
                   size="sm"
@@ -2039,6 +2082,13 @@ export default function ProviderDetailPage() {
               </div>
             </div>
           </div>
+
+          {pvSyncStatusMsg && (
+            <div className="mb-4 flex items-center gap-2 p-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-600 dark:text-emerald-400 font-mono animate-in fade-in">
+              <span className="material-symbols-outlined text-[16px]">info</span>
+              <span>{pvSyncStatusMsg}</span>
+            </div>
+          )}
 
           {connections.length === 0 ? (
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

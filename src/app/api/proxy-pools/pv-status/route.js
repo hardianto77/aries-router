@@ -1,38 +1,55 @@
 import { NextResponse } from "next/server";
-import { readFile, stat } from "fs/promises";
-import { execFile } from "child_process";
-import { promisify } from "util";
+import fs from "node:fs";
+import { execFile } from "node:child_process";
 
 export const dynamic = "force-dynamic";
 
-const run = promisify(execFile);
+/**
+ * GET /api/proxy-pools/pv-status
+ * Pool state from pv_pool.json (written by pv_pool_sync.py).
+ * Per-account binding, no proxy groups.
+ */
+function warpIp() {
+  return new Promise((resolve) => {
+    execFile("curl", ["-s", "-m", "8", "--proxy", "http://127.0.0.1:8118", "https://api.ipify.org"],
+      (err, stdout) => resolve(err ? null : stdout.trim()));
+  });
+}
 
-/** GET /api/proxy-pools/pv-status — status singkat WARP + ProxyVault + sync terakhir */
-export async function GET(request) {
+export async function GET() {
   try {
-    const out = await run("sqlite3", ["/home/ubuntu/.aries-router/db/data.sqlite",
-      "select count(*) from proxyPools where isActive=1 and json_extract(data,'$.name') like 'PV-%'; select count(*) from proxyPools where isActive=1 and json_extract(data,'$.name')='WARP-egress-fresh'; select count(*) from proxyPools where isActive=1;"], { timeout: 20000 });
-    const [pv, warp, total] = out.stdout.trim().split("\n").map((n) => Number(n) || 0);
-    let warpIp = null;
-    try {
-      const log = await readFile("/home/ubuntu/warp_rotate.log", "utf8");
-      warpIp = (log.trim().split("\n").pop() || "").match(/egress: ([0-9.]+)/)?.[1] || null;
-    } catch {}
-    let lastSync = null;
-    try { lastSync = (await stat("/home/ubuntu/pv_pool_sync.log")).mtime.toISOString(); } catch {}
-    // Residential fresh count (resi-fresh-alive.txt ∩ pv_pool.json)
+    const pool = JSON.parse(fs.readFileSync("/home/ubuntu/.aries-router/pv_pool.json", "utf8"));
+    const urls = pool.urls || [];
+    const warpInPool = urls.includes("http://127.0.0.1:8118") ? 1 : 0;
+    const poolActive = urls.length;
+
     let resiTotal = 0, resiAlive = 0;
     try {
-      const fsM = await import("node:fs");
-      const resi = fsM.readFileSync("/home/ubuntu/resi-fresh-alive.txt", "utf8")
+      const resi = fs.readFileSync("/home/ubuntu/resi-fresh-alive.txt", "utf8")
         .split("\n").map((l) => l.trim().split(/\s+/)[0]).filter((l) => l.startsWith("http"));
       resiTotal = resi.length;
-      const pool = JSON.parse(fsM.readFileSync("/home/ubuntu/.aries-router/pv_pool.json", "utf8"));
-      const urls = new Set(pool.urls || []);
-      resiAlive = resi.filter((u) => urls.has(u)).length;
+      const set = new Set(urls);
+      resiAlive = resi.filter((u) => set.has(u)).length;
     } catch {}
-    return NextResponse.json({ success: true, pvActive: pv, warpInPool: warp, poolActive: total, warpIp, lastSync, resiTotal, resiAlive });
+
+    let lastSync = null;
+    try {
+      lastSync = fs.statSync("/home/ubuntu/.aries-router/pv_pool.json").mtime.toISOString();
+    } catch {}
+
+    const warpIpVal = await warpIp();
+    return NextResponse.json({
+      success: true,
+      pvActive: resiTotal ? resiAlive : poolActive,
+      resiAlive,
+      resiTotal,
+      warpInPool,
+      poolActive,
+      warpIp: warpIpVal,
+      lastSync,
+      mode: "Per-account proxy binding (no groups)",
+    });
   } catch (e) {
-    return NextResponse.json({ success: false, error: String(e.message || e).slice(0, 300) }, { status: 500 });
+    return NextResponse.json({ success: false, error: String(e.message || e) }, { status: 500 });
   }
 }

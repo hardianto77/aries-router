@@ -1,0 +1,391 @@
+[2026-11-12 18:00:02] Starting NineRouter Sovereign Residential Proxy Manager (Fast + Stable)...
+[2026-11-12 18:00:02] Collected 9597 raw proxy candidates.
+[2026-11-12 18:00:02] Stage 1: Rapid TCP & HTTPS CONNECT Pre-filter (auth-aware)...
+[2026-11-12 18:01:08] Stage 1 Complete: 638 proxies passed HTTPS CONNECT handshake.
+[2026-11-12 18:01:08] Stage 2: Strict Residential IP-API Audit (hosting: false)...
+[2026-11-12 18:01:34] Stage 2 Complete: 44 non-datacenter residential candidates.
+[2026-11-12 18:01:34] Stage 3: 3-Probe Stability & Speed Benchmark (HTTPS + api.z.ai TLS)...
+[2026-11-12 18:01:44] Stage 3 Complete: 21 FAST & STABLE unique-IP residential proxies (total stable=22, threshold<=3.0s).
+[2026-11-12 18:01:44] 9Router proxyPools synced: 21 fast+stable residential active, 320 stale/slow deactivated.
+[2026-11-12 18:01:44] Rotated 4830 connections across 16 providers (Direct 1-on-1, proxyPoolId = NULL):
+[2026-11-12 18:01:44]   - antigravity: 6 connections
+[2026-11-12 18:01:44]   - dahl: 1080 connections
+[2026-11-12 18:01:44]   - deepseek-web: 1 connections
+[2026-11-12 18:01:44]   - gemini: 1 connections
+[2026-11-12 18:01:44]   - gemini-jio-farm: 25 connections
+[2026-11-12 18:01:44]   - glm: 370 connections
+[2026-11-12 18:01:44]   - openai-compatible-chat-4958793d-e74a-4fc7-9bc6-f1475cf85d4f: 146 connections
+[2026-11-12 18:01:44]   - openai-compatible-chat-798de354-ac9f-4e96-addf-d19e19ec209a: 1 connections
+[2026-11-12 18:01:44]   - openai-compatible-chat-a38419f0-ae02-4b99-bf54-92b2e4c22960: 1 connections
+[2026-11-12 18:01:44]   - openai-compatible-chat-capinzo: 2 connections
+[2026-11-12 18:01:44]   - openai-compatible-chat-feb395a2-6af4-4a95-b8d2-0649b6b4147c: 3 connections
+[2026-11-12 18:01:44]   - openai-compatible-chat-freemodel: 1 connections
+[2026-11-12 18:01:44]   - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-12 18:01:44]   - openai-compatible-chat-upstage: 400 connections
+[2026-11-12 18:01:44]   - opencode: 1 connections
+[2026-11-12 18:01:44]   - tokenharbor: 2384 connections
+[2026-11-12 18:01:45] VERIFIED AUDIT: total=4830 | direct_1on1=4830 | conn_group_violators=0 | settings_group_violators=0
+[2026-11-12 21:00:02] Starting NineRouter Sovereign Residential Proxy Manager (Fast + Stable)...
+[2026-11-12 21:00:05] Collected 9806 raw proxy candidates.
+[2026-11-12 21:00:05] Stage 1: Rapid TCP & HTTPS CONNECT Pre-filter (auth-aware)...
+[2026-11-12 21:01:14] Stage 1 Complete: 319 proxies passed HTTPS CONNECT handshake.
+[2026-11-12 21:01:14] Stage 2: Strict Residential IP-API Audit (hosting: false)...
+[2026-11-12 21:01:27] Stage 2 Complete: 25 non-datacenter residential candidates.
+[2026-11-12 21:01:27] Stage 3: 3-Probe Stability & Speed Benchmark (HTTPS + api.z.ai TLS)...
+[2026-11-12 21:01:37] Stage 3 Complete: 16 FAST & STABLE unique-IP residential proxies (total stable=16, threshold<=3.0s).
+[2026-11-12 21:01:37] 9Router proxyPools synced: 16 fast+stable residential active, 326 stale/slow deactivated.
+[2026-11-12 21:01:38] Rotated 21215 connections across 16 providers (Direct 1-on-1, proxyPoolId = NULL):
+[2026-11-12 21:01:38]   - antigravity: 8 connections
+[2026-11-12 21:01:38]   - dahl: 1080 connections
+[2026-11-12 21:01:38]   - deepseek-web: 1 connections
+[2026-11-12 21:01:38]   - gemini: 1 connections
+[2026-11-12 21:01:38]   - gemini-jio-farm: 25 connections
+[2026-11-12 21:01:38]   - glm: 388 connections
+[2026-11-12 21:01:38]   - openai-compatible-chat-4958793d-e74a-4fc7-9bc6-f1475cf85d4f: 146 connections
+[2026-11-12 21:01:38]   - openai-compatible-chat-798de354-ac9f-4e96-addf-d19e19ec209a: 1 connections
+[2026-11-12 21:01:38]   - openai-compatible-chat-a38419f0-ae02-4b99-bf54-92b2e4c22960: 1 connections
+[2026-11-12 21:01:38]   - openai-compatible-chat-capinzo: 2 connections
+[2026-11-12 21:01:38]   - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 2 connections
+[2026-11-12 21:01:38]   - openai-compatible-chat-freemodel: 1 connections
+[2026-11-12 21:01:38]   - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-12 21:01:38]   - openai-compatible-chat-upstage: 400 connections
+[2026-11-12 21:01:38]   - opencode: 1 connections
+[2026-11-12 21:01:38]   - tokenharbor: 18750 connections
+[2026-11-12 21:01:38] VERIFIED AUDIT: total=21215 | direct_1on1=21215 | conn_group_violators=0 | settings_group_violators=0
+[2026-11-13 00:00:02] Starting NineRouter Sovereign Residential Proxy Manager (Fast + Stable)...
+[2026-11-13 00:00:02] Collected 9707 raw proxy candidates.
+[2026-11-13 00:00:02] Stage 1: Rapid TCP & HTTPS CONNECT Pre-filter (auth-aware)...
+[2026-11-13 00:01:11] Stage 1 Complete: 475 proxies passed HTTPS CONNECT handshake.
+[2026-11-13 00:01:11] Stage 2: Strict Residential IP-API Audit (hosting: false)...
+[2026-11-13 00:01:32] Stage 2 Complete: 38 non-datacenter residential candidates.
+[2026-11-13 00:01:32] Stage 3: 3-Probe Stability & Speed Benchmark (HTTPS + api.z.ai TLS)...
+[2026-11-13 00:01:40] Stage 3 Complete: 21 FAST & STABLE unique-IP residential proxies (total stable=21, threshold<=3.0s).
+[2026-11-13 00:01:40] 9Router proxyPools synced: 21 fast+stable residential active, 325 stale/slow deactivated.
+[2026-11-13 00:01:42] Rotated 77193 connections across 17 providers (Direct 1-on-1, proxyPoolId = NULL):
+[2026-11-13 00:01:42]   - antigravity: 8 connections
+[2026-11-13 00:01:42]   - dahl: 1080 connections
+[2026-11-13 00:01:42]   - deepseek-web: 1 connections
+[2026-11-13 00:01:42]   - gemini: 1 connections
+[2026-11-13 00:01:42]   - gemini-jio-farm: 25 connections
+[2026-11-13 00:01:42]   - glm: 395 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-798de354-ac9f-4e96-addf-d19e19ec209a: 1 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-a38419f0-ae02-4b99-bf54-92b2e4c22960: 1 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-freemodel: 1 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-kilo: 2 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-ovh: 2 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 00:01:42]   - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 00:01:42]   - opencode: 1 connections
+[2026-11-13 00:01:42]   - tokenharbor: 74862 connections
+[2026-11-13 00:01:43] VERIFIED AUDIT: total=77193 | direct_1on1=77193 | conn_group_violators=0 | settings_group_violators=0
+[2026-11-13 03:00:02] Starting NineRouter Sovereign Residential Proxy Manager (Fast + Stable)...
+[2026-11-13 03:00:02] Collected 10117 raw proxy candidates.
+[2026-11-13 03:00:02] Stage 1: Rapid TCP & HTTPS CONNECT Pre-filter (auth-aware)...
+[2026-11-13 03:01:14] Stage 1 Complete: 531 proxies passed HTTPS CONNECT handshake.
+[2026-11-13 03:01:14] Stage 2: Strict Residential IP-API Audit (hosting: false)...
+[2026-11-13 03:01:34] Stage 2 Complete: 35 non-datacenter residential candidates.
+[2026-11-13 03:01:34] Stage 3: 3-Probe Stability & Speed Benchmark (HTTPS + api.z.ai TLS)...
+[2026-11-13 03:01:42] Stage 3 Complete: 15 FAST & STABLE unique-IP residential proxies (total stable=15, threshold<=3.0s).
+[2026-11-13 03:01:42] 9Router proxyPools synced: 15 fast+stable residential active, 332 stale/slow deactivated.
+[2026-11-13 03:02:33] Rotated 1199435 connections across 17 providers (Direct 1-on-1, proxyPoolId = NULL):
+[2026-11-13 03:02:33]   - antigravity: 8 connections
+[2026-11-13 03:02:33]   - dahl: 1080 connections
+[2026-11-13 03:02:33]   - deepseek-web: 1 connections
+[2026-11-13 03:02:33]   - gemini: 1 connections
+[2026-11-13 03:02:33]   - gemini-jio-farm: 25 connections
+[2026-11-13 03:02:33]   - glm: 397 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-798de354-ac9f-4e96-addf-d19e19ec209a: 1 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-a38419f0-ae02-4b99-bf54-92b2e4c22960: 1 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-freemodel: 1 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-kilo: 2 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-ovh: 2 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 03:02:33]   - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 03:02:33]   - opencode: 1 connections
+[2026-11-13 03:02:33]   - tokenharbor: 1197102 connections
+[2026-11-13 03:02:55] VERIFIED AUDIT: total=1199435 | direct_1on1=1199435 | conn_group_violators=0 | settings_group_violators=0
+[2026-11-13 06:00:02] Starting NineRouter Sovereign Residential Proxy Manager (Fast + Stable)...
+[2026-11-13 06:00:02] Collected 10009 raw proxy candidates.
+[2026-11-13 06:00:02] Stage 1: Rapid TCP & HTTPS CONNECT Pre-filter (auth-aware)...
+[2026-11-13 06:01:12] Stage 1 Complete: 543 proxies passed HTTPS CONNECT handshake.
+[2026-11-13 06:01:12] Stage 2: Strict Residential IP-API Audit (hosting: false)...
+[2026-11-13 06:01:34] Stage 2 Complete: 41 non-datacenter residential candidates.
+[2026-11-13 06:01:34] Stage 3: 3-Probe Stability & Speed Benchmark (HTTPS + api.z.ai TLS)...
+[2026-11-13 06:01:50] Stage 3 Complete: 15 FAST & STABLE unique-IP residential proxies (total stable=15, threshold<=3.0s).
+[2026-11-13 06:01:51] 9Router proxyPools synced: 15 fast+stable residential active, 334 stale/slow deactivated.
+[2026-11-13 06:05:11] Rotated 1199438 connections across 17 providers (Direct 1-on-1, proxyPoolId = NULL):
+[2026-11-13 06:05:11]   - antigravity: 8 connections
+[2026-11-13 06:05:11]   - dahl: 1080 connections
+[2026-11-13 06:05:11]   - deepseek-web: 1 connections
+[2026-11-13 06:05:11]   - gemini: 1 connections
+[2026-11-13 06:05:11]   - gemini-jio-farm: 25 connections
+[2026-11-13 06:05:11]   - glm: 400 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-798de354-ac9f-4e96-addf-d19e19ec209a: 1 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-a38419f0-ae02-4b99-bf54-92b2e4c22960: 1 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-freemodel: 1 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-kilo: 2 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-ovh: 2 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 06:05:11]   - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 06:05:11]   - opencode: 1 connections
+[2026-11-13 06:05:11]   - tokenharbor: 1197102 connections
+[2026-11-13 06:06:36] VERIFIED AUDIT: total=1199438 | direct_1on1=1199438 | conn_group_violators=0 | settings_group_violators=0
+[2026-11-13 09:00:01] Starting NineRouter Sovereign Residential Proxy Manager (Fast + Stable)...
+[2026-11-13 09:00:02] Collected 9945 raw proxy candidates.
+[2026-11-13 09:00:02] Stage 1: Rapid TCP & HTTPS CONNECT Pre-filter (auth-aware)...
+[2026-11-13 09:01:12] Stage 1 Complete: 494 proxies passed HTTPS CONNECT handshake.
+[2026-11-13 09:01:12] Stage 2: Strict Residential IP-API Audit (hosting: false)...
+[2026-11-13 09:01:33] Stage 2 Complete: 26 non-datacenter residential candidates.
+[2026-11-13 09:01:33] Stage 3: 3-Probe Stability & Speed Benchmark (HTTPS + api.z.ai TLS)...
+[2026-11-13 09:01:46] Stage 3 Complete: 17 FAST & STABLE unique-IP residential proxies (total stable=17, threshold<=3.0s).
+[2026-11-13 09:01:46] 9Router proxyPools synced: 17 fast+stable residential active, 334 stale/slow deactivated.
+[2026-11-13 09:03:12] Rotated 1199451 connections across 17 providers (Direct 1-on-1, proxyPoolId = NULL):
+[2026-11-13 09:03:12]   - antigravity: 8 connections
+[2026-11-13 09:03:12]   - dahl: 1080 connections
+[2026-11-13 09:03:12]   - deepseek-web: 1 connections
+[2026-11-13 09:03:12]   - gemini: 1 connections
+[2026-11-13 09:03:12]   - gemini-jio-farm: 25 connections
+[2026-11-13 09:03:12]   - glm: 413 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-798de354-ac9f-4e96-addf-d19e19ec209a: 1 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-a38419f0-ae02-4b99-bf54-92b2e4c22960: 1 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-freemodel: 1 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-kilo: 2 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-ovh: 2 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 09:03:12]   - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 09:03:12]   - opencode: 1 connections
+[2026-11-13 09:03:12]   - tokenharbor: 1197102 connections
+[2026-11-13 09:04:02] VERIFIED AUDIT: total=1199451 | direct_1on1=1199451 | conn_group_violators=0 | settings_group_violators=0
+[2026-11-13 12:00:01] Starting NineRouter Sovereign Residential Proxy Manager (Fast + Stable)...
+[2026-11-13 12:00:02] Collected 8875 raw proxy candidates.
+[2026-11-13 12:00:02] Stage 1: Rapid TCP & HTTPS CONNECT Pre-filter (auth-aware)...
+[2026-11-13 12:01:02] Stage 1 Complete: 587 proxies passed HTTPS CONNECT handshake.
+[2026-11-13 12:01:02] Stage 2: Strict Residential IP-API Audit (hosting: false)...
+[2026-11-13 12:01:27] Stage 2 Complete: 70 non-datacenter residential candidates.
+[2026-11-13 12:01:27] Stage 3: 3-Probe Stability & Speed Benchmark (HTTPS + api.z.ai TLS)...
+[2026-11-13 12:01:38] Stage 3 Complete: 27 FAST & STABLE unique-IP residential proxies (total stable=30, threshold<=3.0s).
+[2026-11-13 12:01:38] 9Router proxyPools synced: 27 fast+stable residential active, 332 stale/slow deactivated.
+[2026-11-13 12:01:39] Rotated 4700 connections across 17 providers (Direct 1-on-1, proxyPoolId = NULL):
+[2026-11-13 12:01:39]   - antigravity: 8 connections
+[2026-11-13 12:01:39]   - dahl: 1080 connections
+[2026-11-13 12:01:39]   - deepseek-web: 1 connections
+[2026-11-13 12:01:39]   - gemini: 1 connections
+[2026-11-13 12:01:39]   - gemini-jio-farm: 25 connections
+[2026-11-13 12:01:39]   - glm: 423 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-798de354-ac9f-4e96-addf-d19e19ec209a: 1 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-a38419f0-ae02-4b99-bf54-92b2e4c22960: 1 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-freemodel: 1 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-kilo: 2 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-ovh: 2 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 12:01:39]   - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 12:01:39]   - opencode: 1 connections
+[2026-11-13 12:01:39]   - tokenharbor: 2341 connections
+[2026-11-13 12:01:39] VERIFIED AUDIT: total=4700 | direct_1on1=4700 | conn_group_violators=0 | settings_group_violators=0
+/home/ubuntu/venvs/zai/bin/python: can't open file '/home/ubuntu/nine_router_proxy_manager.py': [Errno 2] No such file or directory
+/home/ubuntu/venvs/zai/bin/python: can't open file '/home/ubuntu/nine_router_proxy_manager.py': [Errno 2] No such file or directory
+[2026-11-13 18:59:48] [*] Running nine_router_proxy_manager...
+[2026-11-13 19:00:02] [*] Active proxy pool available: 27
+[2026-11-13 19:00:02] [*] Total connections in DB: 21039
+[2026-11-13 19:00:24] [*] Running nine_router_proxy_manager...
+[2026-11-13 19:00:39] [*] Active proxy pool available: 29
+[2026-11-13 19:00:39] [*] Total connections in DB: 21039
+[2026-11-13 19:00:39] [-] Note on settings purge: no such column: key
+[2026-11-13 19:00:40] [✓] Successfully enforced direct 1-on-1 proxy across 21039 connections.
+[2026-11-13 19:00:40]     - tokenharbor: 18707 connections
+[2026-11-13 19:00:40]     - dahl: 1080 connections
+[2026-11-13 19:00:40]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 19:00:40]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 19:00:40]     - glm: 382 connections
+[2026-11-13 19:00:40]     - gemini-jio-farm: 25 connections
+[2026-11-13 19:00:40]     - antigravity: 11 connections
+[2026-11-13 19:00:40]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-13 19:00:40]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 19:00:40]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 19:00:40] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-13 20:02:17] [*] Running nine_router_proxy_manager...
+[2026-11-13 20:02:29] [*] Active proxy pool available: 28
+[2026-11-13 20:02:29] [*] Total connections in DB: 21043
+[2026-11-13 20:02:30] [-] Note on settings purge: no such column: key
+[2026-11-13 20:02:30] [✓] Successfully enforced direct 1-on-1 proxy across 21043 connections.
+[2026-11-13 20:02:30]     - tokenharbor: 18707 connections
+[2026-11-13 20:02:30]     - dahl: 1080 connections
+[2026-11-13 20:02:30]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 20:02:30]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 20:02:30]     - glm: 385 connections
+[2026-11-13 20:02:30]     - gemini-jio-farm: 25 connections
+[2026-11-13 20:02:30]     - antigravity: 11 connections
+[2026-11-13 20:02:30]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-13 20:02:30]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 20:02:30]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 20:02:30] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-13 20:17:03] [*] Running nine_router_proxy_manager...
+[2026-11-13 20:17:17] [*] Active proxy pool available: 34
+[2026-11-13 20:17:17] [*] Total connections in DB: 21045
+[2026-11-13 20:17:18] [-] Note on settings purge: no such column: key
+[2026-11-13 20:17:18] [✓] Successfully enforced direct 1-on-1 proxy across 21045 connections.
+[2026-11-13 20:17:18]     - tokenharbor: 18707 connections
+[2026-11-13 20:17:18]     - dahl: 1080 connections
+[2026-11-13 20:17:18]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 20:17:18]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 20:17:18]     - glm: 387 connections
+[2026-11-13 20:17:18]     - gemini-jio-farm: 25 connections
+[2026-11-13 20:17:18]     - antigravity: 11 connections
+[2026-11-13 20:17:18]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-13 20:17:18]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 20:17:18]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 20:17:18] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-13 20:19:07] [*] Running nine_router_proxy_manager...
+[2026-11-13 20:19:19] [*] Active proxy pool available: 31
+[2026-11-13 20:19:20] [*] Total connections in DB: 21046
+[2026-11-13 20:19:21] [-] Note on settings purge: no such column: key
+[2026-11-13 20:19:21] [✓] Successfully enforced direct 1-on-1 proxy across 21046 connections.
+[2026-11-13 20:19:21]     - tokenharbor: 18707 connections
+[2026-11-13 20:19:21]     - dahl: 1080 connections
+[2026-11-13 20:19:21]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 20:19:21]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 20:19:21]     - glm: 388 connections
+[2026-11-13 20:19:21]     - gemini-jio-farm: 25 connections
+[2026-11-13 20:19:21]     - antigravity: 11 connections
+[2026-11-13 20:19:21]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-13 20:19:21]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 20:19:21]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 20:19:21] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-13 21:00:02] [*] Running nine_router_proxy_manager...
+[2026-11-13 21:00:14] [*] Active proxy pool available: 31
+[2026-11-13 21:00:14] [*] Total connections in DB: 21052
+[2026-11-13 21:00:14] [-] Note on settings purge: no such column: key
+[2026-11-13 21:00:14] [✓] Successfully enforced direct 1-on-1 proxy across 21052 connections.
+[2026-11-13 21:00:14]     - tokenharbor: 18707 connections
+[2026-11-13 21:00:14]     - dahl: 1080 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 21:00:14]     - glm: 394 connections
+[2026-11-13 21:00:14]     - gemini-jio-farm: 25 connections
+[2026-11-13 21:00:14]     - antigravity: 11 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 21:00:14] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-13 21:00:02] [*] Running nine_router_proxy_manager...
+[2026-11-13 21:00:14] [*] Active proxy pool available: 31
+[2026-11-13 21:00:14] [*] Total connections in DB: 21052
+[2026-11-13 21:00:14] [-] Note on settings purge: no such column: key
+[2026-11-13 21:00:14] [✓] Successfully enforced direct 1-on-1 proxy across 21052 connections.
+[2026-11-13 21:00:14]     - tokenharbor: 18707 connections
+[2026-11-13 21:00:14]     - dahl: 1080 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-13 21:00:14]     - glm: 394 connections
+[2026-11-13 21:00:14]     - gemini-jio-farm: 25 connections
+[2026-11-13 21:00:14]     - antigravity: 11 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-13 21:00:14]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-13 21:00:14] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-14 00:00:02] [*] Running nine_router_proxy_manager...
+[2026-11-14 00:00:15] [*] Active proxy pool available: 28
+[2026-11-14 00:00:15] [*] Total connections in DB: 77172
+[2026-11-14 00:00:16] [-] Note on settings purge: no such column: key
+[2026-11-14 00:00:17] [✓] Successfully enforced direct 1-on-1 proxy across 77172 connections.
+[2026-11-14 00:00:17]     - tokenharbor: 74819 connections
+[2026-11-14 00:00:17]     - dahl: 1080 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-14 00:00:17]     - glm: 401 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-14 00:00:17]     - gemini-jio-farm: 25 connections
+[2026-11-14 00:00:17]     - antigravity: 11 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-14 00:00:17] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-14 00:00:02] [*] Running nine_router_proxy_manager...
+[2026-11-14 00:00:15] [*] Active proxy pool available: 28
+[2026-11-14 00:00:15] [*] Total connections in DB: 77172
+[2026-11-14 00:00:16] [-] Note on settings purge: no such column: key
+[2026-11-14 00:00:17] [✓] Successfully enforced direct 1-on-1 proxy across 77172 connections.
+[2026-11-14 00:00:17]     - tokenharbor: 74819 connections
+[2026-11-14 00:00:17]     - dahl: 1080 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-14 00:00:17]     - glm: 401 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-14 00:00:17]     - gemini-jio-farm: 25 connections
+[2026-11-14 00:00:17]     - antigravity: 11 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-14 00:00:17]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-14 00:00:17] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-14 02:24:37] [*] Running nine_router_proxy_manager...
+[2026-11-14 02:24:51] [*] Active proxy pool available: 30
+[2026-11-14 02:24:51] [*] Total connections in DB: 151995
+[2026-11-14 02:24:55] [-] Note on settings purge: no such column: key
+[2026-11-14 02:24:55] [✓] Successfully enforced direct 1-on-1 proxy across 151995 connections.
+[2026-11-14 02:24:55]     - tokenharbor: 149635 connections
+[2026-11-14 02:24:55]     - dahl: 1080 connections
+[2026-11-14 02:24:55]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-14 02:24:55]     - glm: 408 connections
+[2026-11-14 02:24:55]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-14 02:24:55]     - gemini-jio-farm: 25 connections
+[2026-11-14 02:24:55]     - antigravity: 11 connections
+[2026-11-14 02:24:55]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-14 02:24:55]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-14 02:24:55]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-14 02:24:55] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-14 02:55:57] [*] Running nine_router_proxy_manager...
+[2026-11-14 02:56:03] [*] Active proxy pool available: 16
+[2026-11-14 02:56:03] [*] Total connections in DB: 2361
+[2026-11-14 02:56:03] [-] Note on settings purge: no such column: key
+[2026-11-14 02:56:03] [✓] Successfully enforced direct 1-on-1 proxy across 2361 connections.
+[2026-11-14 02:56:03]     - dahl: 1080 connections
+[2026-11-14 02:56:03]     - glm: 409 connections
+[2026-11-14 02:56:03]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-14 02:56:03]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-14 02:56:03]     - gemini-jio-farm: 25 connections
+[2026-11-14 02:56:03]     - antigravity: 11 connections
+[2026-11-14 02:56:03]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-14 02:56:03]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-14 02:56:03]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-14 02:56:03]     - openai-compatible-chat-kilo: 2 connections
+[2026-11-14 02:56:03] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-14 03:00:02] [*] Running nine_router_proxy_manager...
+[2026-11-14 03:00:08] [*] Active proxy pool available: 17
+[2026-11-14 03:00:08] [*] Total connections in DB: 2362
+[2026-11-14 03:00:08] [-] Note on settings purge: no such column: key
+[2026-11-14 03:00:08] [✓] Successfully enforced direct 1-on-1 proxy across 2362 connections.
+[2026-11-14 03:00:08]     - dahl: 1080 connections
+[2026-11-14 03:00:08]     - glm: 410 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-14 03:00:08]     - gemini-jio-farm: 25 connections
+[2026-11-14 03:00:08]     - antigravity: 11 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-kilo: 2 connections
+[2026-11-14 03:00:08] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.
+[2026-11-14 03:00:02] [*] Running nine_router_proxy_manager...
+[2026-11-14 03:00:08] [*] Active proxy pool available: 17
+[2026-11-14 03:00:08] [*] Total connections in DB: 2362
+[2026-11-14 03:00:08] [-] Note on settings purge: no such column: key
+[2026-11-14 03:00:08] [✓] Successfully enforced direct 1-on-1 proxy across 2362 connections.
+[2026-11-14 03:00:08]     - dahl: 1080 connections
+[2026-11-14 03:00:08]     - glm: 410 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-tokenjuice: 408 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-upstage: 400 connections
+[2026-11-14 03:00:08]     - gemini-jio-farm: 25 connections
+[2026-11-14 03:00:08]     - antigravity: 11 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-opencode-bridge: 11 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-e0df70bf-9c99-4a02-bc85-55bae1d81798: 3 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-capinzo: 2 connections
+[2026-11-14 03:00:08]     - openai-compatible-chat-kilo: 2 connections
+[2026-11-14 03:00:08] VERIFIED AUDIT: proxyPoolId = NULL across all rows. No group proxy active.

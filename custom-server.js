@@ -290,6 +290,41 @@ function onRequestFinished(req, res, ms) {
 }
 
 
+function handleSyncDirectProxyRequest(req, res) {
+  let rawBody = "";
+  req.on("data", (chunk) => { rawBody += chunk; });
+  req.on("end", () => {
+    let body = {};
+    try { body = JSON.parse(rawBody); } catch {}
+    const { execFile } = require("child_process");
+    const scriptPath = fs.existsSync("/opt/aries-router/scripts/sync_direct_proxies.py")
+      ? "/opt/aries-router/scripts/sync_direct_proxies.py"
+      : "/home/ubuntu/sync_direct_proxies.py";
+    const args = [scriptPath];
+    if (body.provider) args.push("--provider", String(body.provider).trim());
+    if (body.rotateWarp === false) args.push("--no-warp");
+    if (body.allRotate === true) args.push("--all-rotate");
+    if (body.dryRun === true) args.push("--dry-run");
+
+    execFile("python3", args, { timeout: 180000 }, (err, stdout, stderr) => {
+      res.setHeader("Content-Type", "application/json");
+      if (err) {
+        res.statusCode = 500;
+        return res.end(JSON.stringify({ success: false, error: String(err.message || err) }));
+      }
+      let parsed = null;
+      for (const line of stdout.trim().split("\n").reverse()) {
+        try {
+          parsed = JSON.parse(line);
+          if (parsed && parsed.success) break;
+        } catch {}
+      }
+      res.statusCode = 200;
+      return res.end(JSON.stringify(parsed || { success: true, log: stdout.slice(-1000) }));
+    });
+  });
+}
+
 // NextRequest-shaped view of a raw IncomingMessage: the guard reads only
 // headers.get(), nextUrl.pathname/searchParams, cookies, method and url.
 function toGuardRequest(req) {

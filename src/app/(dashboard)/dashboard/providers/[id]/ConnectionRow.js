@@ -17,14 +17,15 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   const proxyPoolMap = new Map((proxyPools || []).map((pool) => [pool.id, pool]));
   const boundProxyPoolId = connection.providerSpecificData?.proxyPoolId || null;
   const boundProxyPool = boundProxyPoolId ? proxyPoolMap.get(boundProxyPoolId) : null;
-  const hasLegacyProxy = connection.providerSpecificData?.connectionProxyEnabled === true && !!connection.providerSpecificData?.connectionProxyUrl;
+  const hasLegacyProxy = (connection.providerSpecificData?.connectionProxyEnabled === true || connection.connectionProxyEnabled === true) && !!(connection.providerSpecificData?.connectionProxyUrl || connection.connectionProxyUrl);
   const hasAnyProxy = !!boundProxyPoolId || hasLegacyProxy;
+  const directProxyUrl = connection.providerSpecificData?.connectionProxyUrl || connection.connectionProxyUrl || "";
   const proxyDisplayText = boundProxyPool
     ? `Pool: ${boundProxyPool.name}`
     : boundProxyPoolId
       ? `Pool: ${boundProxyPoolId} (inactive/missing)`
       : hasLegacyProxy
-        ? `Legacy: ${connection.providerSpecificData?.connectionProxyUrl}`
+        ? `Direct: ${directProxyUrl}`
         : "";
   const autoPingTooltip = (() => {
     if (!autoPing) return "";
@@ -40,8 +41,9 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   })();
 
   let maskedProxyUrl = "";
-  if (boundProxyPool?.proxyUrl || connection.providerSpecificData?.connectionProxyUrl) {
-    const rawProxyUrl = boundProxyPool?.proxyUrl || connection.providerSpecificData?.connectionProxyUrl;
+  const effectiveDirectUrl = connection.providerSpecificData?.connectionProxyUrl || connection.connectionProxyUrl;
+  if (boundProxyPool?.proxyUrl || effectiveDirectUrl) {
+    const rawProxyUrl = boundProxyPool?.proxyUrl || effectiveDirectUrl;
     try {
       const parsed = new URL(rawProxyUrl);
       maskedProxyUrl = `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}`;
@@ -50,12 +52,12 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
     }
   }
 
-  const noProxyText = boundProxyPool?.noProxy || connection.providerSpecificData?.connectionNoProxy || "";
+  const noProxyText = boundProxyPool?.noProxy || connection.providerSpecificData?.connectionNoProxy || connection.connectionNoProxy || "";
 
   let proxyBadgeVariant = "default";
-  if (boundProxyPool?.isActive === true) {
+  if (boundProxyPool?.isActive === true || (hasLegacyProxy && !boundProxyPoolId)) {
     proxyBadgeVariant = "success";
-  } else if (boundProxyPoolId || hasLegacyProxy) {
+  } else if (boundProxyPoolId) {
     proxyBadgeVariant = "error";
   }
 
