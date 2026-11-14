@@ -480,14 +480,14 @@ export default function ProvidersPage() {
 
   return (
     <PageShell>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <Button
           size="sm"
           variant="outline"
           icon="refresh"
           onClick={handleGlobalDirectProxySync}
           disabled={pvGlobalSyncing}
-          className="w-full sm:w-auto bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+          className="w-full sm:w-auto h-9 justify-center bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
           title="Sync ProxyVault + Residential fresh + WARP egress -> pool -> per-account rotation"
         >
           {pvGlobalSyncing ? "Syncing PV & WARP Fresh..." : "Sync PV & WARP Fresh"}
@@ -495,7 +495,7 @@ export default function ProvidersPage() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-8 rounded-lg border border-border bg-surface-2 px-2 text-xs text-text-main outline-none transition-colors hover:bg-surface-3"
+          className="h-9 w-full sm:w-auto rounded-lg border border-border bg-surface-2 px-3 text-sm text-text-main outline-none transition-colors hover:bg-surface-3"
           aria-label="Filter providers by connection status"
         >
           {STATUS_FILTER_OPTIONS.map((option) => (
@@ -505,6 +505,15 @@ export default function ProvidersPage() {
           ))}
         </select>
       </div>
+
+      {pvSyncInfo && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-text-muted">
+          <span className="material-symbols-outlined text-[16px] text-emerald-500">check_circle</span>
+          <span>
+            Pool <b>{pvSyncInfo.poolAdded}</b> egress &middot; Residential <b>{pvSyncInfo.resiAlive}/{pvSyncInfo.resiTotal}</b> &middot; <b>{pvSyncInfo.rotatedProviders}</b> accounts rotated &middot; WARP {pvSyncInfo.warpOk ? "OK" : "rotating"}
+          </span>
+        </div>
+      )}
 
       {!hasAnyResult && (
         <div className="text-center py-8 border border-dashed border-border rounded-xl">
