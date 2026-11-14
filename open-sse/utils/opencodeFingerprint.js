@@ -421,6 +421,129 @@ export function takeRenamedToolNames(body) {
   return renamedToolNames.get(body) || null;
 }
 
+export const OPENCODE_ENV_MARKER =
+  "<env>\n  Working directory: /workspace\n  Workspace root folder: /workspace\n</env>";
+
+const ENV_BLOCK_RE = /<env>([\s\S]*?)<\/env>/;
+const ENV_WORKDIR_RE = /Working directory:[^\n]*/i;
+const ENV_ROOT_RE = /Workspace root folder:[^\n]*/i;
+
+export function hasCompleteEnvBlock(value) {
+  if (typeof value !== "string") return false;
+  const match = value.match(ENV_BLOCK_RE);
+  if (!match) return false;
+  const inner = match[1];
+  return ENV_WORKDIR_RE.test(inner) && ENV_ROOT_RE.test(inner);
+}
+
+export function upgradeEnvBlock(text) {
+  if (typeof text !== "string") return text;
+  return text.replace(ENV_BLOCK_RE, (block, inner) => {
+    const hasWorkdir = ENV_WORKDIR_RE.test(inner);
+    const hasRoot = ENV_ROOT_RE.test(inner);
+    if (hasWorkdir && hasRoot) return block;
+
+    let upgraded = inner;
+    if (!hasWorkdir && !hasRoot) {
+      upgraded = `\n  Working directory: /workspace\n  Workspace root folder: /workspace\n`;
+    } else if (!hasRoot) {
+      upgraded = ENV_WORKDIR_RE.test(upgraded)
+        ? upgraded.replace(ENV_WORKDIR_RE, (line) => `${line}\n  Workspace root folder: /workspace`)
+        : `${upgraded.replace(/\s*$/, "")}\n  Workspace root folder: /workspace\n`;
+    } else if (!hasWorkdir) {
+      upgraded = ENV_ROOT_RE.test(upgraded)
+        ? upgraded.replace(ENV_ROOT_RE, (line) => `  Working directory: /workspace\n${line}`)
+        : `\n  Working directory: /workspace\n${upgraded}`;
+    }
+    return `<env>${upgraded}</env>`;
+  });
+}
+
+export function withEnvMarker(value) {
+  const text = typeof value === "string" ? value : "";
+  if (hasCompleteEnvBlock(text)) return text;
+  if (ENV_BLOCK_RE.test(text)) return upgradeEnvBlock(text);
+  return text.trim() ? `${text}\n\n${OPENCODE_ENV_MARKER}` : OPENCODE_ENV_MARKER;
+}
+
+export function applyFingerprintSystemPrompt(body) {
+  if (!body || typeof body !== "object") return;
+
+  if (body.system !== undefined) {
+    if (typeof body.system === "string") {
+      body.system = withEnvMarker(body.system);
+    } else if (Array.isArray(body.system)) {
+      const marked = body.system.some((block) => {
+        const text = typeof block === "string" ? block : block?.text;
+        return hasCompleteEnvBlock(text);
+      });
+      if (!marked) {
+        let upgradedAny = false;
+        const newSystem = body.system.map((block) => {
+          if (typeof block === "string") {
+            if (ENV_BLOCK_RE.test(block)) {
+              upgradedAny = true;
+              return upgradeEnvBlock(block);
+            }
+          } else if (block && typeof block === "object" && typeof block.text === "string") {
+            if (ENV_BLOCK_RE.test(block.text)) {
+              upgradedAny = true;
+              return { ...block, text: upgradeEnvBlock(block.text) };
+            }
+          }
+          return block;
+        });
+
+        if (upgradedAny) {
+          body.system = newSystem;
+        } else {
+          body.system = [...body.system, { type: "text", text: OPENCODE_ENV_MARKER }];
+        }
+      }
+    }
+    return;
+  }
+
+  if (body.instructions !== undefined) {
+    if (typeof body.instructions === "string") {
+      body.instructions = withEnvMarker(body.instructions);
+    }
+    return;
+  }
+
+  if (!Array.isArray(body.messages)) return;
+
+  const first = body.messages[0];
+  if (first?.role === "system") {
+    if (typeof first.content === "string") {
+      body.messages = [{ ...first, content: withEnvMarker(first.content) }, ...body.messages.slice(1)];
+      return;
+    }
+    if (Array.isArray(first.content)) {
+      const marked = first.content.some((part) => hasCompleteEnvBlock(part?.text));
+      if (!marked) {
+        let upgradedAny = false;
+        const newContent = first.content.map((part) => {
+          if (part && typeof part === "object" && typeof part.text === "string" && ENV_BLOCK_RE.test(part.text)) {
+            upgradedAny = true;
+            return { ...part, text: upgradeEnvBlock(part.text) };
+          }
+          return part;
+        });
+        if (upgradedAny) {
+          body.messages = [{ ...first, content: newContent }, ...body.messages.slice(1)];
+        } else {
+          body.messages = [
+            { ...first, content: [...first.content, { type: "text", text: OPENCODE_ENV_MARKER }] },
+            ...body.messages.slice(1),
+          ];
+        }
+      }
+      return;
+    }
+  }
+}
+
 // Response side -------------------------------------------------------------
 
 /** Restore caller tool spellings in supported response/event shapes. */

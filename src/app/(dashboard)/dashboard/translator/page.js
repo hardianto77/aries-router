@@ -246,7 +246,7 @@ export default function TranslatorPage() {
                   <span className="text-xs font-mono text-text-muted/60 w-4">{step.id}</span>
                   <h3 className="text-sm font-semibold text-text-main">{step.label}</h3>
                   <span className="text-xs text-text-muted/60 font-mono">{step.file}</span>
-                  {content && <span className="text-xs text-success">({content.length} chars)</span>}
+                  {content && <span className="text-xs text-green-500">({content.length} chars)</span>}
                 </button>
                 {!isExpanded && (
                   <div className="flex gap-1 shrink-0">
@@ -292,7 +292,7 @@ function MetaBadge({ label, value, color }) {
   const colors = {
     blue: "bg-blue-500/10 text-blue-500",
     orange: "bg-orange-500/10 text-orange-500",
-    green: "bg-success/10 text-success",
+    green: "bg-green-500/10 text-green-500",
     purple: "bg-purple-500/10 text-purple-500",
   };
   return (

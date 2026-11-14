@@ -7,15 +7,15 @@ import { useTaskStore } from "@/store/taskStore";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
 function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
   const borderColor = testStatus === "ok"
-    ? "border-success/40"
+    ? "border-green-500/40"
     : testStatus === "error"
-    ? "border-danger/40"
+    ? "border-red-500/40"
     : "border-border";
 
   const iconColor = testStatus === "ok"
-    ? "var(--color-success)"
+    ? "#22c55e"
     : testStatus === "error"
-    ? "var(--color-danger)"
+    ? "#ef4444"
     : undefined;
 
   return (
@@ -62,7 +62,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
       </div>
       <button
         onClick={onDeleteAlias}
-        className="p-1 hover:bg-danger rounded text-danger"
+        className="p-1 hover:bg-red-50 rounded text-red-500"
         title="Remove model"
       >
         <span className="material-symbols-outlined text-sm">delete</span>

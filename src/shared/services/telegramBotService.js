@@ -51,7 +51,7 @@ export async function getMainCaption(user) {
   const memoryMb = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
 
   return (
-    `<blockquote>⚡ <b>ARIES ROUTER CONTROLLER</b>\n` +
+    `<blockquote>⚡ <b>X ROUTER CONTROLLER</b>\n` +
     `v${APP_CONFIG.version || "0.0.1"} · Telegram Control Panel</blockquote>\n\n` +
     `╭──〔 TELEMETRI SISTEM 〕─\n` +
     `• <b>User:</b> ${username} (<code>${user?.id || "-"}</code>)\n` +
@@ -83,7 +83,7 @@ async function renderStatusView() {
   const memoryMb = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
 
   return (
-    `📊 <b>Aries Router System Telemetry</b>\n\n` +
+    `📊 <b>X Router System Telemetry</b>\n\n` +
     `• <b>Version:</b> <code>v${APP_CONFIG.version || "0.0.1"}</code>\n` +
     `• <b>Uptime:</b> ${formatUptime(process.uptime())}\n` +
     `• <b>Memory RSS:</b> ${memoryMb} MB\n` +
@@ -97,7 +97,7 @@ async function renderStatusView() {
 async function renderProvidersView() {
   const connections = await getProviderConnections().catch(() => []);
   if (connections.length === 0) {
-    return "ℹ️ <i>Tidak ada provider connection yang terdaftar di Aries Router.</i>";
+    return "ℹ️ <i>Tidak ada provider connection yang terdaftar di X Router.</i>";
   }
 
   const byProvider = {};
@@ -201,7 +201,7 @@ export async function configureTelegramBot() {
           }).catch(() => {});
         } else {
           await ctx.reply(
-            "⛔ <b>Akses Ditolak</b>\nAnda tidak memiliki otorisasi untuk mengontrol Aries Router ini.",
+            "⛔ <b>Akses Ditolak</b>\nAnda tidak memiliki otorisasi untuk mengontrol X Router ini.",
             { parse_mode: "HTML" }
           ).catch(() => {});
         }

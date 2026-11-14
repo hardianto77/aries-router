@@ -75,10 +75,6 @@ const COOLDOWN = {
  */
 export const ERROR_RULES = [
   // --- Text-based rules (checked first, order = priority) ---
-  { provider: "glm", text: "insufficient balance", backoff: true },
-  { provider: "glm", text: "1113", backoff: true },
-  { provider: "zcode", text: "insufficient balance", backoff: true },
-  { provider: "zcode", text: "1113", backoff: true },
   { provider: "codex", text: "model is not supported when using codex with a chatgpt account", cooldownMs: MAX_RATE_LIMIT_COOLDOWN_MS },
   { text: "no credentials",           cooldownMs: COOLDOWN.long },
   { text: "request not allowed",      cooldownMs: COOLDOWN.short },

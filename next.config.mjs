@@ -20,7 +20,7 @@ function stampBuild() {
     const heading = changelog.match(/^#\s+(v[0-9][^\s(]*)/m);
     if (heading) stamp.APP_RELEASE = process.env.APP_RELEASE || heading[1].trim();
   } catch {
-    stamp.APP_RELEASE = process.env.APP_RELEASE || "v0.0.1";
+    // No changelog in the build context: the release signal stays unknown.
   }
   return stamp;
 }
@@ -31,29 +31,21 @@ const tracingRoot = process.env.NEXT_TRACING_ROOT_MODE === "workspace"
   : projectRoot;
 const proxyClientMaxBodySize = process.env.NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE || "128mb";
 
-const externalPkgs = ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite", "open"];
-const tracingExcludes = {
-  "*": [
-    "./gitbook/**/*",
-    "**/AppData/Local/**/*",
-    "**/AppData/Roaming/**/*",
-    "**/.config/**/*",
-    "**/.codex/**/*",
-    "**/Cookies/**/*",
-  ],
-};
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Security: don't advertise the framework (pentest info finding).
-  compress: true,
-  poweredByHeader: false,
   distDir: process.env.NEXT_DIST_DIR || ".next",
   output: "standalone",
-  // Top-level keys for Next.js 15 / 16
-  outputFileTracingRoot: tracingRoot,
-  outputFileTracingExcludes: tracingExcludes,
-  serverExternalPackages: externalPkgs,
+  // `open` must stay external. It derives its own directory from `import.meta.url`, and
+  // webpack replaces that with the absolute path of the BUILD machine as a string literal.
+  // A release built on macOS therefore ships `file:///Users/.../open/index.js`, which
+  // `fileURLToPath` rejects on Windows ("File URL path must be absolute" - no drive
+  // letter). That throw happens at module scope, so every consumer of `open` dies on
+  // import - including xAI/Grok token refresh, which loads the OAuth service that imports
+  // it. Keeping it external preserves the real `import.meta.url` at runtime.
+  // @aws-sdk/credential-providers must stay external for the same class of reason: it reads
+  // ~/.aws/config and the SSO token cache from disk at runtime and resolves its credential
+  // plugins by dynamic require, neither of which survives bundling.
+  serverExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite", "open", "@aws-sdk/credential-providers"],
   turbopack: {
     root: tracingRoot
   },
@@ -62,10 +54,26 @@ const nextConfig = {
   },
   env: stampBuild(),
   experimental: {
-    // Next 14 fallback keys
+    // Cap build workers: each worker loads the SQLite driver, and on a high-core
+    // host Next spawns enough of them to abort the build (SIGABRT) mid-prerender.
+    cpus: 4,
+    // Next 14 reads tracing keys here (top-level is Next 15+ and ignored with a
+    // warning). #4: also exclude Windows user-profile junctions (EPERM scandir
+    // AppData/Local/Application Data) plus roaming/config caches from NFT tracing.
     outputFileTracingRoot: tracingRoot,
-    outputFileTracingExcludes: tracingExcludes,
-    serverComponentsExternalPackages: externalPkgs,
+    outputFileTracingExcludes: {
+      "*": [
+        "./gitbook/**/*",
+        "**/AppData/Local/**/*",
+        "**/AppData/Roaming/**/*",
+        "**/.config/**/*",
+        "**/.codex/**/*",
+        "**/Cookies/**/*",
+      ],
+    },
+    // Next 14 reads this key (top-level serverExternalPackages is Next 15+ and
+    // ignored with a warning). Keep both so the db adapters stay external.
+    serverComponentsExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite", "open"],
     // #1529/#1572: LLM clients can send long context or base64 image payloads through /v1 rewrites.
     proxyClientMaxBodySize,
     // Cache fetch responses across HMR refreshes for faster dev reloads.
@@ -89,67 +97,15 @@ const nextConfig = {
       ignored: /[\\/](node_modules|\.git|logs|\.next|\.next-cli-build|gitbook|cli|open-sse\.old|tests|docs)[\\/]/,
     };
     // Defense in depth: bun:sqlite is never used on Node 22 runners, and the
-    // runtime import is already guarded + dynamic — keep it out of the bundle.
+    // runtime import is already guarded + dynamic - keep it out of the bundle.
     if (isServer) {
       config.externals = config.externals || [];
       if (!config.externals.includes("bun:sqlite")) config.externals.push("bun:sqlite");
     }
     return config;
   },
-  async headers() {
-    return [
-      {
-        source: "/:path*",
-        headers: [
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
-          { key: "X-DNS-Prefetch-Control", value: "on" },
-          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
-        ],
-      },
-      {
-        source: "/api/:path*",
-        headers: [{ key: "Cache-Control", value: "no-store, private" }],
-      },
-    ];
-  },
   async rewrites() {
     return [
-      {
-        source: "/v1/models/:path*",
-        destination: "/api/v1/models/:path*"
-      },
-      {
-        source: "/v1/models",
-        destination: "/api/v1/models"
-      },
-      {
-        source: "/models/:path*",
-        destination: "/api/v1/models/:path*"
-      },
-      {
-        source: "/models",
-        destination: "/api/v1/models"
-      },
-      {
-        source: "/model/:path*",
-        destination: "/api/v1/models/:path*"
-      },
-      {
-        source: "/model",
-        destination: "/api/v1/models"
-      },
-      {
-        source: "/v1/model/:path*",
-        destination: "/api/v1/models/:path*"
-      },
-      {
-        source: "/v1/model",
-        destination: "/api/v1/models"
-      },
       {
         source: "/v1/v1/:path*",
         destination: "/api/v1/:path*"

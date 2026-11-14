@@ -1,54 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%" fill="none">
-<defs>
-<linearGradient id="ariesIconGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-<stop offset="0%" stop-color="#FF3E00"/><stop offset="60%" stop-color="#FF7700"/><stop offset="100%" stop-color="#FFB300"/>
-</linearGradient>
-</defs>
-
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%" fill="none">
   <defs>
-    <linearGradient id="ariesIconGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#FF3E00" />
-      <stop offset="60%" stop-color="#FF7700" />
-      <stop offset="100%" stop-color="#FFB300" />
+    <linearGradient id="xr-orange" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#E25539"/>
+      <stop offset="100%" stop-color="#EB6446"/>
     </linearGradient>
   </defs>
-  
 
-  <!-- High-contrast rounded base -->
-  <rect x="2" y="2" width="60" height="60" rx="16" ry="16" fill="#080C14" stroke="#FF7700" stroke-width="1.5" stroke-opacity="0.4" />
+  <!-- Squircle container -->
+  <rect x="4" y="4" width="92" height="92" rx="22" fill="#18191C" stroke="#26282D" stroke-width="2"/>
 
-  <!-- Aries Ram Horns Routing Topology -->
-  <!-- Left Horn -->
-  <path d="M 32,46
-           C 32,37 27,29 21,24
-           C 16,19 10,21 9,26
-           C 8,31 12,36 17,35
-           C 20,34 22,31 21,29"
-        fill="none"
-        stroke="url(#ariesIconGrad)"
-        stroke-width="4.5"
-        stroke-linecap="round"
-        stroke-linejoin="round" />
+  <!-- Arms -->
+  <g stroke="url(#xr-orange)" stroke-linecap="round" stroke-width="7.5">
+    <line x1="26" y1="74" x2="44" y2="56" />
+    <line x1="26" y1="26" x2="44" y2="44" />
+    <line x1="56" y1="44" x2="72" y2="28" />
+    <line x1="56" y1="56" x2="72" y2="72" />
+  </g>
 
-  <!-- Right Horn -->
-  <path d="M 32,46
-           C 32,37 37,29 43,24
-           C 48,19 54,21 55,26
-           C 56,31 52,36 47,35
-           C 44,34 42,31 43,29"
-        fill="none"
-        stroke="url(#ariesIconGrad)"
-        stroke-width="4.5"
-        stroke-linecap="round"
-        stroke-linejoin="round" />
+  <!-- Arrowheads -->
+  <path d="M63 23 H77 V37 L70 30 Z" fill="#EB6446" />
+  <path d="M77 63 V77 H63 L70 70 Z" fill="#EB6446" />
 
-  <!-- Center Stem -->
-  <line x1="32" y1="36" x2="32" y2="52" stroke="url(#ariesIconGrad)" stroke-width="4.5" stroke-linecap="round" />
-
-  <!-- Central Hub Node -->
-  <circle cx="32" cy="36" r="3.5" fill="#FFFFFF" />
-  <!-- Horn Endpoints -->
-  <circle cx="21" cy="29" r="2" fill="#FFFFFF" />
-  <circle cx="43" cy="29" r="2" fill="#FFFFFF" />
-
+  <!-- Center Hub -->
+  <path fill-rule="evenodd" clip-rule="evenodd" 
+        d="M50 39.5 C44.2 39.5 39.5 44.2 39.5 50 C39.5 55.8 44.2 60.5 50 60.5 C55.8 60.5 60.5 55.8 60.5 50 C60.5 44.2 55.8 39.5 50 39.5 Z 
+           M50 45 C47.2 45 45 47.2 45 50 C45 52.8 47.2 55 50 55 C52.8 55 55 52.8 55 50 C55 47.2 52.8 45 50 45 Z" 
+        fill="url(#xr-orange)" />
 </svg>

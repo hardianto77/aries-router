@@ -593,7 +593,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 backdrop-blur-sm"
+        className="absolute inset-0 backdrop-blur-md"
         style={{ backgroundColor: "var(--color-scrim)" }}
         onClick={onClose}
       />
@@ -638,7 +638,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
               <span className="material-symbols-outlined text-3xl animate-spin text-primary">progress_activity</span>
             </div>
           ) : error ? (
-            <p className="text-danger">{error}</p>
+            <p className="text-red-500">{error}</p>
           ) : htmlBySource[shown] ? (
             <div dangerouslySetInnerHTML={{ __html: htmlBySource[shown] }} />
           ) : (

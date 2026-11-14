@@ -288,7 +288,7 @@ export default function UpdateBanner({ pollMs = POLL_MS }) {
             />
           ) : (
             <div className="text-center p-8">
-              <div className="flex items-center justify-center size-16 rounded-full bg-danger/20 text-danger mx-auto mb-4">
+              <div className="flex items-center justify-center size-16 rounded-full bg-red-500/20 text-red-500 mx-auto mb-4">
                 <span className="material-symbols-outlined text-[32px]">power_off</span>
               </div>
               <h2 className="text-xl font-semibold text-white mb-2">Server Disconnected</h2>

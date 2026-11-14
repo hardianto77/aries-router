@@ -87,7 +87,7 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
             </button>
             <button
               onClick={() => setModelValue("")}
-              className="p-2 text-text-muted hover:text-danger rounded transition-colors"
+              className="p-2 text-text-muted hover:text-red-500 rounded transition-colors"
               title="Clear"
             >
               <span className="material-symbols-outlined text-lg">close</span>
@@ -121,9 +121,9 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
             iconClass = "text-yellow-500";
             icon = "warning";
           } else if (isError) {
-            bgClass = "bg-danger/10 border-danger/30";
+            bgClass = "bg-red-500/10 border-red-500/30";
             textClass = "text-danger";
-            iconClass = "text-danger";
+            iconClass = "text-red-500";
             icon = "error";
           }
           

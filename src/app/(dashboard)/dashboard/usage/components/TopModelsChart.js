@@ -5,7 +5,7 @@ import PropTypes from "prop-types";
 import Card from "@/shared/components/Card";
 import ModelTierBadge from "@/shared/components/ModelTierBadge";
 
-const COLORS = ["#6366f1", "#14b8a6", "var(--color-warning)", "var(--color-danger)", "#8b5cf6"];
+const COLORS = ["#6366f1", "#14b8a6", "#f59e0b", "#ef4444", "#8b5cf6"];
 
 const fmtTokens = (n) => {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;

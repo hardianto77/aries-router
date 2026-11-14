@@ -94,7 +94,6 @@ const OAUTH_TEST_CONFIG = {
   kimi: { checkExpiry: true, refreshable: true },
   "kimi-coding": { checkExpiry: true, refreshable: true },
   cursor: { tokenExists: true },
-  glm: { tokenExists: true },
   kilocode: {
     url: `${KILOCODE_CONFIG.apiBaseUrl}/api/profile`,
     method: "GET",
@@ -642,23 +641,6 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
         };
       }
       case "glm": {
-        // If connection has ZCode JWT or start-plan configured, probe against ZCode start-plan endpoint
-        const isStartPlan = connection.providerSpecificData?.zcodeJwtToken || connection.providerSpecificData?.zcodePlan === "start-plan";
-        if (isStartPlan) {
-          const jwt = connection.providerSpecificData?.zcodeJwtToken || connection.apiKey;
-          const res = await fetchWithConnectionProxy("https://zcode.z.ai/api/v1/zcode-plan/billing/balance?app_version=3.17.1", {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${jwt}`,
-              "X-Platform": "win32-x64",
-              "X-ZCode-App-Version": "3.17.1",
-              "User-Agent": "ZCode/3.17.1 (Windows NT 10.0; Win64; x64)",
-              "Accept": "application/json"
-            }
-          }, effectiveProxy);
-          const valid = res.status !== 401 && res.status !== 403;
-          return { valid, error: valid ? null : "Invalid ZCode session or token" };
-        }
         const res = await fetchWithConnectionProxy("https://api.z.ai/api/anthropic/v1/messages", {
           method: "POST",
           headers: { "x-api-key": connection.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },

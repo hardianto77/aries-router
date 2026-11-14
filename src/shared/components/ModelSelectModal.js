@@ -747,14 +747,6 @@ export default function ModelSelectModal({
   const parsedQuery = useMemo(() => parseSearchQuery(searchQuery), [searchQuery]);
 
   // Filter combos by search query (and hide combos when kindFilter is set - combos are LLM-only by design)
-  const selectedSet = useMemo(() => {
-    const set = new Set();
-    (Array.isArray(addedModelValues) ? addedModelValues : []).forEach((v) => {
-      const n = typeof v === "string" ? v.trim().toLowerCase() : "";
-      if (n) set.add(n);
-    });
-    return set;
-  }, [addedModelValues]);
   const filteredCombos = useMemo(() => {
     if (kindFilter || capFilter) return [];
     let list = combos;
@@ -778,8 +770,8 @@ export default function ModelSelectModal({
 
   // Sort models alphabetically, with added models floated to top
   const sortModels = (models) => {
-    const added = models.filter((m) => isModelValueSelected(m.value, selectedSet)).sort((a, b) => a.name.localeCompare(b.name));
-    const rest = models.filter((m) => !isModelValueSelected(m.value, selectedSet)).sort((a, b) => a.name.localeCompare(b.name));
+    const added = models.filter((m) => isModelValueSelected(m.value, addedModelValues)).sort((a, b) => a.name.localeCompare(b.name));
+    const rest = models.filter((m) => !isModelValueSelected(m.value, addedModelValues)).sort((a, b) => a.name.localeCompare(b.name));
     return [...added, ...rest];
   };
 
@@ -841,7 +833,7 @@ export default function ModelSelectModal({
     }
 
     return filtered;
-  }, [groupedModels, parsedQuery, selectedSet, allowProviderWildcard, allowedModelPatterns, capFilter, getCaps, studioModels]);
+  }, [groupedModels, parsedQuery, addedModelValues, allowProviderWildcard, allowedModelPatterns, capFilter, getCaps, studioModels]);
 
   // FINAL DEDUPE: one chip per value per group. Prefer the registry (non-custom) chip so
   // clicking it turns the visible chip orange (added) instead of a hidden duplicate.
@@ -877,12 +869,12 @@ export default function ModelSelectModal({
 
   const visibleUnadded = useMemo(
     () => getModelBatchDelta(visibleModels, addedModelValues, "add"),
-    [visibleModels, selectedSet]
+    [visibleModels, addedModelValues]
   );
 
   const visibleAdded = useMemo(
     () => getModelBatchDelta(visibleModels, addedModelValues, "remove"),
-    [visibleModels, selectedSet]
+    [visibleModels, addedModelValues]
   );
 
   const visibleDeselectWouldClearAll = preventClearAll &&
@@ -920,7 +912,7 @@ export default function ModelSelectModal({
 
   const handleSelect = (model) => {
     const value = model?.value || model?.name || model;
-    const isAdded = isModelValueSelected(value, selectedSet);
+    const isAdded = isModelValueSelected(value, addedModelValues);
 
     if (isAdded && onDeselect) {
       if (preventClearAll && batchWouldClearAllSelectedValues([model], addedModelValues)) return;
@@ -1097,13 +1089,13 @@ export default function ModelSelectModal({
                       px-2 py-1 rounded-xl text-xs font-medium transition-all border hover:cursor-pointer flex items-center gap-1
                       ${isSelected
                         ? "bg-primary text-white border-primary"
-                        : isModelValueSelected(combo.name, selectedSet)
+                        : isModelValueSelected(combo.name, addedModelValues)
                           ? "bg-primary border-primary text-white hover:bg-primary-hover"
                           : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
                   >
-                    {isModelValueSelected(combo.name, selectedSet) && (
+                    {isModelValueSelected(combo.name, addedModelValues) && (
                       <span className="material-symbols-outlined leading-none" style={{ fontSize: "10px" }}>check</span>
                     )}
                     {combo.name}
@@ -1137,13 +1129,13 @@ export default function ModelSelectModal({
                       px-2 py-1 rounded-xl text-xs font-medium transition-all border hover:cursor-pointer flex items-center gap-1
                       ${isSelected
                         ? "bg-primary text-white border-primary"
-                        : isModelValueSelected(studio.callName, selectedSet)
+                        : isModelValueSelected(studio.callName, addedModelValues)
                           ? "bg-primary border-primary text-white hover:bg-primary-hover"
                           : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
                   >
-                    {isModelValueSelected(studio.callName, selectedSet) && (
+                    {isModelValueSelected(studio.callName, addedModelValues) && (
                       <span className="material-symbols-outlined leading-none" style={{ fontSize: "10px" }}>check</span>
                     )}
                     {studio.callName}
@@ -1161,7 +1153,7 @@ export default function ModelSelectModal({
         {/* Provider models */}
         {Object.entries(groupsFinal).map(([providerId, group]) => {
           const wildcardValue = `${group.alias || providerId}/*`;
-          const isWildcardAdded = allowProviderWildcard && isModelValueSelected(wildcardValue, selectedSet);
+          const isWildcardAdded = allowProviderWildcard && isModelValueSelected(wildcardValue, addedModelValues);
           const groupUnadded = getModelBatchDelta(group.models, addedModelValues, "add");
           const groupAdded = getModelBatchDelta(group.models, addedModelValues, "remove");
           const groupDeselectWouldClearAll = preventClearAll &&
@@ -1258,14 +1250,14 @@ export default function ModelSelectModal({
                         ? "border-dashed border-border text-text-muted hover:border-primary/50 hover:text-primary bg-surface italic"
                         : isSelected
                           ? "bg-primary text-white border-primary"
-                          : isModelValueSelected(model.value, selectedSet)
+                          : isModelValueSelected(model.value, addedModelValues)
                             ? "bg-primary border-primary text-white hover:bg-primary-hover"
                             : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
                   >
                     <span className="flex items-center gap-1">
-                      {isModelValueSelected(model.value, selectedSet) && !isPlaceholder && (
+                      {isModelValueSelected(model.value, addedModelValues) && !isPlaceholder && (
                         <span className="material-symbols-outlined leading-none" style={{ fontSize: "10px" }}>check</span>
                       )}
                       {isPlaceholder ? (

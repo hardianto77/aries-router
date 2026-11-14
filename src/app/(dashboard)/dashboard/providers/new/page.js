@@ -128,7 +128,7 @@ export default function NewProviderPage() {
           {/* Auth Method */}
           <div className="flex flex-col gap-3">
             <label className="text-sm font-medium">
-              Authentication Method <span className="text-danger">*</span>
+              Authentication Method <span className="text-red-500">*</span>
             </label>
             <div className="flex gap-3">
               {authMethodOptions.map((method) => (
@@ -196,7 +196,7 @@ export default function NewProviderPage() {
 
           {/* Error Message */}
           {errors.submit && (
-            <div className="p-4 rounded-lg bg-danger dark:bg-danger/20 border border-danger dark:border-danger text-danger dark:text-danger text-sm">
+            <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm">
               {errors.submit}
             </div>
           )}

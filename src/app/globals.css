@@ -750,7 +750,7 @@ button:disabled,
 /* GLASS-REWORK - Solid, non-transparent surfaces across all breakpoints */
 .dark.glass,
 .dark.glass body {
-  background-color: #0b0705 !important;
+  background-color: #06080e !important;
   background-image: none !important;
 }
 
@@ -768,66 +768,66 @@ button:disabled,
   display: none !important;
 }
 
-/* Sidebar: 100% opaque solid #120c09 */
+/* Sidebar: 100% opaque solid #0c0f17 */
 aside,
 .dark aside,
 .dark.glass aside,
 .dark .bg-sidebar,
 .dark.glass .bg-sidebar {
-  background-color: #120c09 !important;
-  background: #120c09 !important;
+  background-color: #0c0f17 !important;
+  background: #0c0f17 !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
   box-shadow: 1px 0 0 0 rgba(255, 255, 255, 0.03), 6px 0 28px rgba(0, 0, 0, 0.45);
 }
 
-/* Header: 100% opaque solid #1a110c */
+/* Header: 100% opaque solid #141722 */
 .dark.glass header {
-  background-color: #1a110c !important;
-  background: #1a110c !important;
+  background-color: #141722 !important;
+  background: #141722 !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 /* Surfaces: 100% solid, zero transparency */
 .dark.glass .bg-surface,
 .dark.glass [class*="bg-surface"]:not([class*="bg-surface-2"]):not([class*="bg-surface-3"]):not([class*="bg-surface/"]) {
-  background-color: #1a110c !important;
-  background: #1a110c !important;
+  background-color: #141722 !important;
+  background: #141722 !important;
   border-color: rgba(255, 255, 255, 0.09) !important;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.10), 0 8px 32px -4px rgba(0, 0, 0, 0.42);
 }
 
 .dark.glass .bg-surface-2,
 .dark.glass [class*="bg-surface-2"] {
-  background-color: #241610 !important;
-  background: #241610 !important;
+  background-color: #1c2130 !important;
+  background: #1c2130 !important;
   border-color: rgba(255, 255, 255, 0.07) !important;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
 }
 
 .dark.glass .bg-surface-3,
 .dark.glass [class*="bg-surface-3"] {
-  background-color: #2e1c14 !important;
-  background: #2e1c14 !important;
+  background-color: #252c40 !important;
+  background: #252c40 !important;
   border-color: rgba(255, 255, 255, 0.13) !important;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.14), 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-/* Override all fractional bg-surface utilities (/30, /40, /50, /60, /70, /95) to solid #241610 */
+/* Override all fractional bg-surface utilities (/30, /40, /50, /60, /70, /95) to solid #1c2130 */
 .dark.glass [class*="bg-surface/"] {
-  background-color: #241610 !important;
-  background: #241610 !important;
+  background-color: #1c2130 !important;
+  background: #1c2130 !important;
 }
 
 .dark.glass .bg-bg-alt {
-  background-color: #0d0906 !important;
-  background: #0d0906 !important;
+  background-color: #0f1118 !important;
+  background: #0f1118 !important;
 }
 
 .dark.glass [class*="bg-bg/"] {
-  background-color: #0d0906 !important;
-  background: #0d0906 !important;
+  background-color: #0f1118 !important;
+  background: #0f1118 !important;
 }
 
 /* The shell's opaque bg-bg */
@@ -838,13 +838,13 @@ aside,
 
 /* Tokens */
 .dark.glass {
-  --color-sidebar: #120c09;
+  --color-sidebar: #0c0f17;
   --color-scrim: rgba(4, 6, 11, 0.75);
-  --color-bg-base: #1a110c;
-  --color-bg-subtle: #0d0906;
-  --color-bg-secondary: #241610;
-  --color-bg-tertiary: #2e1c14;
-  --color-surface-secondary: #241610;
+  --color-bg-base: #141722;
+  --color-bg-subtle: #0f1118;
+  --color-bg-secondary: #1c2130;
+  --color-bg-tertiary: #252c40;
+  --color-surface-secondary: #1c2130;
   --color-border: rgba(255, 255, 255, 0.09);
   --color-border-subtle: rgba(255, 255, 255, 0.05);
   --color-border-hover: rgba(249, 115, 22, 0.55);
@@ -856,12 +856,12 @@ aside,
   aside,
   .dark aside,
   .dark.glass aside {
-    background-color: #120c09 !important;
-    background: #120c09 !important;
+    background-color: #0c0f17 !important;
+    background: #0c0f17 !important;
   }
   .dark.glass header {
-    background-color: #1a110c !important;
-    background: #1a110c !important;
+    background-color: #141722 !important;
+    background: #141722 !important;
   }
 }
 
@@ -869,8 +869,8 @@ aside,
 .dark.glass input,
 .dark.glass select,
 .dark.glass textarea {
-  background-color: #1a110c !important;
-  background: #1a110c !important;
+  background-color: #141722 !important;
+  background: #141722 !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
   color: #f8fafc !important;
 }
@@ -889,134 +889,4 @@ aside,
 }
 .dark.glass ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.28);
-}
-
-/* ===== Ocean Pop theme (colorhunt 2391FF/FFF83F/FFCD54/F70063) ===== */
-.dark.pop,
-.dark.pop body {
-  background-color: #06121f !important;
-  background-image: none !important;
-}
-.dark.pop {
-  --color-brand-50: #eaf4ff;
-  --color-brand-100: #d0e7ff;
-  --color-brand-200: #a3d1ff;
-  --color-brand-300: #6db4ff;
-  --color-brand-400: #3fa2ff;
-  --color-brand-500: #2391ff;
-  --color-brand-600: #1b74d1;
-  --color-brand-700: #145ca8;
-  --color-brand-800: #0f447e;
-  --color-brand-900: #0a2c52;
-  --color-primary: #2391ff;
-  --color-primary-hover: #1b74d1;
-  --color-border: rgba(35, 145, 255, 0.18);
-  --color-border-subtle: rgba(35, 145, 255, 0.12);
-  --color-border-hover: #2391ff;
-  --color-warning: #ffcd54;
-  --color-yellow-400: #fff83f;
-  --color-danger: #f70063;
-  --color-error: #f70063;
-}
-.dark.pop,
-.dark.pop *,
-.dark.pop *::before,
-.dark.pop *::after {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-.dark.pop aside,
-.dark.pop .bg-sidebar {
-  background-color: #0a1a2c !important;
-  background: #0a1a2c !important;
-  border-color: rgba(35, 145, 255, 0.14) !important;
-}
-.dark.pop header {
-  background-color: #081524 !important;
-  background: #081524 !important;
-  border-color: rgba(35, 145, 255, 0.12) !important;
-}
-.dark.pop .bg-surface,
-.dark.pop [class*="bg-surface"]:not([class*="bg-surface-2"]):not([class*="bg-surface-3"]) {
-  background-color: #0a1a2c !important;
-  background: #0a1a2c !important;
-  border-color: rgba(35, 145, 255, 0.13) !important;
-}
-.dark.pop .bg-surface-2,
-.dark.pop [class*="bg-surface-2"] {
-  background: #0e2138 !important;
-  border-color: rgba(35, 145, 255, 0.10) !important;
-}
-.dark.pop .bg-surface-3,
-.dark.pop [class*="bg-surface-3"] {
-  background: #122a45 !important;
-  border-color: rgba(35, 145, 255, 0.16) !important;
-}
-.dark.pop .landing-grid {
-  display: none !important;
-}
-
-/* ===== Sunset Marine theme (colorhunt 003049/D62828/F77F00/FCBF49) ===== */
-.dark.marine,
-.dark.marine body {
-  background-color: #02141f !important;
-  background-image: none !important;
-}
-.dark.marine {
-  --color-brand-50: #e5f1f7;
-  --color-brand-100: #c2dfee;
-  --color-brand-200: #8fc2d8;
-  --color-brand-300: #5699bc;
-  --color-brand-400: #2e77a0;
-  --color-brand-500: #003049;
-  --color-brand-600: #00253a;
-  --color-brand-700: #001c2d;
-  --color-brand-800: #001320;
-  --color-brand-900: #000a13;
-  --color-primary: #f77f00;
-  --color-primary-hover: #d96e00;
-  --color-border: rgba(247, 127, 0, 0.18);
-  --color-border-subtle: rgba(247, 127, 0, 0.12);
-  --color-border-hover: #f77f00;
-  --color-warning: #fcbf49;
-  --color-yellow-400: #fcbf49;
-  --color-danger: #d62828;
-  --color-error: #d62828;
-}
-.dark.marine,
-.dark.marine *,
-.dark.marine *::before,
-.dark.marine *::after {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-.dark.marine aside,
-.dark.marine .bg-sidebar {
-  background-color: #04202f !important;
-  background: #04202f !important;
-  border-color: rgba(247, 127, 0, 0.14) !important;
-}
-.dark.marine header {
-  background-color: #031824 !important;
-  background: #031824 !important;
-  border-color: rgba(247, 127, 0, 0.12) !important;
-}
-.dark.marine .bg-surface,
-.dark.marine [class*="bg-surface"]:not([class*="bg-surface-2"]):not([class*="bg-surface-3"]) {
-  background-color: #04202f !important;
-  background: #04202f !important;
-  border-color: rgba(247, 127, 0, 0.13) !important;
-}
-.dark.marine .bg-surface-2,
-.dark.marine [class*="bg-surface-2"] {
-  background: #062a3d !important;
-  border-color: rgba(247, 127, 0, 0.10) !important;
-}
-.dark.marine .bg-surface-3,
-.dark.marine [class*="bg-surface-3"] {
-  background: #08344c !important;
-  border-color: rgba(247, 127, 0, 0.16) !important;
-}
-.dark.marine .landing-grid {
-  display: none !important;
 }

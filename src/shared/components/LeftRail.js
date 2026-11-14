@@ -250,7 +250,7 @@ export default function LeftRail() {
         setExpandedGroup(null);
       }}
       className={cn(
-        "relative isolate hidden my-2.5 ml-2.5 h-[calc(100vh-20px)] flex-col rounded-[8px] border border-border bg-surface select-none lg:flex z-30 shrink-0 shadow-[var(--elev-1)]",
+        "relative isolate hidden my-2.5 ml-2.5 h-[calc(100vh-20px)] flex-col rounded-[8px] border border-border bg-surface select-none lg:flex z-30 shrink-0 shadow-lg",
         open ? "w-[240px] overflow-hidden" : "w-[58px]"
       )}
       aria-label="Application navigation"

@@ -11,7 +11,7 @@ const UPSTREAM_TIMEOUT_MS = 15000;
 // must settle inside this window. On breach the route answers the
 // curated fallback built at import time - no DB, no network - so a
 // stalled backend can never leave the provider panel blank.
-const ROUTE_TIMEOUT_MS = 30000;
+const ROUTE_TIMEOUT_MS = 12000;
 
 function routeTimeout() {
   return new Promise((_, reject) => {

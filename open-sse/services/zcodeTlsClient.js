@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { loadRuntimeDep } from "./lazyRuntime.js";
 
 // Hardened TLS-impersonating HTTP client for ZCode start-plan.
 // Emulates Chrome 131 BoringSSL / Post-Quantum TLS 1.3 ClientHello via wreq-js,
@@ -49,14 +48,6 @@ async function getWreqModule() {
     cachedWreq = normalizeWreq(globalThis.__xrouter_wreq__);
     return cachedWreq;
   }
-
-  try {
-    const lazyMod = await loadRuntimeDep("wreq-js");
-    if (isValidWreq(lazyMod)) {
-      cachedWreq = normalizeWreq(lazyMod);
-      return cachedWreq;
-    }
-  } catch {}
 
   const nativeReq = getNativeRequire();
 
@@ -116,7 +107,6 @@ async function getWreqModule() {
     }
 
     const directCandidates = [
-      "/opt/aries-router/node_modules/wreq-js/dist/wreq-js.cjs",
       path.resolve(cwd, "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
       path.resolve(cwd, ".next", "standalone", "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
       path.resolve(cwd, "..", "..", "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
@@ -155,7 +145,6 @@ async function getWreqModule() {
   // 4. Direct file URL import via dynamic import
   try {
     const directCandidates = [
-      "/opt/aries-router/node_modules/wreq-js/dist/wreq-js.cjs",
       path.resolve(cwd, "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
       path.resolve(cwd, ".next", "standalone", "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
       "/root/xrouter/.next/standalone/node_modules/wreq-js/dist/wreq-js.cjs",

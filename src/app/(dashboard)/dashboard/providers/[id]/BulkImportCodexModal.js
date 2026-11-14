@@ -142,14 +142,14 @@ export default function BulkImportCodexModal({ isOpen, onClose, onSuccess }) {
         />
 
         {parseError && (
-          <p className="text-xs text-danger break-words">{parseError}</p>
+          <p className="text-xs text-red-500 break-words">{parseError}</p>
         )}
 
         {result && (
           <div className="flex flex-col gap-2">
             <div
               className={`text-sm font-medium ${
-                result.failed > 0 ? "text-yellow-400" : "text-success"
+                result.failed > 0 ? "text-yellow-400" : "text-green-400"
               }`}
             >
               {result.success} {translate("added")}
@@ -158,7 +158,7 @@ export default function BulkImportCodexModal({ isOpen, onClose, onSuccess }) {
             {failedItems.length > 0 && (
               <ul className="rounded border border-accent/20 bg-sidebar/50 p-2 text-xs font-mono max-h-40 overflow-y-auto">
                 {failedItems.map((item) => (
-                  <li key={item.index} className="text-danger">
+                  <li key={item.index} className="text-red-400">
                     [{item.index}] {item.error}
                   </li>
                 ))}

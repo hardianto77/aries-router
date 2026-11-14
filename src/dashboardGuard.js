@@ -180,16 +180,6 @@ async function canAccessLocalOnlyRoute(request) {
   if (await hasValidCliToken(request)) return true;
   // Browser on host: loopback Host + Origin (blocks tunnel/CSRF) + auth (JWT or requireLogin=false)
   if (isLocalRequest(request) && await isAuthenticated(request)) return true;
-  // Read-only tailscale status check is safe for an authenticated dashboard session
-  // even when reached through the reverse proxy (Endpoint page Tailscale modal).
-  try {
-    const { pathname } = request.nextUrl;
-    if (pathname.startsWith("/api/tunnel/tailscale-") && await isAuthenticated(request)) return true;
-    // Tunnel enable/disable are spawn-capable but password-session-gated; the
-    // dashboard Endpoint page drives them from a browser behind the reverse
-    // proxy, so a loopback peer is never available there.
-    if ((pathname === "/api/tunnel/enable" || pathname === "/api/tunnel/disable") && await isAuthenticated(request)) return true;
-  } catch {}
   return false;
 }
 

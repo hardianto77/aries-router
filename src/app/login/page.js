@@ -40,14 +40,14 @@ function BrandPanel() {
         {/* Identity motif: the ember line. Repeats as the brand's one gesture. */}
         <div className="h-px w-16 bg-gradient-to-r from-primary to-transparent mb-6" aria-hidden="true" />
         <h2 className="text-[28px] leading-tight font-semibold tracking-tight text-text-main">
-          One endpoint for all your AI providers.
+          Satu endpoint untuk semua provider AI kamu.
         </h2>
         {/* Real facts about the product, no invented numbers (R-17, R-38). */}
         <ul className="mt-8 flex flex-col gap-3.5">
           {[
-            "Compatible with OpenAI and Anthropic",
-            "Multi-account fallback and key rotation",
-            "Runs on your own server",
+            "Kompatibel dengan OpenAI dan Anthropic",
+            "Fallback multi-akun dan rotasi key",
+            "Berjalan di server kamu sendiri",
           ].map((line) => (
             <li key={line} className="flex items-start gap-3 text-sm text-text-muted">
               <span className="mt-[7px] h-px w-4 shrink-0 bg-primary" aria-hidden="true" />
@@ -58,7 +58,7 @@ function BrandPanel() {
       </div>
 
       <p className="relative text-xs text-text-muted">
-        Dashboard and gateway in one process.
+        Dashboard dan gateway, satu proses.
       </p>
     </aside>
   );
@@ -305,7 +305,7 @@ export default function LoginPage() {
                 <Input
                   label="Password baru"
                   type="password"
-                  placeholder="Enter new password"
+                  placeholder="Masukkan password baru"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   error={error}
@@ -313,7 +313,7 @@ export default function LoginPage() {
                   autoFocus
                 />
                 <Button type="submit" variant="primary" className="w-full" loading={loading} disabled={!newPassword}>
-                  Save password
+                  Simpan password
                 </Button>
               </form>
             ) : (
@@ -321,15 +321,15 @@ export default function LoginPage() {
                 <div>
                   <h1 className="text-lg font-semibold text-text-main">
                     {samlAvailable
-                      ? "Sign in with SAML"
+                      ? "Masuk dengan SAML"
                       : oidcAvailable
-                      ? "Sign in with OIDC"
-                      : "Sign in to dashboard"}
+                      ? "Masuk dengan OIDC"
+                      : "Masuk ke dashboard"}
                   </h1>
                   <p className="text-sm text-text-muted mt-1">
                     {samlAvailable || oidcAvailable
-                      ? "Use your identity provider, or a password."
-                      : "Enter your password to continue."}
+                      ? "Pakai provider identitas kamu, atau password."
+                      : "Masukkan password untuk lanjut."}
                   </p>
                 </div>
 
@@ -357,7 +357,7 @@ export default function LoginPage() {
 
                     {authMode === "both" && ssoAvailable && (
                       <p className="text-xs text-text-muted">
-                        Both password and {activeSsoType === "saml" ? "SAML" : "OIDC"} are enabled.
+                        Password dan {activeSsoType === "saml" ? "SAML" : "OIDC"} dua-duanya aktif.
                       </p>
                     )}
 
@@ -393,7 +393,7 @@ export default function LoginPage() {
                             <input
                               id="xrouter-password"
                               type={showPassword ? "text" : "password"}
-                              placeholder="Enter password"
+                              placeholder="Masukkan password"
                               value={password}
                               onChange={(e) => setPassword(e.target.value)}
                               autoFocus={!oidcAvailable}
@@ -424,7 +424,7 @@ export default function LoginPage() {
                         {/* Petunjuk password default: klik chip untuk mengisi otomatis. */}
                         <div className="flex flex-col gap-1">
                           <p className="text-xs leading-5 text-text-muted">
-                            Default password:{" "}
+                            Password default:{" "}
                             <button
                               type="button"
                               onClick={() => { setPassword(DEFAULT_PASSWORD); setError(""); }}
@@ -435,7 +435,7 @@ export default function LoginPage() {
                             </button>
                           </p>
                           <p className="text-[11px] leading-4 text-text-subtle">
-                            Change it after first sign-in.
+                            Ganti setelah masuk pertama kali.
                           </p>
                         </div>
 
@@ -461,7 +461,7 @@ export default function LoginPage() {
                           autoFocus
                         />
                         <p className="text-xs text-text-muted">
-                          Sign in with an API Key that has been granted access to specific features.
+                          Masuk pakai API Key yang sudah diberi izin untuk membuka fitur tertentu.
                         </p>
                       </div>
                     )}
@@ -476,8 +476,8 @@ export default function LoginPage() {
                       {retryAfter > 0
                         ? `Tunggu ${retryAfter}s`
                         : loginMethod === "apikey"
-                        ? "Sign in with API Key"
-                        : "Sign in"}
+                        ? "Masuk dengan API Key"
+                        : "Masuk"}
                     </Button>
                   </form>
                 ) : (

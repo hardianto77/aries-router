@@ -24,7 +24,7 @@ const KAME_PARTICLE_COUNT = 6;
 const SPARK_COUNT = 5;
 
 function getProviderConfig(providerId) {
-  return AI_PROVIDERS[providerId] || { color: "var(--color-text-subtle)", name: providerId };
+  return AI_PROVIDERS[providerId] || { color: "#6b7280", name: providerId };
 }
 
 function getProviderImageUrl(providerId) {
@@ -103,7 +103,7 @@ function RouterNode({ data }) {
       className={`relative z-[1] flex items-center justify-center px-5 py-3 rounded-xl border-2 min-w-[130px] ${
         powering
           ? "topology-router-core border-yellow-300 bg-gradient-to-br from-primary/30 via-yellow-400/20 to-cyan-400/25"
-          : "border-primary bg-primary/5 shadow-[var(--elev-2)]"
+          : "border-primary bg-primary/5 shadow-md"
       }`}
     >
       <Handle type="source" position={Position.Top} id="top" className="!bg-transparent !border-0 !w-0 !h-0" />
@@ -293,9 +293,9 @@ function buildLayout(providers, activeSet, lastSet, errorSet) {
   });
 
   const edgeStyle = (active, last, error) => {
-    if (error) return { stroke: "var(--color-danger)", strokeWidth: 2.5, opacity: 0.9 };
+    if (error) return { stroke: "#ef4444", strokeWidth: 2.5, opacity: 0.9 };
     if (active) return { stroke: "#22d3ee", strokeWidth: 3.5, opacity: 1 };
-    if (last) return { stroke: "var(--color-warning)", strokeWidth: 2, opacity: 0.7 };
+    if (last) return { stroke: "#f59e0b", strokeWidth: 2, opacity: 0.7 };
     return { stroke: "var(--color-border)", strokeWidth: 1, opacity: 0.3 };
   };
 
@@ -307,7 +307,7 @@ function buildLayout(providers, activeSet, lastSet, errorSet) {
     const nodeId = `provider-${p.provider}`;
     const data = {
       label: (config.name !== p.provider ? config.name : null) || p.nodeName || p.name || p.provider,
-      color: config.color || "var(--color-text-subtle)",
+      color: config.color || "#6b7280",
       imageUrl: isCustomLogo(p.nodeLogo) || getProviderImageUrl(p.provider),
       textIcon: config.textIcon || (p.provider || "?").slice(0, 2).toUpperCase(),
       active,

@@ -71,8 +71,6 @@ export default {
     { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" },
     { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)" },
     // Image generation models
-    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", upstreamModelId: "gemini-2.5-flash" },
-    { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", upstreamModelId: "gemini-2.5-flash-lite" },
     { id: "gemini-3.1-flash-image", name: "Gemini 3.1 Flash (Image)", kind: "image", imageGen: true, capabilities: ["textToImage"] },
   ],
   oauth: {

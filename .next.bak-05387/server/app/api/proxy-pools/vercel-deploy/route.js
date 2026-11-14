@@ -1,0 +1,34 @@
+"use strict";(()=>{var e={};e.id=9017,e.ids=[9017,9112],e.modules={85890:e=>{e.exports=require("better-sqlite3")},20399:e=>{e.exports=require("next/dist/compiled/next-server/app-page.runtime.prod.js")},30517:e=>{e.exports=require("next/dist/compiled/next-server/app-route.runtime.prod.js")},80470:e=>{e.exports=require("sql.js")},67174:e=>{e.exports=require("bun:sqlite")},84770:e=>{e.exports=require("crypto")},17702:e=>{e.exports=require("events")},19801:e=>{e.exports=require("os")},55315:e=>{e.exports=require("path")},6005:e=>{e.exports=require("node:crypto")},87561:e=>{e.exports=require("node:fs")},49411:e=>{e.exports=require("node:path")},55467:e=>{e.exports=require("node:sqlite")},49977:(e,t,r)=>{r.r(t),r.d(t,{originalPathname:()=>v,patchFetch:()=>x,requestAsyncStorage:()=>g,routeModule:()=>P,serverHooks:()=>h,staticGenerationAsyncStorage:()=>m});var o={};r.r(o),r.d(o,{POST:()=>y,dynamic:()=>l});var a=r(49303),s=r(88716),n=r(60670),i=r(87070),d=r(39112);let l="force-dynamic",p="https://api.vercel.com",u=`
+export const config = { runtime: "edge" };
+
+export default async function handler(req) {
+  const target = req.headers.get("x-relay-target");
+  const relayPath = req.headers.get("x-relay-path") || "/";
+  if (!target) {
+    return new Response(JSON.stringify({ error: "Missing x-relay-target header" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  const targetUrl = target.replace(/\\/$/, "") + relayPath;
+
+  const rawHeaders = {};
+  for (const [k, v] of req.headers.entries()) rawHeaders[k] = v;
+  delete rawHeaders["x-relay-target"];
+  delete rawHeaders["x-relay-path"];
+  delete rawHeaders["host"];
+
+  const response = await fetch(targetUrl, {
+    method: req.method,
+    headers: rawHeaders,
+    body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
+    duplex: "half",
+  });
+
+  return new Response(response.body, {
+    status: response.status,
+    headers: response.headers,
+  });
+}
+`;async function c(e,t,r=12e4){let o=Date.now();for(;Date.now()-o<r;){let r=await fetch(`${p}/v13/deployments/${e}`,{headers:{Authorization:`Bearer ${t}`}}),o=await r.json();if("READY"===o.readyState)return o;if("ERROR"===o.readyState||"CANCELED"===o.readyState)throw Error(`Deployment failed: ${o.readyState}`);await new Promise(e=>setTimeout(e,3e3))}throw Error("Deployment timed out")}async function y(e){try{let t=await e.json(),r=t.vercelToken,o=t.projectName?.trim()||`relay-${Date.now().toString(36)}`;if(!r)return i.NextResponse.json({error:"Vercel API token is required"},{status:400});let a=await fetch(`${p}/v13/deployments`,{method:"POST",headers:{Authorization:`Bearer ${r}`,"Content-Type":"application/json"},body:JSON.stringify({name:o,files:[{file:"api/relay.js",data:u},{file:"package.json",data:JSON.stringify({name:o,version:"1.0.0"})},{file:"vercel.json",data:JSON.stringify({rewrites:[{source:"/(.*)",destination:"/api/relay"}]})}],projectSettings:{framework:null},target:"production"})});if(!a.ok){let e=await a.json().catch(()=>({}));return i.NextResponse.json({error:e.error?.message||"Failed to create Vercel deployment"},{status:a.status})}let s=await a.json(),n=s.id||s.uid,l=s.projectId||o;await fetch(`${p}/v9/projects/${l}`,{method:"PATCH",headers:{Authorization:`Bearer ${r}`,"Content-Type":"application/json"},body:JSON.stringify({ssoProtection:null})});let y=await c(n,r),P=`https://${y.url}`,g=await (0,d.createProxyPool)({name:o,proxyUrl:P,type:"vercel",noProxy:"",isActive:!0,strictProxy:!1});return i.NextResponse.json({proxyPool:g,deployUrl:P},{status:201})}catch(e){return console.log("Error deploying Vercel relay:",e),i.NextResponse.json({error:e.message||"Deploy failed"},{status:500})}}let P=new a.AppRouteRouteModule({definition:{kind:s.x.APP_ROUTE,page:"/api/proxy-pools/vercel-deploy/route",pathname:"/api/proxy-pools/vercel-deploy",filename:"route",bundlePath:"app/api/proxy-pools/vercel-deploy/route"},resolvedPagePath:"/opt/aries-router/src/app/api/proxy-pools/vercel-deploy/route.js",nextConfigOutput:"standalone",userland:o}),{requestAsyncStorage:g,staticGenerationAsyncStorage:m,serverHooks:h}=P,v="/api/proxy-pools/vercel-deploy/route";function x(){return(0,n.patchFetch)({serverHooks:h,staticGenerationAsyncStorage:m})}},39112:(e,t,r)=>{r.r(t),r.d(t,{addCustomModel:()=>o.addCustomModel,createApiKey:()=>o.createApiKey,createCombo:()=>o.createCombo,createProviderConnection:()=>o.createProviderConnection,createProviderNode:()=>o.createProviderNode,createProxyPool:()=>o.createProxyPool,createProxyPools:()=>o.createProxyPools,deleteApiKey:()=>o.deleteApiKey,deleteCombo:()=>o.deleteCombo,deleteCustomModel:()=>o.deleteCustomModel,deleteModelAlias:()=>o.deleteModelAlias,deleteProviderConnection:()=>o.deleteProviderConnection,deleteProviderConnectionsByProvider:()=>o.deleteProviderConnectionsByProvider,deleteProviderNode:()=>o.deleteProviderNode,deleteProxyPool:()=>o.deleteProxyPool,deleteProxyPools:()=>o.deleteProxyPools,getApiKeys:()=>o.getApiKeys,getComboById:()=>o.getComboById,getComboByName:()=>o.getComboByName,getCombos:()=>o.getCombos,getCustomModels:()=>o.getCustomModels,getMitmAlias:()=>o.getMitmAlias,getModelAliases:()=>o.getModelAliases,getProviderConnectionById:()=>o.getProviderConnectionById,getProviderConnections:()=>o.getProviderConnections,getProviderNodeById:()=>o.getProviderNodeById,getProviderNodes:()=>o.getProviderNodes,getProxyPoolById:()=>o.getProxyPoolById,getProxyPools:()=>o.getProxyPools,isCloudEnabled:()=>o.isCloudEnabled,setMitmAliasAll:()=>o.setMitmAliasAll,setModelAlias:()=>o.setModelAlias,updateCombo:()=>o.updateCombo,updateProviderConnection:()=>o.updateProviderConnection,updateProviderNode:()=>o.updateProviderNode,updateProxyPool:()=>o.updateProxyPool,validateApiKey:()=>o.validateApiKey});var o=r(81891)},6468:(e,t,r)=>{r.d(t,{S:()=>a});let o=[];for(let e=0;e<256;++e)o.push((e+256).toString(16).slice(1));function a(e,t=0){return(o[e[t+0]]+o[e[t+1]]+o[e[t+2]]+o[e[t+3]]+"-"+o[e[t+4]]+o[e[t+5]]+"-"+o[e[t+6]]+o[e[t+7]]+"-"+o[e[t+8]]+o[e[t+9]]+"-"+o[e[t+10]]+o[e[t+11]]+o[e[t+12]]+o[e[t+13]]+o[e[t+14]]+o[e[t+15]]).toLowerCase()}},39964:(e,t,r)=>{r.d(t,{Z:()=>d});var o=r(6005);let a={randomUUID:o.randomUUID},s=new Uint8Array(256),n=s.length;var i=r(6468);let d=function(e,t,r){return!a.randomUUID||t||e?function(e,t,r){let a=(e=e||{}).random??e.rng?.()??(n>s.length-16&&((0,o.randomFillSync)(s),n=0),s.slice(n,n+=16));if(a.length<16)throw Error("Random bytes length must be >= 16");if(a[6]=15&a[6]|64,a[8]=63&a[8]|128,t){if((r=r||0)<0||r+16>t.length)throw RangeError(`UUID byte range ${r}:${r+15} is out of buffer bounds`);for(let e=0;e<16;++e)t[r+e]=a[e];return t}return(0,i.S)(a)}(e,t,r):a.randomUUID()}}};var t=require("../../../../webpack-runtime.js");t.C(e);var r=e=>t(t.s=e),o=t.X(0,[8948,5972,1703,3951],()=>r(49977));module.exports=o})();

@@ -118,7 +118,7 @@ export default function SettingsHistory({ onReverted }) {
         ))}
       </div>
       {error && (
-        <p className={cn("text-xs mt-2 text-danger")} role="alert">{error}</p>
+        <p className={cn("text-xs mt-2 text-red-500")} role="alert">{error}</p>
       )}
     </Card>
   );

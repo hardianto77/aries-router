@@ -101,6 +101,7 @@ graphify-out/*
 # Kiro local workspace state
 .kiro/
 9router-*
+!public/providers/9router-logo.png
 
 # Local sensitive / temp files
 .engine-token.txt
@@ -112,4 +113,3 @@ graphify-out/*
 .start-dev.ps1
 start-dev-silent.cjs
 debug.log
-*.js.bak-*

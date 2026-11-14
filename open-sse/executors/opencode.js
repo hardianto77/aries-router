@@ -676,16 +676,8 @@ export class OpenCodeExecutor extends BaseExecutor {
 
   // Free tier moved from /zen/v1 to /inference/v1 (OpenCode v2); /zen/v1 now
   // answers every free request with 403 FreeTierError.
-  buildUrl(model, stream, urlIndex = 0, credentials = null) {
-    const credBase = credentials?.providerSpecificData?.baseUrl || credentials?.baseUrl;
-    const base = credBase
-      ? String(credBase).replace(/\/$/, "")
-      : this.config.baseUrl;
-    if (credBase) {
-      if (isResponsesModel(model)) return `${base}/responses`;
-      if (isMessagesModel(model)) return `${base}/messages`;
-      return `${base}/chat/completions`;
-    }
+  buildUrl(model) {
+    const base = this.config.baseUrl;
     if (isResponsesModel(model)) return `${base}/inference/v1/responses`;
     if (isMessagesModel(model)) return `${base}/inference/v1/messages`;
     return `${base}/inference/v1/chat/completions`;
@@ -703,7 +695,7 @@ export class OpenCodeExecutor extends BaseExecutor {
 
     const headers = {
       "Content-Type": "application/json",
-      "Authorization": credentials?.apiKey ? `Bearer ${credentials.apiKey}` : "Bearer public",
+      "Authorization": "Bearer public",
       "User-Agent": isOpencodeDownstream ? downstreamUa : OPENCODE_UA,
       "x-opencode-client": lower["x-opencode-client"] || OPENCODE_CLIENT,
       "x-opencode-session": session,
@@ -712,6 +704,7 @@ export class OpenCodeExecutor extends BaseExecutor {
       "x-opencode-project": lower["x-opencode-project"] || "global",
       "Accept": stream ? "text/event-stream" : "*/*",
     };
+    if (lower["x-opencode-org-id"]) headers["x-opencode-org-id"] = lower["x-opencode-org-id"];
     if (url.endsWith("/messages")) headers["anthropic-version"] = ANTHROPIC_API_VERSION;
     return headers;
   }

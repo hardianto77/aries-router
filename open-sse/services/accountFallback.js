@@ -124,10 +124,7 @@ export const MODEL_LOCK_ALL = `${MODEL_LOCK_PREFIX}__all`;
 
 /** Build the flat field key for a model lock */
 export function getModelLockKey(model) {
-  if (!model) return MODEL_LOCK_ALL;
-  const m = model.toLowerCase();
-  const normalized = m.includes("flash") ? "glm-5.3-flash" : m.includes("5.3") ? "glm-5.3" : model;
-  return `${MODEL_LOCK_PREFIX}${normalized}`;
+  return model ? `${MODEL_LOCK_PREFIX}${model}` : MODEL_LOCK_ALL;
 }
 
 /**

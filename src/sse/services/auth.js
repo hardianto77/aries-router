@@ -82,22 +82,13 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         return null;
       }
       const connectionName = pickedId ? (resolvedProxy.proxyPool?.name || `Proxy (${pickedId.slice(0, 8)})`) : "Public";
-      let _ocKey = null; let _ocBase = null;
-      try {
-        const ocConns = await getProviderConnections({ provider: providerId, isActive: true });
-        const ocConn = ocConns.find(c => c?.apiKey && c.providerSpecificData?.baseUrl);
-        if (ocConn) { _ocKey = ocConn.apiKey; _ocBase = ocConn.providerSpecificData.baseUrl; }
-      } catch {}
-
       return {
         id: connectionId,
         connectionId,
         connectionName,
         isActive: true,
         accessToken: "public",
-        apiKey: _ocKey || null,
         providerSpecificData: {
-          baseUrl: _ocBase || null,
           connectionProxyEnabled: resolvedProxy.connectionProxyEnabled,
           connectionProxyUrl: resolvedProxy.connectionProxyUrl,
           connectionNoProxy: resolvedProxy.connectionNoProxy,
@@ -316,10 +307,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
   const reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
-  const normalizedModel = (provider === "glm" || provider === "zcode") && model
-    ? (model.toLowerCase().includes("flash") ? "glm-5.3-flash" : model.toLowerCase().includes("5.3") ? "glm-5.3" : model)
-    : model;
-  const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : normalizedModel, cooldownMs);
+  const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
 
   await updateProviderConnection(connectionId, {
     ...lockUpdate,

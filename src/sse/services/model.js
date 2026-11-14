@@ -39,6 +39,23 @@ export async function resolveModelAlias(alias) {
  * Get full model info (parse or resolve)
  */
 export async function getModelInfo(modelStr, studioHops = 0) {
+  const requested = String(modelStr ?? "").trim();
+
+  // A studio name may carry its own prefix (`anthropic/claude-opus-5`), which
+  // parseModel would read as a provider route. An exact studio match wins, so a
+  // prefix is only a label until the operator names a studio after it.
+  if (requested.includes("/") && studioHops < MAX_STUDIO_HOPS) {
+    try {
+      const { getStudioModel } = await import("@/lib/db/repos/modelEditorRepo.js");
+      const prefixedStudio = await getStudioModel(requested);
+      if (prefixedStudio?.targetModel) {
+        const next = String(prefixedStudio.targetModel).trim();
+        if (prefixedStudio.isComboTarget) return { provider: null, model: next };
+        return await getModelInfo(next, studioHops + 1);
+      }
+    } catch { /* fall through to normal parsing */ }
+  }
+
   const parsed = parseModel(modelStr);
 
   if (!parsed.isAlias) {
@@ -114,9 +131,8 @@ export async function getModelInfo(modelStr, studioHops = 0) {
  * @returns {Promise<string[]|null>} Array of models or null if not a combo
  */
 export async function getComboModels(modelStr) {
-  // PV-FIX: allow provider/model format too — combos named exactly
-  // "oc/<model>" provide fallback chains for burnt upstreams.
-  // (Only exact-name combos match, so normal provider models are unaffected.)
+  // Only check if it's not in provider/model format
+  if (modelStr.includes("/")) return null;
 
   const combo = await getComboByName(modelStr);
   if (combo && combo.models && combo.models.length > 0) {

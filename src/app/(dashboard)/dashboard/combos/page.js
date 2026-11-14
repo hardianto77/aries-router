@@ -680,7 +680,7 @@ function ComboCard({ combo, getCaps, comboByName = {}, activeProviders = [], cop
                 {judge && (
                   <button
                     onClick={() => onSetStrategy({ judgeModel: "" })}
-                    className="p-0.5 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                    className="p-0.5 rounded text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors"
                     title="Reset judge to Auto"
                   >
                     <span className="material-symbols-outlined text-[13px]">close</span>
@@ -724,7 +724,7 @@ function ComboCard({ combo, getCaps, comboByName = {}, activeProviders = [], cop
             </button>
             <button
               onClick={onDelete}
-              className="flex flex-col items-center rounded px-2 py-1 text-danger transition-colors hover:bg-danger/10"
+              className="flex flex-col items-center rounded px-2 py-1 text-red-500 transition-colors hover:bg-red-500/10"
               title="Delete"
             >
               <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -860,7 +860,6 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
         </div>
       ) : (
         <div className="mt-3 overflow-hidden rounded-lg border border-border/50">
-          <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-border/40 bg-surface-2 text-text-muted">
@@ -925,7 +924,7 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
                       className={`p-1 rounded transition-colors ${
                         !enabled
                           ? "text-text-muted/20 cursor-not-allowed"
-                          : "text-text-muted hover:text-danger hover:bg-danger/10"
+                          : "text-text-muted hover:text-red-500 hover:bg-red-500/10"
                       }`}
                       title="Remove model"
                     >
@@ -936,7 +935,6 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
               ))}
             </tbody>
           </table>
-          </div>
         </div>
       )}
 
@@ -1052,7 +1050,7 @@ function ModelItem({ id, index, model, isFirst, isLast, context, onEdit, onMoveU
       {/* Remove */}
       <button
         onClick={onRemove}
-        className="p-0.5 hover:bg-danger/10 rounded text-text-muted hover:text-danger transition-all"
+        className="p-0.5 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 transition-all"
         title="Remove"
       >
         <span className="material-symbols-outlined text-[12px]">close</span>

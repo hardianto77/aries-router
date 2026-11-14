@@ -826,7 +826,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
                     <button
                       type="button"
                       onClick={() => setDeletingRule(rule)}
-                      className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                      className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors"
                       title="Delete Rule"
                     >
                       <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -951,7 +951,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
       >
         <form id="prompt-injection-rule-form" onSubmit={handleSaveForm} className="flex flex-col gap-4 pb-2">
           {formError && (
-            <div className="p-2.5 rounded-lg bg-danger/10 border border-danger/20 text-xs text-danger flex items-center gap-2">
+            <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-500 flex items-center gap-2">
               <span className="material-symbols-outlined text-[16px]">error</span>
               {formError}
             </div>
@@ -1031,7 +1031,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
 
           {/* Target Combos Picker */}
           {(formData.targetType === "combos" || formData.targetType === "custom") && (
-            <div className="flex flex-col gap-1.5 p-3 rounded-[var(--r-card)] border border-border-subtle bg-surface-2">
+            <div className="flex flex-col gap-1.5 p-3 rounded-xl border border-border-subtle bg-surface-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-text-main flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-[16px] text-sky-500">layers</span>
@@ -1074,7 +1074,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
 
           {/* Target Models Input & Picker */}
           {(formData.targetType === "models" || formData.targetType === "custom") && (
-            <div className="flex flex-col gap-1.5 p-3 rounded-[var(--r-card)] border border-border-subtle bg-surface-2">
+            <div className="flex flex-col gap-1.5 p-3 rounded-xl border border-border-subtle bg-surface-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-text-main flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-[16px] text-purple-500">smart_toy</span>
@@ -1125,7 +1125,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
                         <button
                           type="button"
                           onClick={() => removeTargetModel(m)}
-                          className="hover:text-danger ml-0.5"
+                          className="hover:text-red-500 ml-0.5"
                         >
                           <span className="material-symbols-outlined text-[13px]">close</span>
                         </button>
@@ -1138,7 +1138,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
           )}
 
           {/* Target API Keys Filter (Optional) */}
-          <div className="flex flex-col gap-1.5 p-3 rounded-[var(--r-card)] border border-border-subtle bg-surface-2">
+          <div className="flex flex-col gap-1.5 p-3 rounded-xl border border-border-subtle bg-surface-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-text-main flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-[16px] text-amber-500">key</span>
@@ -1212,7 +1212,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
           </div>
 
           {/* Trigger Condition (Keyword / Regex Filter) */}
-          <div className="flex flex-col gap-2 p-3 rounded-[var(--r-card)] border border-border-subtle bg-surface-2">
+          <div className="flex flex-col gap-2 p-3 rounded-xl border border-border-subtle bg-surface-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-text-main flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-[16px] text-indigo-500">filter_alt</span>
@@ -1368,13 +1368,13 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
               onChange={(e) => setFormData({ ...formData, content: e.target.value })}
               placeholder="Type the prompt text to inject automatically..."
               rows={6}
-              className="w-full px-3 py-2 text-xs font-mono rounded-[var(--r-card)] border border-border-subtle bg-surface-2 text-text-main focus:outline-none focus:border-primary/50 leading-relaxed custom-scrollbar"
+              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-border-subtle bg-surface-2 text-text-main focus:outline-none focus:border-primary/50 leading-relaxed custom-scrollbar"
               required
             />
           </div>
 
           {/* Enabled Toggle */}
-          <div className="flex items-center justify-between p-3 rounded-[var(--r-card)] border border-border-subtle bg-surface-2">
+          <div className="flex items-center justify-between p-3 rounded-xl border border-border-subtle bg-surface-2">
             <div>
               <span className="text-xs font-medium text-text-main block">Enable This Rule</span>
               <span className="text-[11px] text-text-muted">Aturan akan langsung dieksekusi pada gateway saat aktif.</span>
@@ -1458,7 +1458,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
             Test how a request is processed and modified by the gateway injection rules before it actually reaches the upstream model.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3.5 rounded-[var(--r-card)] border border-border-subtle bg-surface-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3.5 rounded-xl border border-border-subtle bg-surface-2 items-end">
             {/* Custom Target Dropdown */}
             <div className="sm:col-span-5 flex flex-col gap-1.5 min-w-0 relative" ref={targetDropdownRef}>
               <label className="text-xs font-semibold text-text-main flex items-center justify-between">
@@ -1497,7 +1497,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
 
               {/* Dropdown Panel with Search & Custom Scroll */}
               {showTargetDropdown && (
-                <div className="absolute left-0 top-full mt-1.5 z-50 w-full sm:min-w-[320px] rounded-[var(--r-card)] border border-border bg-surface shadow-[var(--elev-3)] overflow-hidden animate-in fade-in zoom-in-95 duration-100 flex flex-col">
+                <div className="absolute left-0 top-full mt-1.5 z-50 w-full sm:min-w-[320px] rounded-xl border border-border bg-surface shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 flex flex-col">
                   {/* Sticky Search Filter */}
                   <div className="p-2 border-b border-border-subtle bg-surface-2 flex items-center gap-2">
                     <span className="material-symbols-outlined text-[16px] text-text-muted">search</span>
@@ -1648,7 +1648,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
 
               {/* Dropdown Panel with Search & Custom Scroll */}
               {showKeyDropdown && (
-                <div className="absolute left-0 top-full mt-1.5 z-50 w-full sm:min-w-[280px] rounded-[var(--r-card)] border border-border bg-surface shadow-[var(--elev-3)] overflow-hidden animate-in fade-in zoom-in-95 duration-100 flex flex-col">
+                <div className="absolute left-0 top-full mt-1.5 z-50 w-full sm:min-w-[280px] rounded-xl border border-border bg-surface shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 flex flex-col">
                   {apiKeys.length > 4 && (
                     <div className="p-2 border-b border-border-subtle bg-surface-2 flex items-center gap-2">
                       <span className="material-symbols-outlined text-[16px] text-text-muted">search</span>
@@ -1772,7 +1772,7 @@ const normVal = (m) => (typeof m === "string" ? m : m?.value || m?.name || m?.id
 
           {/* Test Results Output */}
           {testResult && (
-            <div className="p-3.5 rounded-[var(--r-card)] border border-border-subtle bg-surface-2 flex flex-col gap-2.5">
+            <div className="p-3.5 rounded-xl border border-border-subtle bg-surface-2 flex flex-col gap-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-text-main flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-[16px] text-emerald-500">check_circle</span>
