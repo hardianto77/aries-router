@@ -101,6 +101,8 @@ function getConnectionErrorTag(connection) {
 const APIKEY_INITIAL_VISIBLE = 20;
 
 export default function ProvidersPage() {
+  const [pvGlobalSyncing, setPvGlobalSyncing] = useState(false);
+  const [pvSyncInfo, setPvSyncInfo] = useState(null);
   const [connections, setConnections] = useState([]);
   const [providerNodes, setProviderNodes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -455,9 +457,41 @@ export default function ProvidersPage() {
     compatibleProviders.length > 0 ||
     anthropicCompatibleProviders.length > 0;
 
+  const handleGlobalDirectProxySync = async () => {
+    setPvGlobalSyncing(true);
+    try {
+      const r = await fetch("/api/proxy-pools/pv-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rotateWarp: true, allRotate: false }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setPvSyncInfo(d);
+        notify.success(`Sync OK: ${d.poolAdded} egress sehat (residential ${d.resiAlive}/${d.resiTotal}) | ${d.rotatedProviders} akun ter-assign | WARP ${d.warpOk ? "OK" : "rotating"}`);
+      } else notify.error(d.error || "Sync failed");
+    } catch (e) {
+      notify.error(String(e).slice(0, 120));
+    } finally {
+      setPvGlobalSyncing(false);
+    }
+  };
+
+
   return (
     <PageShell>
       <div className="flex items-center justify-between gap-3">
+        <Button
+          size="sm"
+          variant="outline"
+          icon="refresh"
+          onClick={handleGlobalDirectProxySync}
+          disabled={pvGlobalSyncing}
+          className="w-full sm:w-auto bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+          title="Sync ProxyVault + Residential fresh + WARP egress -> pool -> per-account rotation"
+        >
+          {pvGlobalSyncing ? "Syncing PV & WARP Fresh..." : "Sync PV & WARP Fresh"}
+        </Button>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
