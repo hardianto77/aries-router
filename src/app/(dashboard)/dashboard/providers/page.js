@@ -119,30 +119,6 @@ export default function ProvidersPage() {
   const [selectedLaneMode, setSelectedLaneMode] = useState(false);
   const [togglingCliMode, setTogglingCliMode] = useState(false);
   const [laneBannerOpen, setLaneBannerOpen] = useState(false);
-  const [pvGlobalSyncing, setPvGlobalSyncing] = useState(false);
-
-  const handleGlobalDirectProxySync = async () => {
-    if (pvGlobalSyncing) return;
-    setPvGlobalSyncing(true);
-    try {
-      const res = await fetch("/api/proxy-pools/pv-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rotateWarp: true, allRotate: false }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        alert(`Sync Direct Sukses: ${data.replacedFresh} proxy diinjeksi fresh, ${data.aliveKept} aktif terjaga (Strict 1-on-1, WARP: ${data.warpEgressIp || "Active"})`);
-        await fetchInitialData();
-      } else {
-        alert(`Sync Gagal: ${data.error || "Gagal sinkronisasi"}`);
-      }
-    } catch (err) {
-      alert(`Network Error: ${err.message}`);
-    } finally {
-      setPvGlobalSyncing(false);
-    }
-  };
   const notify = useNotificationStore();
   const searchQuery = useHeaderSearchStore((s) => s.query);
   const registerSearch = useHeaderSearchStore((s) => s.register);
@@ -482,16 +458,6 @@ export default function ProvidersPage() {
   return (
     <PageShell>
       <div className="flex items-center justify-between gap-3">
-        <Button
-          size="sm"
-          variant="outline"
-          icon="refresh"
-          onClick={handleGlobalDirectProxySync}
-          disabled={pvGlobalSyncing}
-          className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-        >
-          {pvGlobalSyncing ? "Syncing PV & WARP Fresh..." : "Sync ProxyVault & WARP Fresh"}
-        </Button>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
