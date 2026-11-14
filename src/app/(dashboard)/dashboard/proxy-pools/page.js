@@ -452,7 +452,7 @@ export default function ProxyPoolsPage() {
       });
       const d = await r.json();
       if (d.success) {
-        notify.success(`Sync OK: ${d.replacedFresh} proxy direct diinjeksi fresh, ${d.aliveKept} aktif terjaga (Strict 1-on-1, WARP: ${d.warpEgressIp || "Active"})`);
+        notify.success(`Sync OK: ${d.poolAdded} egress sehat (residential ${d.resiAlive}/${d.resiTotal}) | ${d.rotatedProviders} akun provider ter-assign | WARP ${d.warpOk ? "OK" : "rotating"}`);
         await loadPvStatus();
       } else notify.error(d.error || "Sync failed");
     } catch (e) {
