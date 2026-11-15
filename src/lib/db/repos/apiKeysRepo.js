@@ -14,6 +14,7 @@ function rowToKey(row) {
     isActive: row.isActive === 1 || row.isActive === true,
     createdAt: row.createdAt,
     access: keyAccessFromColumns(row.accessRestricted, row.accessAllow),
+    allowedModels: row.allowedModels !== undefined ? row.allowedModels : null,
   };
 }
 
