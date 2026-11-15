@@ -118,16 +118,37 @@ export async function validateApiKey(key) {
 }
 
 // Restored from d915f17c (lost in keyAccess rewrite)
-export async function reconcileAllowedModels({ removed = [], renamed = {} }
+{
+  if (!removed.length && !Object.keys(renamed).length) {
+    return { updated: 0, emptied: [] };
+  }
+  try {
+    const keys = await getApiKeys();
+    let updated = 0;
+    const emptied = [];
 
-export function recordApiKeyUsageInWindow(key, tokens = 0) {
+    for (const key of keys) {
+      const result = applyModelChangesToAllowList(key.allowedModels, { removed, renamed });
+      if (result.emptied) { emptied.push(key.name || key.id); continue; }
+      if (!result.changed) continue;
+      await updateApiKey(key.id, { allowedModels: result.value });
+      updated++;
+    }
+    return { updated, emptied };
+  } catch (err) {
+    console.error("[reconcileAllowedModels] failed to follow model change:", err);
+    return { updated: 0, emptied: [] };
+  }
+}
+
+{
   if (!key) return;
   const now = Date.now();
   if (!rateLimits[key]) rateLimits[key] = [];
   rateLimits[key].push({ ts: now, tokens: tokens || 0 });
 }
 
-export function parsePermissions(permStr) {
+{
   if (!permStr) return { ...DEFAULT_PERMISSIONS };
   if (typeof permStr === "object") return permStr;
   try {
@@ -137,7 +158,7 @@ export function parsePermissions(permStr) {
   }
 }
 
-export function utcDayKey(date = new Date()) {
+{
   return date.toISOString().slice(0, 10);
 }
 
