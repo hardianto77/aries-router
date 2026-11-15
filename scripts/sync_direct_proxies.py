@@ -49,7 +49,7 @@ def fetch_proxyvault_proxies(limit=500):
     try:
         jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-        login_data = urllib.parse.urlencode({"username": "admin", "password": "Ar13sV4ult2026"}).encode()
+        login_data = urllib.parse.urlencode({"username": "admin", "password": "[REDACTED]"}).encode()
         req_login = urllib.request.Request("http://127.0.0.1:8022/api/login", data=login_data)
         opener.open(req_login, timeout=5)
 

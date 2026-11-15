@@ -23,7 +23,7 @@ _op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookie
 
 def pv_candidates():
     try:
-        data = urllib.parse.urlencode({"username":"admin","password":"Ar13sV4ult2026"}).encode()
+        data = urllib.parse.urlencode({"username":"admin","password":"[REDACTED]"}).encode()
         _op.open(PV_LOGIN, data=data, timeout=15)
         d = json.loads(_op.open(PV, timeout=30).read())
         rows = [r for r in d if r.get("latency_ms")]

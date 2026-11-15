@@ -101,6 +101,8 @@ function getConnectionErrorTag(connection) {
 const APIKEY_INITIAL_VISIBLE = 20;
 
 export default function ProvidersPage() {
+  const [pvGlobalSyncing, setPvGlobalSyncing] = useState(false);
+  const [pvSyncInfo, setPvSyncInfo] = useState(null);
   const [connections, setConnections] = useState([]);
   const [providerNodes, setProviderNodes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -119,30 +121,6 @@ export default function ProvidersPage() {
   const [selectedLaneMode, setSelectedLaneMode] = useState(false);
   const [togglingCliMode, setTogglingCliMode] = useState(false);
   const [laneBannerOpen, setLaneBannerOpen] = useState(false);
-  const [pvGlobalSyncing, setPvGlobalSyncing] = useState(false);
-
-  const handleGlobalDirectProxySync = async () => {
-    if (pvGlobalSyncing) return;
-    setPvGlobalSyncing(true);
-    try {
-      const res = await fetch("/api/proxy-pools/pv-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rotateWarp: true, allRotate: false }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        alert(`Sync Direct Sukses: ${data.replacedFresh} proxy diinjeksi fresh, ${data.aliveKept} aktif terjaga (Strict 1-on-1, WARP: ${data.warpEgressIp || "Active"})`);
-        await fetchInitialData();
-      } else {
-        alert(`Sync Gagal: ${data.error || "Gagal sinkronisasi"}`);
-      }
-    } catch (err) {
-      alert(`Network Error: ${err.message}`);
-    } finally {
-      setPvGlobalSyncing(false);
-    }
-  };
   const notify = useNotificationStore();
   const searchQuery = useHeaderSearchStore((s) => s.query);
   const registerSearch = useHeaderSearchStore((s) => s.register);
@@ -479,23 +457,45 @@ export default function ProvidersPage() {
     compatibleProviders.length > 0 ||
     anthropicCompatibleProviders.length > 0;
 
+  const handleGlobalDirectProxySync = async () => {
+    setPvGlobalSyncing(true);
+    try {
+      const r = await fetch("/api/proxy-pools/pv-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rotateWarp: true, allRotate: false }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setPvSyncInfo(d);
+        notify.success(`Sync OK: ${d.poolAdded} egress sehat (residential ${d.resiAlive}/${d.resiTotal}) | ${d.rotatedProviders} akun ter-assign | WARP ${d.warpOk ? "OK" : "rotating"}`);
+      } else notify.error(d.error || "Sync failed");
+    } catch (e) {
+      notify.error(String(e).slice(0, 120));
+    } finally {
+      setPvGlobalSyncing(false);
+    }
+  };
+
+
   return (
     <PageShell>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <Button
           size="sm"
           variant="outline"
           icon="refresh"
           onClick={handleGlobalDirectProxySync}
           disabled={pvGlobalSyncing}
-          className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+          className="w-full sm:w-auto h-9 justify-center bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+          title="Sync ProxyVault + Residential fresh + WARP egress -> pool -> per-account rotation"
         >
-          {pvGlobalSyncing ? "Syncing PV & WARP Fresh..." : "Sync ProxyVault & WARP Fresh"}
+          {pvGlobalSyncing ? "Syncing PV & WARP Fresh..." : "Sync PV & WARP Fresh"}
         </Button>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-8 rounded-lg border border-border bg-surface-2 px-2 text-xs text-text-main outline-none transition-colors hover:bg-surface-3"
+          className="h-9 w-full sm:w-auto rounded-lg border border-border bg-surface-2 px-3 text-sm text-text-main outline-none transition-colors hover:bg-surface-3"
           aria-label="Filter providers by connection status"
         >
           {STATUS_FILTER_OPTIONS.map((option) => (
@@ -505,6 +505,15 @@ export default function ProvidersPage() {
           ))}
         </select>
       </div>
+
+      {pvSyncInfo && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-text-muted">
+          <span className="material-symbols-outlined text-[16px] text-emerald-500">check_circle</span>
+          <span>
+            Pool <b>{pvSyncInfo.poolAdded}</b> egress &middot; Residential <b>{pvSyncInfo.resiAlive}/{pvSyncInfo.resiTotal}</b> &middot; <b>{pvSyncInfo.rotatedProviders}</b> accounts rotated &middot; WARP {pvSyncInfo.warpOk ? "OK" : "rotating"}
+          </span>
+        </div>
+      )}
 
       {!hasAnyResult && (
         <div className="text-center py-8 border border-dashed border-border rounded-xl">

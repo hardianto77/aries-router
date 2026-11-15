@@ -1048,20 +1048,20 @@ export default function ProviderDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          provider: provider?.id || "",
+          provider: providerId || "",
           rotateWarp: true,
           allRotate: false,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        setPvSyncStatusMsg(`Sync Sukses: ${data.replacedFresh} proxy diinjeksi fresh, ${data.aliveKept} aktif terjaga. Strict 1-on-1 (WARP: ${data.warpEgressIp || "Active"}).`);
+        setPvSyncStatusMsg(`Sync OK: ${data.poolAdded} egress sehat (residential ${data.resiAlive}/${data.resiTotal}) | ${data.rotatedProviders} akun ter-assign | WARP ${data.warpOk ? "OK" : "rotating"}`);
         await fetchConnections();
       } else {
         setPvSyncStatusMsg(`Gagal: ${data.error || "Gagal sinkronisasi"}`);
       }
     } catch (err) {
-      setPvSyncStatusMsg(`Error: ${err.message || "Network Error"}`);
+      setPvSyncStatusMsg(`Error: ${String(err?.message || err).slice(0, 120)}`);
     } finally {
       setPvDirectSyncing(false);
       setTimeout(() => setPvSyncStatusMsg(null), 8000);
