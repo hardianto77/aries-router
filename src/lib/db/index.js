@@ -208,3 +208,4 @@ export * from "./compat.js";
 export { applyModelChangesToAllowList, buildAllowedModelsSql } from "./repos/allowedModels.js";
 
 export { getDbSummary } from "./compat.js";
+export * from "./repos/voucherRepo.js";

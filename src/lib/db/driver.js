@@ -114,3 +114,12 @@ export function getAdapterSync() {
   if (!state.instance) throw new Error("[DB] adapter not initialized — await getAdapter() first");
   return state.instance;
 }
+
+// Flush and release the SQLite handle (used by the graceful shutdown route).
+export async function closeDb() {
+  try {
+    const { getAdapter } = await import("./driver.js");
+    const db = await getAdapter();
+    if (db && typeof db.close === "function") db.close();
+  } catch {}
+}

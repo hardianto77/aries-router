@@ -1155,3 +1155,14 @@ export async function getRecentLogs(limit = 200) {
     return [];
   }
 }
+
+export async function getProviderDisplayName(provider) {
+  if (!provider) return "Unknown";
+  try {
+    const { getAdapter } = await import("../driver.js");
+    const db = await getAdapter();
+    const row = db.prepare("SELECT name FROM providerNodes WHERE id = ? LIMIT 1").get(provider);
+    if (row && row.name) return row.name;
+  } catch {}
+  return String(provider);
+}
