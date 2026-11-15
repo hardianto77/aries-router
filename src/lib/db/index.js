@@ -182,11 +182,11 @@ export async function initDb() {
 }
 
 export * from "./repos/aliasRepo.js";
-export * from "./repos/allowedModels.js";
+export { applyModelChangesToAllowList } from "./repos/allowedModels.js";
 export * from "./repos/apiKeysRepo.js";
 export * from "./repos/autoBackupRepo.js";
 export * from "./repos/combosRepo.js";
-export * from "./repos/connectionRepo.js";
+export { getConnectionConfig, setConnectionConfig } from "./repos/connectionRepo.js";
 export * from "./repos/connectionsRepo.js";
 export * from "./repos/disabledModelsRepo.js";
 export * from "./repos/modelEditorRepo.js";
