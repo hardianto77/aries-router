@@ -94,10 +94,17 @@ export async function getAllowedModelsOfKey(key) {
   if (!raw) return null;
   try {
     const db = await getAdapter();
-    const row = db.get(`SELECT accessRestricted, accessAllow FROM apiKeys WHERE key = ?`, [raw]);
+    const row = db.get(`SELECT accessRestricted, accessAllow, allowedModels FROM apiKeys WHERE key = ?`, [raw]);
     if (!row) return null;
     const access = keyAccessFromColumns(row.accessRestricted, row.accessAllow);
-    return access.allow.length ? access.allow : null;
+    if (access.allow.length) return access.allow;
+    // Legacy fallback: per-key allowedModels column (comma patterns, "*" = all).
+    const legacy = String(row.allowedModels || "").trim();
+    if (legacy && legacy !== "*") {
+      const pats = legacy.split(",").map((m) => m.trim()).filter(Boolean);
+      if (pats.length) return pats;
+    }
+    return null;
   } catch {
     return null;
   }
