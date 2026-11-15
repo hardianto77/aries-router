@@ -21,4 +21,5 @@ export {
   getPricing, getPricingForModel, updatePricing, resetPricing, resetAllPricing,
   exportDb, importDb, getDbSummary,
   recordErrorLog, getErrorLogs, clearErrorLogs,
+  pruneDeadProviderConnections,
 } from "@/lib/db/index.js";
