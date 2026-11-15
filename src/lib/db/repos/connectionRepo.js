@@ -92,9 +92,6 @@ export async function setConnectionConfig(patch = {}) {
   return getConnectionConfig();
 }
 
-// Remove provider connections that point at provider nodes which no longer exist
-// (dead endpoints left behind after node deletions or registry changes).
-export async function pruneDeadProviderConnections({ includeWeb = false } = {}) {
   const db = await getAdapter();
   const conns = db.prepare("SELECT * FROM providerConnections").all();
   const nodes = db.prepare("SELECT id FROM providerNodes").all();

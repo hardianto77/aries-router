@@ -331,3 +331,8 @@ export async function cleanupProviderConnections() {
   });
   return cleaned;
 }
+
+// Remove provider connections that point at provider nodes which no longer exist
+// (dead endpoints left behind after node deletions or registry changes).
+export async function pruneDeadProviderConnections({ includeWeb = false } = {}) {
+
