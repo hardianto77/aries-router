@@ -1,3 +1,4 @@
+export { parseAllowedModels, matchesAllowedModels } from "./allowedModels.js";
 import { v4 as uuidv4 } from "uuid";
 import { getAdapter } from "../driver.js";
 import { keyAccessFromColumns, keyAccessToColumns } from "@/shared/utils/keyAccess.js";
