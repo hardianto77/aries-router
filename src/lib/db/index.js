@@ -182,7 +182,6 @@ export async function initDb() {
 }
 
 export * from "./repos/aliasRepo.js";
-export { applyModelChangesToAllowList } from "./repos/allowedModels.js";
 export * from "./repos/apiKeysRepo.js";
 export * from "./repos/autoBackupRepo.js";
 export * from "./repos/combosRepo.js";
