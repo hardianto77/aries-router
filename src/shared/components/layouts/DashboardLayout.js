@@ -11,13 +11,13 @@ import UpdateBanner from "../UpdateBanner";
 function getToastStyle(type) {
   if (type === "success") {
     return {
-      wrapper: "border-success/30 bg-success/10 text-success dark:text-success",
+      wrapper: "border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400",
       icon: "check_circle",
     };
   }
   if (type === "error") {
     return {
-      wrapper: "border-danger/30 bg-danger/10 text-danger dark:text-danger",
+      wrapper: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
       icon: "error",
     };
   }
@@ -65,7 +65,7 @@ export default function DashboardLayout({ children }) {
           return (
             <div
               key={n.id}
-              className={`slide-in-right rounded-[12px] border px-3.5 py-2.5 shadow-[var(--shadow-elev)] bg-surface ${style.wrapper}`}
+              className={`slide-in-right rounded-[12px] border px-3.5 py-2.5 shadow-[var(--shadow-elev)] backdrop-blur-md ${style.wrapper}`}
             >
               <div className="flex items-start gap-2">
                 <span className="material-symbols-outlined text-[18px] leading-5 shrink-0 mt-0.5">{style.icon}</span>
@@ -93,19 +93,19 @@ export default function DashboardLayout({ children }) {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/75 lg:hidden"
+          className="fixed inset-0 z-40 bg-scrim/40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar - Desktop */}
-      <div className="hidden lg:flex h-full shrink-0">
+      <div className="hidden lg:flex">
         <Sidebar />
       </div>
 
       {/* Sidebar - Mobile */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 h-full transform lg:hidden transition-transform duration-300 ease-in-out bg-sidebar ${
+        className={`fixed inset-y-0 left-0 z-50 transform lg:hidden transition-transform duration-300 ease-in-out ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -117,7 +117,7 @@ export default function DashboardLayout({ children }) {
         {/* Faint grid background */}
         <div className="landing-grid absolute inset-0 pointer-events-none -z-10" aria-hidden="true" />
         <Header key={pathname} onMenuClick={() => setSidebarOpen(true)} />
-        <div className={`flex-1 overflow-y-auto custom-scrollbar ${pathname === "/dashboard/basic-chat" ? "" : "p-6 lg:p-10"} ${pathname === "/dashboard/basic-chat" ? "flex flex-col overflow-hidden" : ""}`}>
+        <div className={`flex-1 overflow-y-auto custom-scrollbar ${pathname === "/dashboard/basic-chat" ? "" : "p-3.5 sm:p-6 lg:p-10"} ${pathname === "/dashboard/basic-chat" ? "flex flex-col overflow-hidden" : ""}`}>
           <div className={`${pathname === "/dashboard/basic-chat" ? "flex-1 w-full h-full flex flex-col" : "max-w-7xl mx-auto"}`}>
             {/* Banner lives inside the scroll container: it scrolls with the page
                 and inherits this page's padding, instead of floating above it.

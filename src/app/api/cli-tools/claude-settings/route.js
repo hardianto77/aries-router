@@ -102,13 +102,13 @@ export async function GET() {
     }
 
     const settings = await readSettings();
-    const hasAries = !!(settings?.env?.ANTHROPIC_BASE_URL);
+    const has9Router = !!(settings?.env?.ANTHROPIC_BASE_URL);
     const claudeJson = await readClaudeJson();
 
     return NextResponse.json({
       installed: true,
       settings: settings,
-      hasAries: hasAries,
+      has9Router: has9Router,
       exaMcpEnabled: !!claudeJson?.mcpServers?.exa,
       settingsPath: getClaudeSettingsPath(),
     });

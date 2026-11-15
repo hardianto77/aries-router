@@ -148,7 +148,7 @@ export default function GenericCliToolCard({
 
   const getConfigStatus = () => {
     if (!status?.installed) return null;
-    if (!status.hasAries) return "not_configured";
+    if (!status.has9Router) return "not_configured";
     if (currentBaseUrl && matchKnownEndpoint(currentBaseUrl, { tunnelPublicUrl, tailscaleUrl })) {
       return "configured";
     }
@@ -355,7 +355,7 @@ export default function GenericCliToolCard({
         return [
           {
             filename: "~/.forge/config.toml",
-            content: `# Forge config - managed by Aries\n\n[openai]\napi_key = "${key}"\nbase_url = "${effectiveUrl}"\nmodel = "${mod}"`,
+            content: `# Forge config - managed by 9Router\n\n[openai]\napi_key = "${key}"\nbase_url = "${effectiveUrl}"\nmodel = "${mod}"`,
           },
         ];
       case "smelt":
@@ -369,7 +369,7 @@ export default function GenericCliToolCard({
         return [
           {
             filename: "~/.codewhale/config.toml",
-            content: `# CodeWhale config - managed by Aries\n\n[openai]\nbase_url = "${effectiveUrl}"\napi_key = "${key}"\nmodel = "${mod}"`,
+            content: `# CodeWhale config - managed by 9Router\n\n[openai]\nbase_url = "${effectiveUrl}"\napi_key = "${key}"\nmodel = "${mod}"`,
           },
         ];
       default:
@@ -407,7 +407,7 @@ export default function GenericCliToolCard({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3 className="font-medium text-sm">{tool.name}</h3>
               {configStatus === "configured" && (
-                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-success/10 text-success rounded-full">
+                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-green-500/10 text-success rounded-full">
                   Connected
                 </span>
               )}
@@ -562,7 +562,7 @@ export default function GenericCliToolCard({
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveModel(modelId)}
-                                  className="text-text-muted hover:text-danger rounded p-0.5"
+                                  className="text-text-muted hover:text-red-500 rounded p-0.5"
                                 >
                                   <span className="material-symbols-outlined text-[12px]">close</span>
                                 </button>
@@ -597,7 +597,7 @@ export default function GenericCliToolCard({
                           <button
                             type="button"
                             onClick={() => setSelectedModels([])}
-                            className="text-xs text-text-muted hover:text-danger ml-auto"
+                            className="text-xs text-text-muted hover:text-red-500 ml-auto"
                           >
                             Clear all
                           </button>
@@ -623,7 +623,7 @@ export default function GenericCliToolCard({
                       {selectedModel && (
                         <button
                           onClick={() => setSelectedModel("")}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-danger rounded transition-colors"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-red-500 rounded transition-colors"
                           title="Clear"
                         >
                           <span className="material-symbols-outlined text-[14px]">close</span>
@@ -650,8 +650,8 @@ export default function GenericCliToolCard({
                 <div
                   className={`p-3 rounded-lg text-sm ${
                     message.type === "success"
-                      ? "bg-success/10 text-success border border-success/20"
-                      : "bg-danger/10 text-danger border border-danger/20"
+                      ? "bg-green-500/10 text-success border border-green-500/20"
+                      : "bg-red-500/10 text-danger border border-red-500/20"
                   }`}
                 >
                   {message.text}
@@ -669,13 +669,13 @@ export default function GenericCliToolCard({
                   >
                     {applying ? "Applying..." : "Apply Settings"}
                   </Button>
-                  {status?.hasAries && (
+                  {status?.has9Router && (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={handleRestore}
                       disabled={restoring || checking}
-                      className="text-danger hover:text-danger hover:border-danger/50"
+                      className="text-red-500 hover:text-red-600 hover:border-red-500/50"
                     >
                       {restoring ? "Removing..." : "Remove from Tool"}
                     </Button>

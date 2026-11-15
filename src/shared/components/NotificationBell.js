@@ -10,7 +10,7 @@ import { useTaskStore } from "@/store/taskStore";
 const POLL_MS = 60000;
 
 const SEVERITY_STYLE = {
-  error: { dot: "bg-danger", text: "text-danger", icon: "error" },
+  error: { dot: "bg-red-500", text: "text-red-500", icon: "error" },
   warning: { dot: "bg-amber-500", text: "text-amber-500", icon: "warning" },
   info: { dot: "bg-primary", text: "text-primary", icon: "info" },
 };
@@ -238,7 +238,7 @@ export default function NotificationBell() {
         {badge > 0 && (
           <span
             className={`absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-bold leading-[16px] text-white ${
-              items.some((n) => !n.read && n.severity === "error") ? "bg-danger" : "bg-primary"
+              items.some((n) => !n.read && n.severity === "error") ? "bg-red-500" : "bg-primary"
             }`}
           >
             {badge > 99 ? "99+" : badge}

@@ -3,86 +3,8 @@
 import { useState, useEffect } from "react";
 import { Card, Button, Input } from "@/shared/components";
 
-// Password default instance ini. Ditampilkan sebagai petunjuk di bawah input
-// supaya pemilik tidak terkunci di luar dashboard-nya sendiri.
-const DEFAULT_PASSWORD = "synapse123";
-
-// Panel brand kiri: dipakai oleh semua state login (form, no-access, ganti password).
-function BrandPanel() {
-  return (
-    <aside className="relative hidden lg:flex flex-col justify-center gap-14 overflow-hidden bg-surface-2 border-r border-border p-10 xl:p-14">
-      {/* Identity motif: the ember veil, a warm glow anchored to the bottom edge. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3"
-        style={{
-          background:
-            "radial-gradient(ellipse 90% 70% at 20% 110%, color-mix(in srgb, var(--color-primary) 30%, transparent), transparent 70%)",
-        }}
-      />
-      <div className="relative">
-        <div className="flex items-center gap-3">
-          <img
-            src="/favicon.svg"
-            alt="Aries"
-            className="h-11 w-11 rounded-[6px] border border-border-subtle object-cover"
-          />
-          <div className="leading-tight">
-            <p className="text-[15px] font-semibold text-text-main">
-              Aries <span className="text-primary">Router</span>
-            </p>
-            <p className="text-xs text-text-muted">LLM Gateway</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="relative max-w-md">
-        {/* Identity motif: the ember line. Repeats as the brand's one gesture. */}
-        <div className="h-px w-16 bg-gradient-to-r from-primary to-transparent mb-6" aria-hidden="true" />
-        <h2 className="text-[28px] leading-tight font-semibold tracking-tight text-text-main">
-          One endpoint for all your AI providers.
-        </h2>
-        {/* Real facts about the product, no invented numbers (R-17, R-38). */}
-        <ul className="mt-8 flex flex-col gap-3.5">
-          {[
-            "Compatible with OpenAI and Anthropic",
-            "Multi-account fallback and key rotation",
-            "Runs on your own server",
-          ].map((line) => (
-            <li key={line} className="flex items-start gap-3 text-sm text-text-muted">
-              <span className="mt-[7px] h-px w-4 shrink-0 bg-primary" aria-hidden="true" />
-              {line}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <p className="relative text-xs text-text-muted">
-        Dashboard and gateway in one process.
-      </p>
-    </aside>
-  );
-}
-
-// Wordmark ringkas untuk layar sempit (panel brand disembunyikan di bawah lg).
-function CompactBrand() {
-  return (
-    <div className="lg:hidden flex flex-col items-center text-center mb-8">
-      <img
-        src="/favicon.svg"
-        alt="Aries"
-        className="h-16 w-16 rounded-[6px] border border-border-subtle object-contain mb-4"
-      />
-      <h1 className="text-[26px] leading-tight font-semibold tracking-tight text-text-main">
-        Aries <span className="text-primary">Router</span>
-      </h1>
-    </div>
-  );
-}
-
 export default function LoginPage() {
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [resetHint, setResetHint] = useState("");
   const [retryAfter, setRetryAfter] = useState(0);
@@ -182,7 +104,7 @@ export default function LoginPage() {
           return;
         }
         if (typeof window !== "undefined") {
-          sessionStorage.setItem("xrouter:justLoggedIn", "true");
+          sessionStorage.setItem("9router:justLoggedIn", "true");
         }
         if (data.role === "apikey" && !data.homePath) {
           setNoAccess(true);
@@ -216,7 +138,7 @@ export default function LoginPage() {
       });
       if (res.ok) {
         if (typeof window !== "undefined") {
-          sessionStorage.setItem("xrouter:justLoggedIn", "true");
+          sessionStorage.setItem("9router:justLoggedIn", "true");
         }
         window.location.assign("/dashboard");
       } else {
@@ -261,236 +183,177 @@ export default function LoginPage() {
 
   if (noAccess) {
     return (
-      <div className="min-h-screen grid lg:grid-cols-2 bg-bg">
-        <BrandPanel />
-        <div className="relative flex items-center justify-center p-6 sm:p-10">
-          <div className="landing-grid absolute inset-0 pointer-events-none" aria-hidden="true" />
-          <div className="relative z-10 w-full max-w-sm">
-            <CompactBrand />
-            <Card className="shadow-none">
-              <div className="flex flex-col gap-4">
-                <h1 className="text-lg font-semibold text-text-main">Kunci ini tidak punya akses dashboard</h1>
-                <p className="text-sm text-text-muted">
-                  Kunci API ini sudah masuk, tapi belum diberi izin dashboard. Minta pemilik instance memberi izin pada kunci tersebut, atau masuk pakai password dashboard.
-                </p>
-                <Button type="button" variant="primary" className="w-full" loading={loading} onClick={handleSignOut}>
-                  Keluar
-                </Button>
-              </div>
-            </Card>
+      <div className="min-h-screen flex items-center justify-center bg-bg p-4 relative overflow-hidden">
+        <div className="landing-grid absolute inset-0 pointer-events-none" aria-hidden="true" />
+        <div className="relative z-10 w-full max-w-md">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-primary mb-2">Aries Router</h1>
+            <p className="text-text-muted">This API key is signed in but holds no dashboard permission</p>
           </div>
+          <Card>
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-text-muted text-center">
+                Ask the owner of this instance to grant a permission on the key, or sign in with the dashboard password instead.
+              </p>
+              <Button type="button" variant="primary" className="w-full" loading={loading} onClick={handleSignOut}>
+                Sign out
+              </Button>
+            </div>
+          </Card>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 bg-bg">
-      <BrandPanel />
+    <div className="min-h-screen flex items-center justify-center bg-bg p-4 relative overflow-hidden">
+      {/* Faint grid background */}
+      <div className="landing-grid absolute inset-0 pointer-events-none" aria-hidden="true" />
+      <div className="relative z-10 w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-primary mb-2">Aries Router</h1>
+          <p className="text-text-muted">
+            {samlAvailable
+              ? "Sign in with SAML 2.0 Single Sign-On"
+              : oidcAvailable
+              ? "Sign in with your OIDC provider to access the dashboard"
+              : "Enter your password to access the dashboard"}
+          </p>
+        </div>
 
-      <div className="relative flex items-center justify-center p-6 sm:p-10">
-        <div className="landing-grid absolute inset-0 pointer-events-none" aria-hidden="true" />
-        <div className="relative z-10 w-full max-w-sm">
-          <CompactBrand />
-
-          <Card className="shadow-none">
-            {mustChange ? (
-              <form onSubmit={handleSetNewPassword} className="flex flex-col gap-4">
-                <div>
-                  <h1 className="text-lg font-semibold text-text-main">Ganti password</h1>
-                  <p className="text-sm text-text-muted mt-1">
-                    Kamu masuk dengan password default. Set password baru sebelum lanjut ke dashboard.
-                  </p>
-                </div>
+        <Card>
+          {mustChange ? (
+            <form onSubmit={handleSetNewPassword} className="flex flex-col gap-4">
+              <p className="text-sm text-warning text-center">
+                Set a new password before accessing the dashboard remotely.
+              </p>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">New password</label>
                 <Input
-                  label="Password baru"
                   type="password"
                   placeholder="Enter new password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  error={error}
                   required
                   autoFocus
                 />
-                <Button type="submit" variant="primary" className="w-full" loading={loading} disabled={!newPassword}>
-                  Save password
-                </Button>
-              </form>
-            ) : (
-              <div className="flex flex-col gap-5">
-                <div>
-                  <h1 className="text-lg font-semibold text-text-main">
-                    {samlAvailable
-                      ? "Sign in with SAML"
-                      : oidcAvailable
-                      ? "Sign in with OIDC"
-                      : "Sign in to dashboard"}
-                  </h1>
-                  <p className="text-sm text-text-muted mt-1">
-                    {samlAvailable || oidcAvailable
-                      ? "Use your identity provider, or a password."
-                      : "Enter your password to continue."}
+                {error && <p className="text-xs text-red-500">{error}</p>}
+              </div>
+              <Button type="submit" variant="primary" className="w-full" loading={loading} disabled={!newPassword}>
+                Set password
+              </Button>
+            </form>
+          ) : (
+          <div className="flex flex-col gap-4">
+            {samlAvailable && (
+              <Button type="button" variant="primary" className="w-full" onClick={handleSamlLogin}>
+                {samlLoginLabel}
+              </Button>
+            )}
+
+            {oidcAvailable && (
+              <Button type="button" variant="primary" className="w-full" onClick={handleOidcLogin}>
+                {oidcLoginLabel}
+              </Button>
+            )}
+
+            {ssoAvailable && passwordAvailable && <div className="h-px bg-border/60" />}
+
+            {passwordAvailable ? (
+              <form onSubmit={handleLogin} className="flex flex-col gap-4">
+                {isSsoEnabled && !ssoAvailable && (
+                  <p className="text-xs text-warning text-center">
+                    {activeSsoType === "saml" ? "SAML SSO" : "OIDC"} login is enabled, but configuration is incomplete. Password login is still available for recovery.
                   </p>
+                )}
+
+                {authMode === "both" && ssoAvailable && (
+                  <p className="text-xs text-text-muted text-center">
+                    Password and {activeSsoType === "saml" ? "SAML SSO" : "OIDC"} login are both enabled.
+                  </p>
+                )}
+
+                {/* Login Method Toggle */}
+                <div className="flex rounded-lg border border-border bg-bg-subtle p-1 mb-1">
+                  <button
+                    type="button"
+                    onClick={() => { setLoginMethod("password"); setError(""); }}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors ${loginMethod === "password" ? "bg-primary text-white shadow-xs" : "text-text-muted hover:text-text-main"}`}
+                  >
+                    Password Login
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setLoginMethod("apikey"); setError(""); }}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors ${loginMethod === "apikey" ? "bg-primary text-white shadow-xs" : "text-text-muted hover:text-text-main"}`}
+                  >
+                    API Key Login
+                  </button>
                 </div>
 
-                {samlAvailable && (
-                  <Button type="button" variant="primary" className="w-full" onClick={handleSamlLogin}>
-                    {samlLoginLabel}
-                  </Button>
-                )}
-
-                {oidcAvailable && (
-                  <Button type="button" variant="primary" className="w-full" onClick={handleOidcLogin}>
-                    {oidcLoginLabel}
-                  </Button>
-                )}
-
-                {ssoAvailable && passwordAvailable && <div className="h-px bg-border/60" />}
-
-                {passwordAvailable ? (
-                  <form onSubmit={handleLogin} className="flex flex-col gap-4">
-                    {isSsoEnabled && !ssoAvailable && (
+                {loginMethod === "password" ? (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">Password</label>
+                    <Input
+                      type="password"
+                      placeholder="Enter password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      autoFocus={!oidcAvailable}
+                    />
+                    {error && <p className="text-xs text-red-500">{error}</p>}
+                    {retryAfter > 0 && (
                       <p className="text-xs text-warning">
-                        Login {activeSsoType === "saml" ? "SAML" : "OIDC"} aktif tapi konfigurasinya belum lengkap. Password masih bisa dipakai untuk masuk.
+                        Locked. Retry in <span className="font-mono">{retryAfter}s</span>.
                       </p>
                     )}
-
-                    {authMode === "both" && ssoAvailable && (
+                    {resetHint && (
                       <p className="text-xs text-text-muted">
-                        Both password and {activeSsoType === "saml" ? "SAML" : "OIDC"} are enabled.
+                        Forgot password? Open <code className="bg-sidebar px-1 rounded">9router</code> CLI on the host → <b>Settings</b> → <b>Reset Password to Default</b>.
                       </p>
                     )}
-
-                    {/* Login method toggle: two real states, password or API key. */}
-                    <div className="flex rounded-[6px] border border-border bg-surface-2 p-1">
-                      {[
-                        { id: "password", label: "Password" },
-                        { id: "apikey", label: "API Key" },
-                      ].map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          aria-pressed={loginMethod === m.id}
-                          onClick={() => { setLoginMethod(m.id); setError(""); }}
-                          className={`flex-1 py-1.5 text-xs font-medium rounded-[6px] transition-colors ${
-                            loginMethod === m.id
-                              ? "bg-primary text-white"
-                              : "text-text-muted hover:text-text-main"
-                          }`}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {loginMethod === "password" ? (
-                      <div className="flex flex-col gap-3">
-                        <div className="flex flex-col gap-1.5">
-                          <label htmlFor="xrouter-password" className="text-sm font-medium text-text-main">
-                            Password
-                          </label>
-                          <div className="relative">
-                            <input
-                              id="xrouter-password"
-                              type={showPassword ? "text" : "password"}
-                              placeholder="Enter password"
-                              value={password}
-                              onChange={(e) => setPassword(e.target.value)}
-                              autoFocus={!oidcAvailable}
-                              autoComplete="current-password"
-                              className="w-full py-2.5 pl-3 pr-11 text-sm text-text-main bg-surface-2 rounded-[6px] border border-border/50 placeholder-text-muted/70 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/50 focus:bg-surface transition-all duration-150 ease-out text-[16px] sm:text-sm"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowPassword((v) => !v)}
-                              aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
-                              aria-pressed={showPassword}
-                              className="absolute inset-y-0 right-0 flex items-center pr-3 text-text-muted hover:text-text-main transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-[19px]">
-                                {showPassword ? "visibility_off" : "visibility"}
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-
-                        {error && (
-                          <p className="text-xs text-danger flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">error</span>
-                            {error}
-                          </p>
-                        )}
-
-                        {/* Petunjuk password default: klik chip untuk mengisi otomatis. */}
-                        <div className="flex flex-col gap-1">
-                          <p className="text-xs leading-5 text-text-muted">
-                            Default password:{" "}
-                            <button
-                              type="button"
-                              onClick={() => { setPassword(DEFAULT_PASSWORD); setError(""); }}
-                              className="font-mono rounded-[6px] border border-border bg-surface-2 px-1.5 py-[1px] text-text-main hover:border-primary/50 hover:text-primary transition-colors"
-                              title="Klik untuk mengisi"
-                            >
-                              {DEFAULT_PASSWORD}
-                            </button>
-                          </p>
-                          <p className="text-[11px] leading-4 text-text-subtle">
-                            Change it after first sign-in.
-                          </p>
-                        </div>
-
-                        {retryAfter > 0 && (
-                          <p className="text-xs text-warning">
-                            Terkunci sementara. Coba lagi dalam <span className="font-mono">{retryAfter}s</span>.
-                          </p>
-                        )}
-                        {resetHint && (
-                          <p className="text-xs text-text-muted">
-                            Lupa password? Jalankan CLI <code className="bg-surface-2 px-1 rounded">aries-router</code> di server, buka <b>Settings</b>, lalu <b>Reset Password to Default</b>.
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        <Input
-                          label="API Key"
-                          type="password"
-                          placeholder="sk-9r-..."
-                          value={apiKey}
-                          onChange={(e) => setApiKey(e.target.value)}
-                          autoFocus
-                        />
-                        <p className="text-xs text-text-muted">
-                          Sign in with an API Key that has been granted access to specific features.
-                        </p>
-                      </div>
-                    )}
-
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      className="w-full"
-                      loading={loading}
-                      disabled={retryAfter > 0 || (loginMethod === "password" ? !password : !apiKey)}
-                    >
-                      {retryAfter > 0
-                        ? `Tunggu ${retryAfter}s`
-                        : loginMethod === "apikey"
-                        ? "Sign in with API Key"
-                        : "Sign in"}
-                    </Button>
-                  </form>
+                  </div>
                 ) : (
-                  error && <p className="text-xs text-danger">{error}</p>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">API Key</label>
+                    <Input
+                      type="password"
+                      placeholder="Enter your API Key (sk-9r-...)"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      required
+                      autoFocus
+                    />
+                    {error && <p className="text-xs text-red-500">{error}</p>}
+                    <p className="text-xs text-text-muted">
+                      Log in using an assigned API Key to access authorised features.
+                    </p>
+                  </div>
                 )}
-              </div>
-            )}
-          </Card>
 
-          <p className="text-center text-xs text-text-muted mt-6">
-            Aries, self-hosted LLM gateway
-          </p>
-        </div>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full"
+                  loading={loading}
+                  disabled={retryAfter > 0}
+                >
+                  {retryAfter > 0 ? `Wait ${retryAfter}s` : loginMethod === "apikey" ? "Login with API Key" : "Login"}
+                </Button>
+
+                {loginMethod === "password" && (
+                  <p className="text-xs text-center text-text-muted mt-2">
+                    Default password is <code className="bg-sidebar px-1 rounded">seren123</code>
+                  </p>
+                )}
+              </form>
+            ) : (
+              error && <p className="text-xs text-red-500">{error}</p>
+            )}
+          </div>
+          )}
+        </Card>
       </div>
     </div>
   );

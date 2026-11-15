@@ -73,10 +73,10 @@ const readConfig = async () => {
   }
 };
 
-// Check if config has Aries settings
-const hasAriesConfig = (config) => {
+// Check if config has 9Router settings
+const has9RouterConfig = (config) => {
   if (!config) return false;
-  return config.includes("model_provider = \"xrouter\"") || config.includes("[model_providers.xrouter]");
+  return config.includes("model_provider = \"9router\"") || config.includes("[model_providers.9router]");
 };
 
 // GET - Check codex CLI and read current settings
@@ -97,7 +97,7 @@ export async function GET() {
     return NextResponse.json({
       installed: true,
       config,
-      hasAries: hasAriesConfig(config),
+      has9Router: has9RouterConfig(config),
       configPath: getCodexConfigPath(),
     });
   } catch (error) {
@@ -106,7 +106,7 @@ export async function GET() {
   }
 }
 
-// POST - Update Aries settings (merge with existing config)
+// POST - Update 9Router settings (merge with existing config)
 export async function POST(request) {
   try {
     const { baseUrl, apiKey, model, subagentModel } = await request.json();
@@ -128,16 +128,16 @@ export async function POST(request) {
       parsed = parsedToWritable(parseTOML(existingConfig));
     } catch { /* No existing config */ }
 
-    // Update only Aries related fields (api_key goes to auth.json, not config.toml)
+    // Update only 9Router related fields (api_key goes to auth.json, not config.toml)
     parsed.model = model;
-    parsed.model_provider = "xrouter";
+    parsed.model_provider = "9router";
 
-    // Update or create xrouter provider section (no api_key - Codex reads from auth.json)
+    // Update or create 9router provider section (no api_key - Codex reads from auth.json)
     // Ensure /v1 suffix is added only once
     const normalizedBaseUrl = baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`;
     // Custom providers ignore auth.json - the key must travel as a static header
-    setNestedSection(parsed, "model_providers.xrouter", {
-      name: "Aries",
+    setNestedSection(parsed, "model_providers.9router", {
+      name: "9Router",
       base_url: normalizedBaseUrl,
       wire_api: "responses",
       http_headers: { Authorization: `Bearer ${apiKey}` },
@@ -162,7 +162,7 @@ export async function POST(request) {
   }
 }
 
-// DELETE - Remove Aries settings only (keep other settings)
+// DELETE - Remove 9Router settings only (keep other settings)
 export async function DELETE() {
   try {
     const configPath = getCodexConfigPath();
@@ -182,14 +182,14 @@ export async function DELETE() {
       throw error;
     }
 
-    // Remove Aries related root fields only if they point to xrouter
-    if (parsed.model_provider === "xrouter") {
+    // Remove 9Router related root fields only if they point to 9router
+    if (parsed.model_provider === "9router") {
       delete parsed.model;
       delete parsed.model_provider;
     }
 
-    // Remove xrouter provider section
-    deleteNestedSection(parsed, "model_providers.xrouter");
+    // Remove 9router provider section
+    deleteNestedSection(parsed, "model_providers.9router");
 
     // Remove subagent configuration (both the current key and the legacy role form)
     deleteNestedSection(parsed, "agents.default_subagent_model");
@@ -217,7 +217,7 @@ export async function DELETE() {
 
     return NextResponse.json({
       success: true,
-      message: "Aries settings removed successfully",
+      message: "9Router settings removed successfully",
     });
   } catch (error) {
     console.log("Error resetting codex settings:", error);

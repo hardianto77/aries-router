@@ -39,7 +39,7 @@ export default function DonateModal({ isOpen, onClose }) {
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 backdrop-blur-sm" style={{ backgroundColor: "var(--color-scrim)" }} onClick={onClose} />
+      <div className="absolute inset-0 backdrop-blur-md" style={{ backgroundColor: "var(--color-scrim)" }} onClick={onClose} />
       <div
         ref={modalRef}
         className="relative w-full bg-surface border border-border-subtle rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-w-3xl flex flex-col max-h-[85vh]"
@@ -47,7 +47,7 @@ export default function DonateModal({ isOpen, onClose }) {
         <div className="flex items-center justify-between p-3 border-b border-border-subtle">
           <h2 className="text-lg font-semibold text-text-main flex items-center gap-2">
             <span className="material-symbols-outlined text-pink-500">volunteer_activism</span>
-            {data?.title || "Support Aries"}
+            {data?.title || "Support 9Router"}
           </h2>
           <button
             onClick={onClose}
@@ -66,7 +66,7 @@ export default function DonateModal({ isOpen, onClose }) {
             </div>
           )}
           {error && (
-            <div className="text-danger py-4">Failed to load donate info: {error}</div>
+            <div className="text-red-500 py-4">Failed to load donate info: {error}</div>
           )}
           {!loading && !error && data && (
             <>

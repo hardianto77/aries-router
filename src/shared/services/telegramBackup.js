@@ -71,7 +71,7 @@ async function sendViaTelegram({ tgBotToken, tgChatId }, buf, stamp) {
   const form = new FormData();
   form.append("chat_id", tgChatId);
   form.append("document", new Blob([buf], { type: "application/json" }), `9router-backup-${stamp}.json`);
-  form.append("caption", `Aries auto backup v${getAppVersion()}. ${formatMb(buf.length)} MB`);
+  form.append("caption", `9Router auto backup v${getAppVersion()}. ${formatMb(buf.length)} MB`);
 
   // Respects the outbound-proxy env applied by applyOutboundProxyEnv().
   const res = await proxyAwareFetch(`https://api.telegram.org/bot${tgBotToken}/sendDocument`, {

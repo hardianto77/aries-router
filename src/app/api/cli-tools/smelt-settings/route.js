@@ -29,7 +29,7 @@ const checkSmeltInstalled = async () => {
   }
 };
 
-const hasAriesConfig = (settings) => {
+const has9RouterConfig = (settings) => {
   if (!settings) return false;
   return (
     settings._managedBy === "9router" ||
@@ -62,7 +62,7 @@ export async function GET() {
     return NextResponse.json({
       installed: true,
       config,
-      hasAries: hasAriesConfig(config),
+      has9Router: has9RouterConfig(config),
       configPath: getSmeltConfigPath(),
     });
   } catch (err) {
@@ -136,7 +136,7 @@ export async function DELETE() {
       await fs.writeFile(configPath, JSON.stringify(existing, null, 2), "utf-8");
     }
 
-    return NextResponse.json({ success: true, message: "Smelt Aries settings removed" });
+    return NextResponse.json({ success: true, message: "Smelt 9Router settings removed" });
   } catch (err) {
     return NextResponse.json({ error: { message: err.message } }, { status: 500 });
   }

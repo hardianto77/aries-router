@@ -9,7 +9,7 @@ import { SERENHOPE_SOURCE, DECOLUA_SOURCE, DEFAULT_CHANGELOG_SOURCE, availableCh
 marked.setOptions({ gfm: true, breaks: true });
 
 const DECOLUA_URL = "https://raw.githubusercontent.com/decolua/9router/refs/heads/master/CHANGELOG.md";
-const SERENHOPE_URL = "https://raw.githubusercontent.com/hardianto77/aries-router/refs/heads/merge-xrouter-theirs/CHANGELOG.md";
+const SERENHOPE_URL = "https://raw.githubusercontent.com/serenhope/9router/refs/heads/master/CHANGELOG.md";
 const CHANGELOG_API_URL = "/api/changelog";
 
 function asMarkdown(value) {
@@ -593,7 +593,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 backdrop-blur-sm"
+        className="absolute inset-0 backdrop-blur-md"
         style={{ backgroundColor: "var(--color-scrim)" }}
         onClick={onClose}
       />
@@ -638,7 +638,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
               <span className="material-symbols-outlined text-3xl animate-spin text-primary">progress_activity</span>
             </div>
           ) : error ? (
-            <p className="text-danger">{error}</p>
+            <p className="text-red-500">{error}</p>
           ) : htmlBySource[shown] ? (
             <div dangerouslySetInnerHTML={{ __html: htmlBySource[shown] }} />
           ) : (

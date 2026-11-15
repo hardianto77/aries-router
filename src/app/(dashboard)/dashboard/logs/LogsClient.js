@@ -320,7 +320,7 @@ export default function LogsClient({ initialTab = "errors" }) {
               </Card>
             </div>
 
-            {/* Standard Aries Search & Filter Row */}
+            {/* Standard 9Router Search & Filter Row */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div className="relative flex-1 sm:max-w-sm">
                 <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-text-muted">

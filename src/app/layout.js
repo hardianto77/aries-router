@@ -16,15 +16,10 @@ const inter = Inter({
 });
 
 export const metadata = {
-  title: "Aries - AI Infrastructure Management",
+  title: "9Router - AI Infrastructure Management",
   description: "One endpoint for all your AI providers. Manage keys, monitor usage, and scale effortlessly.",
   icons: {
-    icon: [
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/favicon.ico", sizes: "48x48" },
-    ],
-    shortcut: "/favicon.svg",
-    apple: "/apple-touch-icon.png",
+    icon: "/favicon.svg",
   },
 };
 
@@ -36,10 +31,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Apply persisted theme before first paint (Seren) */}
+        {/* Lock theme strictly to glass before first paint */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{var s=JSON.parse(localStorage.getItem('theme')||'null');var t=s&&s.state&&s.state.theme;document.documentElement.classList.add('dark');if(t==='glass')document.documentElement.classList.add('glass');else if(t==='pop')document.documentElement.classList.add('pop');else if(t==='marine')document.documentElement.classList.add('marine')}catch(e){document.documentElement.classList.add('dark')}`,
+            __html: `document.documentElement.classList.add('dark','glass');`,
           }}
         />
         <script

@@ -45,7 +45,7 @@ const readConfig = async () => {
   }
 };
 
-const hasAriesConfig = (config) => {
+const has9RouterConfig = (config) => {
   if (!config || !config.providers) return false;
 
   const providers = config.providers;
@@ -119,12 +119,12 @@ export async function GET() {
   }
 
   const config = await readConfig();
-  const hasAries = hasAriesConfig(config);
+  const has9Router = has9RouterConfig(config);
 
   return NextResponse.json({
     installed: true,
     config,
-    hasAries,
+    has9Router,
     configPath: getConfigPath(),
   });
 }

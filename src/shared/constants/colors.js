@@ -27,7 +27,7 @@ export const COLORS = {
     bg: "#191918",
     bgAlt: "#1F1F1E",
     surface: "#242423",
-    sidebar: "#0c0f17",
+    sidebar: "rgba(30, 30, 30, 0.8)",
     border: "rgba(255, 255, 255, 0.1)",
     textMain: "#ECEBE8",
     textMuted: "#9E9D99",

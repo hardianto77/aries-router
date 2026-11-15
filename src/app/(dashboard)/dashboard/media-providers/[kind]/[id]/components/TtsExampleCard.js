@@ -453,7 +453,7 @@ export function TtsExampleCard({ providerId }) {
                     {v.language ? ` · ${v.language}` : ""}
                     {v.gender ? ` · ${v.gender[0].toUpperCase()}` : ""}
                     {v.free_users_allowed === true && (
-                      <span className="ml-1.5 px-1 py-0.5 text-[9px] font-semibold rounded bg-success/15 text-success border border-success/20">Free</span>
+                      <span className="ml-1.5 px-1 py-0.5 text-[9px] font-semibold rounded bg-green-500/15 text-green-600 border border-green-500/20">Free</span>
                     )}
                     {v.free_users_allowed === false && (
                       <span className="ml-1.5 px-1 py-0.5 text-[9px] font-semibold rounded bg-amber-500/15 text-amber-600 border border-amber-500/20">Paid</span>
@@ -595,7 +595,7 @@ export function TtsExampleCard({ providerId }) {
             <pre className="bg-sidebar rounded-lg px-3 py-2.5 text-xs font-mono text-text-main overflow-x-auto whitespace-pre-wrap break-all">{curlSnippet}</pre>
           </div>
 
-          {error && <p className="text-xs text-danger break-words">{error}</p>}
+          {error && <p className="text-xs text-red-500 break-words">{error}</p>}
 
           {/* Audio player */}
           {audioUrl ? (
@@ -647,7 +647,7 @@ export function TtsExampleCard({ providerId }) {
           onClick={() => setModalOpen(false)}
         >
           <div
-            className="border border-border rounded-xl shadow-[var(--elev-3)] w-full max-w-md mx-4 flex flex-col max-h-[80vh]"
+            className="border border-border rounded-xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[80vh]"
             style={{ backgroundColor: "var(--color-bg)", isolation: "isolate" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -672,7 +672,7 @@ export function TtsExampleCard({ providerId }) {
 
             {/* Language list */}
             <div className="overflow-y-auto flex-1 p-2">
-              {modalError && <p className="text-xs text-danger px-2 py-1">{modalError}</p>}
+              {modalError && <p className="text-xs text-red-500 px-2 py-1">{modalError}</p>}
               {modalLoading ? (
                 <p className="text-xs text-text-muted px-2 py-3">Loading...</p>
               ) : (

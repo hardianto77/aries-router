@@ -656,7 +656,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
       {loading ? spinner : <OverviewCards stats={stats} trends={sparks} />}
 
       {/* Provider map + Recent Requests. The map shows every provider wired into
-          Aries, which is infrastructure rather than one key's usage, so an
+          9Router, which is infrastructure rather than one key's usage, so an
           API-key session gets a quiet note in its place. The note drops the
           two-column grid too: RecentRequests is pinned to a fixed height, and
           a three-line note beside it would leave most of the row empty. */}

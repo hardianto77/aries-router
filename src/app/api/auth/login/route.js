@@ -24,7 +24,7 @@ function audit(request, ip, event) {
   });
 }
 
-const RESET_HINT = "Forgot password? Reset to default via Aries CLI → Settings → Reset Password to Default.";
+const RESET_HINT = "Forgot password? Reset to default via 9Router CLI → Settings → Reset Password to Default.";
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
 // Short, non-sensitive description of what a key may do, for the audit trail.
@@ -207,7 +207,7 @@ export async function POST(request) {
           detail: "The published default password was used from a remote address; no session was issued",
         });
         return NextResponse.json(
-          { success: false, error: "The default password only works from the machine running Aries, or from the same Docker/LAN network. Open localhost there and change it, or start once with INITIAL_PASSWORD. Set ALLOW_REMOTE_DEFAULT_LOGIN=true to allow the first login from anywhere.", mustChangePassword },
+          { success: false, error: "The default password only works from the machine running 9Router, or from the same Docker/LAN network. Open localhost there and change it, or start once with INITIAL_PASSWORD. Set ALLOW_REMOTE_DEFAULT_LOGIN=true to allow the first login from anywhere.", mustChangePassword },
           { status: 403, headers: NO_STORE_HEADERS }
         );
       }

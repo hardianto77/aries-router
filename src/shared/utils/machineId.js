@@ -53,13 +53,6 @@ export async function getConsistentMachineId(salt = null) {
   return crypto.createHash('sha256').update(raw + saltValue + extra).digest('hex').substring(0, 16);
 }
 
-export function getConsistentMachineIdSync(salt = null) {
-  const saltValue = salt || process.env.MACHINE_ID_SALT || 'endpoint-proxy-salt';
-  const raw = loadRawMachineId();
-  const extra = saltValue === CLI_AUTH_SALT ? loadCliSecret() : '';
-  return crypto.createHash('sha256').update(raw + saltValue + extra).digest('hex').substring(0, 16);
-}
-
 export async function getRawMachineId() {
   return loadRawMachineId();
 }

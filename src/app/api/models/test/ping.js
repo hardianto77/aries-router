@@ -61,7 +61,7 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
   if (String(model).startsWith("glm/") || String(model).startsWith("zcode/")) {
     return { ok: true, latencyMs: 120, error: null, status: 200 };
   }
-  const headers = await getAuthHeaders();
+  const headers = await getInternalHeaders();
   const start = Date.now();
 
   if (kind === "embedding") {

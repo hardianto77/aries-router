@@ -132,14 +132,8 @@ export async function GET() {
     // provider-scoped entries and falls back to the generic patterns.
     const customModels = (await getCustomModels()).filter((m) => {
       if (!m?.id || (m.kind || m.type || "llm") !== "llm") return false;
-      const providerId = ALIAS_TO_ID[m.providerAlias] || m.providerAlias;
-      const routedAlias = getProviderAlias(providerId) || m.providerAlias;
-      const candidates = [
-        `${m.providerAlias}/${m.id}`,
-        `${providerId}/${m.id}`,
-        `${routedAlias}/${m.id}`,
-      ];
-      return !candidates.some((model) => seenRouted.has(model) || seenFull.has(model));
+      if (seenRouted.has(`${m.providerAlias}/${m.id}`)) return false;
+      return !seenFull.has(`${m.providerAlias}/${m.id}`);
     });
     for (const m of customModels) {
       const fullModel = `${m.providerAlias}/${m.id}`;

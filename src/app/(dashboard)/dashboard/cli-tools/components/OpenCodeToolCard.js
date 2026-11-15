@@ -100,7 +100,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
   const getConfigStatus = () => {
     if (!status?.installed) return null;
     if (!status.config) return "not_configured";
-    if (!status.hasAries) return "not_configured";
+    if (!status.has9Router) return "not_configured";
     const url = status.config?.provider?.["9router"]?.options?.baseURL || "";
     return matchKnownEndpoint(url, { tunnelPublicUrl, tailscaleUrl }) ? "configured" : "other";
   };
@@ -231,7 +231,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3 className="font-medium text-sm">{tool.name}</h3>
-              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-success/10 text-success rounded-full">Connected</span>}
+              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-green-500/10 text-success rounded-full">Connected</span>}
               {configStatus === "not_configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-yellow-500/10 text-warning rounded-full">Not configured</span>}
               {configStatus === "other" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/10 text-info rounded-full">Other</span>}
             </div>
@@ -381,7 +381,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
                                   console.log("Error removing model:", error);
                                 }
                               }}
-                              className="ml-0.5 hover:text-danger"
+                              className="ml-0.5 hover:text-red-500"
                             >
                               <span className="material-symbols-outlined text-[12px]">close</span>
                             </button>
@@ -425,7 +425,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
                   {subagentModel && (
                     <button
                       onClick={() => setSubagentModel("")}
-                      className="p-1 text-text-muted hover:text-danger rounded transition-colors"
+                      className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
                       title="Clear (will use main model)"
                     >
                       <span className="material-symbols-outlined text-[14px]">close</span>
@@ -435,7 +435,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
               </div>
 
               {message && (
-                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>
+                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"}`}>
                   <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
                   <span>{message.text}</span>
                 </div>
@@ -445,7 +445,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
                 <Button variant="primary" size="sm" onClick={handleApply} disabled={selectedModels.length === 0} loading={applying}>
                   <span className="material-symbols-outlined text-[14px] mr-1">save</span>Apply
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleReset} disabled={!status.hasAries} loading={restoring}>
+                <Button variant="outline" size="sm" onClick={handleReset} disabled={!status.has9Router} loading={restoring}>
                   <span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)}>

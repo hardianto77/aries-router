@@ -54,7 +54,7 @@ export default function KeyQuotaCard({ quota }) {
   const percent = hasLimit ? Math.min(100, (used / limit) * 100) : 0;
 
   let barColor = "bg-primary";
-  if (percent >= 100) barColor = "bg-danger";
+  if (percent >= 100) barColor = "bg-red-500";
   else if (percent >= 80) barColor = "bg-amber-500";
 
   const remainingMs = nextResetAt ? new Date(nextResetAt).getTime() - Date.now() : null;

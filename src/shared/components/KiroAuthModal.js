@@ -311,7 +311,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-2">
-                IDC Start URL <span className="text-danger">*</span>
+                IDC Start URL <span className="text-red-500">*</span>
               </label>
               <Input
                 value={idcStartUrl}
@@ -340,7 +340,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
             </div>
 
             {error && (
-              <p className="text-sm text-danger">{error}</p>
+              <p className="text-sm text-red-600">{error}</p>
             )}
 
             <div className="flex gap-2">
@@ -368,7 +368,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
 
             <div>
               <label className="block text-sm font-medium mb-2">
-                API Key <span className="text-danger">*</span>
+                API Key <span className="text-red-500">*</span>
               </label>
               <Input
                 value={apiKey}
@@ -513,7 +513,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
 
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Refresh Token <span className="text-danger">*</span>
+                    Refresh Token <span className="text-red-500">*</span>
                   </label>
                   <Input
                     value={refreshToken}
@@ -556,7 +556,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
 
             <div>
               <label className="block text-sm font-medium mb-2">
-                CLIProxyAPI Auth JSON <span className="text-danger">*</span>
+                CLIProxyAPI Auth JSON <span className="text-red-500">*</span>
               </label>
               <textarea
                 value={cliProxyJson}

@@ -71,7 +71,7 @@ Card.Section = function CardSection({ children, className, ...props }) {
     <div
       className={cn(
         "p-4 rounded-[var(--r-control)]",
-        "bg-surface-2 border border-border-subtle",
+        "bg-bg/80 border border-border-subtle",
         // The same 1px top hairline every elevation tier carries, so an inset
         // section reads as part of the lit-from-above system instead of as a
         // flat box drawn inside another box.

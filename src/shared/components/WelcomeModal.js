@@ -99,7 +99,7 @@ export default function WelcomeModal() {
           />
           <div>
             <p className="flex items-center gap-2 text-lg font-bold tracking-tight leading-tight text-primary">
-              Aries
+              9Router
               {version && (
                 <span className="rounded-md border border-border bg-bg-subtle px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-normal text-text-muted">
                   v{version}

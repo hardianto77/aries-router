@@ -172,7 +172,7 @@ export default function DownloadBackupModal({ isOpen, onClose, onDownload, loadi
           </div>
         </div>
 
-        {error && <p className="text-xs text-danger">{error}</p>}
+        {error && <p className="text-xs text-red-500">{error}</p>}
       </div>
     </Modal>
   );

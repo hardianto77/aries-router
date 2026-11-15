@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, Button, Toggle, Input, Select, DownloadBackupModal, ProgressCard } from "@/shared/components";
+import { Card, Button, Toggle, Input, Select, DownloadBackupModal } from "@/shared/components";
 import Modal, { ConfirmModal } from "@/shared/components/Modal";
-import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
+import SettingsHistory from "@/shared/components/SettingsHistory";
 import { cn } from "@/shared/utils/cn";
+import { useSessionStore } from "@/store/sessionStore";
+import { useTaskStore } from "@/store/taskStore";
 import { APP_CONFIG } from "@/shared/constants/config";
 import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
-import { LOCALE_FLAGS } from "@/shared/constants/locales";
 
 function getLocaleFromCookie() {
   if (typeof document === "undefined") return "en";
@@ -75,17 +76,13 @@ export default function ProfilePage() {
   const [locale, setLocale] = useState(() => getLocaleFromCookie());
   const [langOpen, setLangOpen] = useState(false);
   const [shutdownOpen, setShutdownOpen] = useState(false);
+  const sessionRole = useSessionStore((state) => state.role);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
-  const [envInfo, setEnvInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
   const [passStatus, setPassStatus] = useState({ type: "", message: "" });
   const [passLoading, setPassLoading] = useState(false);
-  const [jailedIpsList, setJailedIpsList] = useState([]);
-  const [jailLoading, setJailLoading] = useState(false);
-  const [manualIpToJail, setManualIpToJail] = useState("");
-  const [manualJailReason, setManualJailReason] = useState("");
   const [dbLoading, setDbLoading] = useState(false);
   const [dbStatus, setDbStatus] = useState({ type: "", message: "" });
   const [dbAuth, setDbAuth] = useState({ open: false, mode: "", password: "" });
@@ -123,7 +120,7 @@ export default function ProfilePage() {
   const [ssoTypeTab, setSsoTypeTab] = useState("saml");
   const [samlForm, setSamlForm] = useState({
     samlEntryPoint: "",
-    samlIssuer: "urn:xrouter:sp",
+    samlIssuer: "urn:9router:sp",
     samlCert: "",
     samlLoginLabel: "Sign in with SAML SSO",
     samlAttributeEmail: "email",
@@ -138,9 +135,52 @@ export default function ProfilePage() {
   const certFileRef = useRef(null);
 
   const importFileRef = useRef(null);
-  // Progress overlay state. `busy` holds { title, message, section, progress };
-  // ProgressCard from the shared Loading module renders it directly.
+  // Progress state for backup export/import and test runs. `busy` holds
+  // { title, message, section, progress }. It has no overlay of its own: the
+  // task store below is the only surface it reaches, so the run is announced in
+  // the notification bell instead of taking over the page with a fixed scrim
+  // anchored bottom-right.
   const [busy, setBusy] = useState(null);
+  const profileTaskRef = useRef(null);
+
+  // Report the backup run into the bell task store (no page overlay).
+  useEffect(() => {
+    if (busy) {
+      const taskId = "profile-backup-task";
+      profileTaskRef.current = taskId;
+      const pct = typeof busy.progress === "number" && Number.isFinite(busy.progress)
+        ? Math.min(100, Math.max(0, Math.round(busy.progress <= 1 ? busy.progress * 100 : busy.progress)))
+        : 0;
+      const taskData = {
+        id: taskId,
+        title: busy.title || "Backup Operation",
+        message: busy.message || "Working",
+        progress: pct,
+        href: "/dashboard/profile",
+      };
+      const existing = useTaskStore.getState().tasks.find((t) => t.id === taskId);
+      if (!existing || existing.state === "done") {
+        useTaskStore.getState().start(taskData);
+      } else {
+        useTaskStore.getState().update(taskId, {
+          title: taskData.title,
+          message: taskData.message,
+          progress: taskData.progress,
+        });
+      }
+    } else if (profileTaskRef.current) {
+      useTaskStore.getState().finish(profileTaskRef.current);
+      profileTaskRef.current = null;
+    }
+  }, [busy]);
+
+  useEffect(() => {
+    return () => {
+      if (profileTaskRef.current) {
+        useTaskStore.getState().finish(profileTaskRef.current);
+      }
+    };
+  }, []);
   const [proxyForm, setProxyForm] = useState({
     outboundProxyEnabled: false,
     outboundProxyUrl: "",
@@ -150,54 +190,9 @@ export default function ProfilePage() {
   const [proxyLoading, setProxyLoading] = useState(false);
   const [proxyTestLoading, setProxyTestLoading] = useState(false);
 
-  const loadJailedIps = async () => {
-    try {
-      const res = await fetch("/api/security/jail");
-      const data = await res.json();
-      if (data.success && Array.isArray(data.jailed)) {
-        setJailedIpsList(data.jailed);
-      }
-    } catch {}
-  };
-
-  const handleManualJail = async (e) => {
-    e?.preventDefault?.();
-    if (!manualIpToJail.trim()) return;
-    setJailLoading(true);
-    try {
-      const res = await fetch("/api/security/jail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ip: manualIpToJail.trim(), reason: manualJailReason.trim() || "Manual ban by admin", durationMinutes: 60 }),
-      });
-      if (res.ok) {
-        setManualIpToJail("");
-        setManualJailReason("");
-        await loadJailedIps();
-      }
-    } catch {}
-    finally {
-      setJailLoading(false);
-    }
-  };
-
-  const handleUnjail = async (ip) => {
-    try {
-      const res = await fetch(`/api/security/jail?ip=${encodeURIComponent(ip)}`, { method: "DELETE" });
-      if (res.ok) {
-        await loadJailedIps();
-      }
-    } catch {}
-  };
-
   useEffect(() => {
-    loadAutoBackup();
-    loadJailedIps();
-    fetch("/api/settings/env")
-      .then((res) => res.json())
-      .then((data) => setEnvInfo(data))
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  loadAutoBackup();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -216,7 +211,7 @@ export default function ProfilePage() {
         setSsoTypeTab(data?.ssoType || "saml");
         setSamlForm({
           samlEntryPoint: data?.samlEntryPoint || "",
-          samlIssuer: data?.samlIssuer || "urn:xrouter:sp",
+          samlIssuer: data?.samlIssuer || "urn:9router:sp",
           samlCert: data?.samlCert || "",
           samlLoginLabel: data?.samlLoginLabel || "Sign in with SAML SSO",
           samlAttributeEmail: data?.samlAttributeEmail || "email",
@@ -456,61 +451,6 @@ export default function ProfilePage() {
     }
   };
 
-  const [pruningDead, setPruningDead] = useState(false);
-  const [pruneResult, setPruneResult] = useState(null);
-
-  const updateCacheAffinity = async (cacheAffinityEnabled) => {
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cacheAffinityEnabled }),
-      });
-      if (res.ok) {
-        setSettings(prev => ({ ...prev, cacheAffinityEnabled }));
-      }
-    } catch (err) {
-      console.error("Failed to update cache affinity:", err);
-    }
-  };
-
-  const updateAutoPruneDeadKeys = async (autoDeleteDeadKeys) => {
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ autoDeleteDeadKeys, autoPruneDeadConnections: autoDeleteDeadKeys }),
-      });
-      if (res.ok) {
-        setSettings(prev => ({ ...prev, autoDeleteDeadKeys, autoPruneDeadConnections: autoDeleteDeadKeys }));
-      }
-    } catch (err) {
-      console.error("Failed to update auto prune dead keys:", err);
-    }
-  };
-
-  const handleManualPruneDead = async () => {
-    setPruningDead(true);
-    setPruneResult(null);
-    try {
-      const res = await fetch("/api/providers/prune-dead", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPruneResult(`Pruned ${data.count} dead connections`);
-      } else {
-        setPruneResult(data.error || "Failed to prune");
-      }
-    } catch (e) {
-      setPruneResult("Error pruning connections");
-    } finally {
-      setPruningDead(false);
-      setTimeout(() => setPruneResult(null), 5000);
-    }
-  };
-
   const updateOidcForm = (field, value) => {
     setOidcForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -691,7 +631,7 @@ export default function ProfilePage() {
         setSamlForm((prev) => ({
           ...prev,
           samlEntryPoint: ssoUrl || prev.samlEntryPoint,
-          samlIssuer: prev.samlIssuer || "urn:xrouter:sp",
+          samlIssuer: prev.samlIssuer || "urn:9router:sp",
           samlCert: certStr || prev.samlCert,
         }));
 
@@ -730,7 +670,7 @@ export default function ProfilePage() {
         authMode: targetAuthMode,
         ssoType: "saml",
         samlEntryPoint: samlForm.samlEntryPoint.trim(),
-        samlIssuer: samlForm.samlIssuer.trim() || "urn:xrouter:sp",
+        samlIssuer: samlForm.samlIssuer.trim() || "urn:9router:sp",
         samlCert: samlForm.samlCert.trim(),
         samlLoginLabel: samlForm.samlLoginLabel.trim() || "Sign in with SAML SSO",
         samlAttributeEmail: samlForm.samlAttributeEmail.trim() || "email",
@@ -944,7 +884,7 @@ export default function ProfilePage() {
       const anchor = document.createElement("a");
       const stamp = new Date().toISOString().replace(/[.:]/g, "-");
       anchor.href = url;
-      anchor.download = `aries-backup-${stamp}.json`;
+      anchor.download = `9router-backup-${stamp}.json`;
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
@@ -1130,7 +1070,7 @@ export default function ProfilePage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg bg-bg border border-border gap-2">
               <div>
                 <p className="font-medium text-sm sm:text-base">Database Location</p>
-                <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.xrouter/db/data.sqlite</p>
+                <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.9router/db/data.sqlite</p>
               </div>
             </div>
             <div className="flex flex-col gap-2">
@@ -1185,41 +1125,6 @@ export default function ProfilePage() {
             </div>
         </Card>
 
-
-        {/* System Environment & Runtime Secrets */}
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
-              <span className="material-symbols-outlined text-[20px]">terminal</span>
-            </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-semibold">Environment & Runtime Secrets</h3>
-              <p className="text-xs sm:text-sm text-text-muted">Production security keys and runtime parameters configured via .env</p>
-            </div>
-          </div>
-          {envInfo ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
-              <div className="p-3 rounded-lg border border-border bg-surface-2 flex flex-col justify-between">
-                <span className="text-text-muted text-[11px] mb-1">JWT_SECRET (Session Auth)</span>
-                <span className="font-semibold text-text-main">{envInfo.jwtSecretMasked}</span>
-              </div>
-              <div className="p-3 rounded-lg border border-border bg-surface-2 flex flex-col justify-between">
-                <span className="text-text-muted text-[11px] mb-1">MACHINE_ID_SALT (Salt Entropy)</span>
-                <span className="font-semibold text-text-main">{envInfo.machineSaltMasked}</span>
-              </div>
-              <div className="p-3 rounded-lg border border-border bg-surface-2 flex flex-col justify-between">
-                <span className="text-text-muted text-[11px] mb-1">API_KEY_SECRET (Key Cryptography)</span>
-                <span className="font-semibold text-text-main">{envInfo.apiKeySecretMasked}</span>
-              </div>
-              <div className="p-3 rounded-lg border border-border bg-surface-2 flex flex-col justify-between">
-                <span className="text-text-muted text-[11px] mb-1">SERVER RUNTIME PORT</span>
-                <span className="font-semibold text-text-main">{envInfo.port} ({envInfo.baseUrl})</span>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-text-muted">Loading environment status...</p>
-          )}
-        </Card>
 
         {/* Security */}
         <Card>
@@ -1281,7 +1186,7 @@ export default function ProfilePage() {
                 </div>
 
                 {passStatus.message && (
-                  <p className={`text-xs sm:text-sm ${passStatus.type === "error" ? "text-danger" : "text-success"}`}>
+                  <p className={`text-xs sm:text-sm ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                     {passStatus.message}
                   </p>
                 )}
@@ -1293,88 +1198,6 @@ export default function ProfilePage() {
                 </div>
               </form>
             )}
-
-            {/* Dynamic IP Auto-Jail (Fail2Ban Protection) */}
-            <div className="pt-4 border-t border-border/50 flex flex-col gap-3">
-              <div className="flex items-start sm:items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm sm:text-base flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[18px] text-danger">gavel</span>
-                    IP Auto-Jail &amp; Brute-Force Defense
-                  </p>
-                  <p className="text-xs sm:text-sm text-text-muted">
-                    Automatically blocks attacker IPs at the socket level after 5 failed login attempts or 3 malicious probe signatures (SQLi, XSS, Path Traversal).
-                  </p>
-                </div>
-                <div className="shrink-0">
-                  <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-success-bg text-success border border-success-border">
-                    Active (Fast-Path)
-                  </span>
-                </div>
-              </div>
-
-              {/* Manual IP Ban Form */}
-              <form onSubmit={handleManualJail} className="flex flex-col sm:flex-row gap-2 mt-1">
-                <Input
-                  type="text"
-                  placeholder="IP address (e.g. 198.51.100.4)"
-                  value={manualIpToJail}
-                  onChange={(e) => setManualIpToJail(e.target.value)}
-                  className="flex-1 font-mono text-xs"
-                />
-                <Input
-                  type="text"
-                  placeholder="Reason (optional)"
-                  value={manualJailReason}
-                  onChange={(e) => setManualJailReason(e.target.value)}
-                  className="flex-1 text-xs"
-                />
-                <Button type="submit" variant="outline" size="sm" loading={jailLoading} className="shrink-0 text-danger border-danger/30 hover:bg-danger-bg">
-                  <span className="material-symbols-outlined text-[14px]">block</span>
-                  Ban IP
-                </Button>
-              </form>
-
-              {/* Jailed IPs List */}
-              <div className="mt-1 flex flex-col gap-1.5">
-                <p className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
-                  Currently Jailed IPs ({jailedIpsList.length})
-                </p>
-                {jailedIpsList.length === 0 ? (
-                  <p className="text-xs text-text-muted italic bg-surface-2 p-2.5 rounded border border-border-subtle">
-                    No IPs are currently jailed. Gateway perimeter is clean.
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
-                    {jailedIpsList.map((j) => (
-                      <div key={j.ip} className="flex items-center justify-between p-2 rounded bg-danger-bg/20 border border-danger/30 text-xs font-mono">
-                        <div className="flex flex-col gap-0.5 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-danger">{j.ip}</span>
-                            <span className="text-[10px] px-1 py-0.2 rounded bg-surface-2 text-text-muted border border-border-subtle">
-                              Strike #{j.strikes}
-                            </span>
-                          </div>
-                          <span className="text-[11px] text-text-muted truncate max-w-xs sm:max-w-md font-sans">
-                            {j.reason} · {j.remainingSeconds}s remaining
-                          </span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => handleUnjail(j.ip)}
-                          className="shrink-0 text-text-muted hover:text-success"
-                          title="Release from jail"
-                        >
-                          <span className="material-symbols-outlined text-[15px]">lock_open</span>
-                          Release
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         </Card>
 
@@ -1385,7 +1208,7 @@ export default function ProfilePage() {
             onClick={() => setOidcExpanded((v) => !v)}
             className="w-full flex items-center gap-3 text-left"
           >
-            <div className="p-2 rounded-lg bg-info-bg text-info shrink-0">
+            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500 shrink-0">
               <span className="material-symbols-outlined text-[20px]">lock_open</span>
             </div>
             <div className="flex-1 min-w-0">
@@ -1411,7 +1234,7 @@ export default function ProfilePage() {
               {/* SSO Protocol Switcher Tabs */}
               <div className="flex flex-col gap-2">
                 <label className="font-medium text-sm sm:text-base">SSO Protocol</label>
-                <div className="flex p-1 rounded-lg bg-surface-2 border border-border">
+                <div className="flex p-1 rounded-lg bg-surface-2 border border-border-subtle">
                   <button
                     type="button"
                     onClick={() => setSsoTypeTab("saml")}
@@ -1476,7 +1299,7 @@ export default function ProfilePage() {
                           "text-left rounded-lg border p-3 transition-colors",
                           active
                             ? "border-primary bg-primary/5"
-                            : "border-border bg-bg hover:bg-surface-2 dark:hover:bg-surface-2"
+                            : "border-border bg-surface hover:bg-surface-2"
                         )}
                         disabled={loading || oidcLoading || samlLoading}
                       >
@@ -1520,7 +1343,7 @@ export default function ProfilePage() {
                     {showSamlGuide && (
                       <div className="p-4 border-t border-border bg-surface/30 text-xs text-text-main flex flex-col gap-3">
                         <div className="p-2.5 rounded border border-primary/20 bg-primary/5 text-primary text-xs">
-                          <p className="font-semibold mb-1 flex items-center gap-1.5"><span className="material-symbols-outlined text-[14px]" aria-hidden="true">key</span> Required Service Provider (SP) Values for your IdP Setup:</p>
+                          <p className="mb-1 flex items-center gap-1.5 font-semibold"><span className="material-symbols-outlined text-[14px] leading-none">key</span>Required Service Provider (SP) Values for your IdP Setup:</p>
                           <ul className="list-disc pl-4 space-y-1 font-mono text-[11px]">
                             <li>
                               <b>Assertion Consumer Service (ACS) URL:</b>{" "}
@@ -1528,7 +1351,7 @@ export default function ProfilePage() {
                             </li>
                             <li>
                               <b>SP Entity ID / Audience URI:</b>{" "}
-                              <code className="bg-bg px-1 py-0.5 rounded break-all">{samlForm.samlIssuer || "urn:xrouter:sp"}</code>
+                              <code className="bg-bg px-1 py-0.5 rounded break-all">{samlForm.samlIssuer || "urn:9router:sp"}</code>
                             </li>
                             <li>
                               <b>NameID Format:</b>{" "}
@@ -1540,12 +1363,12 @@ export default function ProfilePage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                           <div className="p-3 rounded border border-border bg-bg/50 flex flex-col gap-1.5">
                             <p className="font-semibold text-text-main flex items-center gap-1.5">
-                              <span className="material-symbols-outlined text-[14px] text-text-muted" aria-hidden="true">cloud</span> AWS IAM Identity Center
+                              <span className="material-symbols-outlined text-[15px] leading-none text-text-muted">cloud</span> AWS IAM Identity Center
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
                               <li>Applications → <b>Add application</b> → Select <b>Add custom SAML 2.0 application</b>.</li>
                               <li>Set <b>Application ACS URL</b> to <code className="text-text-main font-mono">{samlAcsUrl}</code>.</li>
-                              <li>Set <b>Application SAML audience</b> to <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:xrouter:sp"}</code>.</li>
+                              <li>Set <b>Application SAML audience</b> to <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:9router:sp"}</code>.</li>
                               <li>Under <i>Attribute mappings</i>, map <code className="text-text-main font-mono">Subject</code> or <code className="text-text-main font-mono">email</code> to <code className="text-text-main font-mono">${`{user:email}`}</code>.</li>
                               <li>Download <b>IAM Identity Center SAML metadata XML</b> file and use 1-Click Import below!</li>
                             </ol>
@@ -1553,12 +1376,12 @@ export default function ProfilePage() {
 
                           <div className="p-3 rounded border border-border bg-bg/50 flex flex-col gap-1.5">
                             <p className="font-semibold text-text-main flex items-center gap-1.5">
-                              <span className="material-symbols-outlined text-[14px] text-text-muted" aria-hidden="true">hexagon</span> Microsoft Entra ID (Azure AD)
+                              <span className="material-symbols-outlined text-[15px] leading-none text-text-muted">security</span> Microsoft Entra ID (Azure AD)
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
                               <li>Enterprise Applications → <b>New application</b> → <b>Create your own application</b>.</li>
                               <li>Select <b>Single sign-on</b> → <b>SAML</b>.</li>
-                              <li><b>Identifier (Entity ID):</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:xrouter:sp"}</code></li>
+                              <li><b>Identifier (Entity ID):</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:9router:sp"}</code></li>
                               <li><b>Reply URL (ACS):</b> <code className="text-text-main font-mono">{samlAcsUrl}</code></li>
                               <li>Download <b>Federation Metadata XML</b> and import or copy X.509 Certificate.</li>
                             </ol>
@@ -1566,12 +1389,12 @@ export default function ProfilePage() {
 
                           <div className="p-3 rounded border border-border bg-bg/50 flex flex-col gap-1.5">
                             <p className="font-semibold text-text-main flex items-center gap-1.5">
-                              <span className="material-symbols-outlined text-[14px] text-text-muted" aria-hidden="true">verified</span> Okta / Auth0
+                              <span className="material-symbols-outlined text-[15px] leading-none text-text-muted">verified_user</span> Okta / Auth0
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
                               <li>Applications → <b>Create App Integration</b> → Select <b>SAML 2.0</b>.</li>
                               <li><b>Single Sign-On URL:</b> <code className="text-text-main font-mono">{samlAcsUrl}</code></li>
-                              <li><b>Audience URI (SP Entity ID):</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:xrouter:sp"}</code></li>
+                              <li><b>Audience URI (SP Entity ID):</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:9router:sp"}</code></li>
                               <li>Name ID format: <i>EmailAddress</i>.</li>
                               <li>Download Identity Provider metadata XML or copy the X.509 cert.</li>
                             </ol>
@@ -1579,11 +1402,11 @@ export default function ProfilePage() {
 
                           <div className="p-3 rounded border border-border bg-bg/50 flex flex-col gap-1.5">
                             <p className="font-semibold text-text-main flex items-center gap-1.5">
-                              <span className="material-symbols-outlined text-[14px] text-text-muted" aria-hidden="true">shield</span> Keycloak / Authentik
+                              <span className="material-symbols-outlined text-[15px] leading-none text-text-muted">shield_lock</span> Keycloak / Authentik
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
                               <li>Clients → <b>Create client</b> → Select <b>SAML</b>.</li>
-                              <li><b>Client ID:</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:xrouter:sp"}</code></li>
+                              <li><b>Client ID:</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:9router:sp"}</code></li>
                               <li><b>Master SAML Processing URL:</b> <code className="text-text-main font-mono">{samlAcsUrl}</code></li>
                               <li>Export SAML Descriptor XML or copy IDP Certificate PEM.</li>
                             </ol>
@@ -1631,7 +1454,7 @@ export default function ProfilePage() {
                     <div className="flex flex-col gap-2">
                       <label className="font-medium text-sm sm:text-base">SP Entity ID / Audience (samlIssuer)</label>
                       <Input
-                        placeholder="urn:xrouter:sp"
+                        placeholder="urn:9router:sp"
                         value={samlForm.samlIssuer}
                         onChange={(e) => updateSamlForm("samlIssuer", e.target.value)}
                         disabled={loading || samlLoading}
@@ -1730,7 +1553,7 @@ export default function ProfilePage() {
                         href={samlMetadataUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        download="aries-sp-metadata.xml"
+                        download="9router-sp-metadata.xml"
                         className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                       >
                         <span className="material-symbols-outlined text-[16px]">download</span>
@@ -1761,13 +1584,13 @@ export default function ProfilePage() {
                   </div>
 
                   {samlTestStatus.message && (
-                    <p className={`text-xs sm:text-sm ${samlTestStatus.type === "error" ? "text-danger" : "text-success"}`}>
+                    <p className={`text-xs sm:text-sm ${samlTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                       {samlTestStatus.message}
                     </p>
                   )}
 
                   {samlStatus.message && (
-                    <p className={`text-xs sm:text-sm ${samlStatus.type === "error" ? "text-danger" : "text-success"}`}>
+                    <p className={`text-xs sm:text-sm ${samlStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                       {samlStatus.message}
                     </p>
                   )}
@@ -1779,7 +1602,7 @@ export default function ProfilePage() {
                     <div className="flex flex-col gap-2">
                       <label className="font-medium text-sm sm:text-base">Issuer URL</label>
                       <Input
-                        placeholder="https://auth.example.com/application/o/xrouter/"
+                        placeholder="https://auth.example.com/application/o/9router/"
                         value={oidcForm.oidcIssuerUrl}
                         onChange={(e) => updateOidcForm("oidcIssuerUrl", e.target.value)}
                         disabled={loading || oidcLoading}
@@ -1789,7 +1612,7 @@ export default function ProfilePage() {
                     <div className="flex flex-col gap-2">
                       <label className="font-medium text-sm sm:text-base">Client ID</label>
                       <Input
-                        placeholder="xrouter-dashboard"
+                        placeholder="9router-dashboard"
                         value={oidcForm.oidcClientId}
                         onChange={(e) => updateOidcForm("oidcClientId", e.target.value)}
                         disabled={loading || oidcLoading}
@@ -1844,13 +1667,13 @@ export default function ProfilePage() {
                   </div>
 
                   {oidcTestStatus.message && (
-                    <p className={`text-xs sm:text-sm ${oidcTestStatus.type === "error" ? "text-danger" : "text-success"}`}>
+                    <p className={`text-xs sm:text-sm ${oidcTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                       {oidcTestStatus.message}
                     </p>
                   )}
 
                   {oidcStatus.message && (
-                    <p className={`text-xs sm:text-sm ${oidcStatus.type === "error" ? "text-danger" : "text-success"}`}>
+                    <p className={`text-xs sm:text-sm ${oidcStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                       {oidcStatus.message}
                     </p>
                   )}
@@ -1875,7 +1698,7 @@ export default function ProfilePage() {
         {/* Routing Preferences */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-info-bg text-info shrink-0">
+            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 shrink-0">
               <span className="material-symbols-outlined text-[20px]">route</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Routing Strategy</h3>
@@ -1952,65 +1775,6 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Cache-Aware Session Stickiness */}
-            <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[18px] text-brand-500">bolt</span>
-                  Cache-Aware Session Stickiness
-                </p>
-                <p className="text-xs sm:text-sm text-text-muted">
-                  Keep active conversations on the same account during upstream KV-cache TTL (5m Claude/Codex, 60m Gemini/DeepSeek) for 90% cheaper input tokens and instant TTFT.
-                </p>
-              </div>
-              <Toggle
-                checked={settings.cacheAffinityEnabled !== false}
-                onChange={() => updateCacheAffinity(settings.cacheAffinityEnabled === false)}
-                disabled={loading}
-              />
-            </div>
-
-            {/* Auto-Delete Dead / Exhausted Keys */}
-            <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[18px] text-danger">delete_forever</span>
-                  Auto-Delete Dead / Exhausted Keys
-                </p>
-                <p className="text-xs sm:text-sm text-text-muted">
-                  Automatically remove provider connections when fatal 401/403 or permanent quota exhaustion occurs during requests.
-                </p>
-              </div>
-              <Toggle
-                checked={settings.autoDeleteDeadKeys === true || settings.autoPruneDeadConnections === true}
-                onChange={() => updateAutoPruneDeadKeys(!(settings.autoDeleteDeadKeys || settings.autoPruneDeadConnections))}
-                disabled={loading}
-              />
-            </div>
-
-            {/* Manual Prune Dead Accounts */}
-            <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/50">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Prune Inactive Accounts Now</p>
-                <p className="text-xs sm:text-sm text-text-muted">
-                  Scan and purge all connections marked unavailable or quota-exhausted across all providers.
-                </p>
-                {pruneResult && (
-                  <p className="text-xs font-mono text-primary mt-1 font-semibold">{pruneResult}</p>
-                )}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleManualPruneDead}
-                disabled={loading || pruningDead}
-                className="shrink-0 flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-[16px] text-danger">delete_sweep</span>
-                <span>{pruningDead ? "Pruning..." : "Prune Dead"}</span>
-              </Button>
-            </div>
-
             <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
               {settings.fallbackStrategy === "round-robin"
                 ? `Currently distributing requests across all available accounts with ${settings.stickyRoundRobinLimit || 3} calls per account.`
@@ -2025,7 +1789,7 @@ export default function ProfilePage() {
         {/* Network */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-info-bg text-info shrink-0">
+            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500 shrink-0">
               <span className="material-symbols-outlined text-[20px]">wifi</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Network</h3>
@@ -2087,7 +1851,7 @@ export default function ProfilePage() {
             )}
 
             {proxyStatus.message && (
-              <p className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-danger" : "text-success"} pt-2 border-t border-border/50`}>
+              <p className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}>
                 {proxyStatus.message}
               </p>
             )}
@@ -2097,7 +1861,7 @@ export default function ProfilePage() {
         {/* Observability Settings */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-warning-bg text-warning shrink-0">
+            <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500 shrink-0">
               <span className="material-symbols-outlined text-[20px]">monitoring</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Observability</h3>
@@ -2117,17 +1881,28 @@ export default function ProfilePage() {
           </div>
         </Card>
 
-        {/* Account actions */}
+        {/* Settings history: who changed what, with revert. */}
+        <SettingsHistory
+          onReverted={() => {
+            // Settings may have been replaced wholesale; re-read the form.
+            if (typeof window !== "undefined") window.location.reload();
+          }}
+        />
+
+        {/* Account actions. Shutdown is administrator-only: a key session can
+            open this page by URL, so the button follows the role, not the route. */}
         <div className="flex flex-col sm:flex-row gap-2">
-          <Button
-            variant="outline"
-            fullWidth
-            icon="power_settings_new"
-            onClick={() => setShutdownOpen(true)}
-            className="text-danger border-danger-border hover:bg-danger-bg hover:border-danger-border"
-          >
-            Shutdown
-          </Button>
+          {sessionRole !== "apikey" && (
+            <Button
+              variant="outline"
+              fullWidth
+              icon="power_settings_new"
+              onClick={() => setShutdownOpen(true)}
+              className="text-danger border-danger/30 hover:bg-danger/10 hover:border-danger/40"
+            >
+              Shutdown
+            </Button>
+          )}
           <Button
             variant="outline"
             fullWidth
@@ -2213,13 +1988,13 @@ export default function ProfilePage() {
         value={tgForm.ghToken}
         onChange={(e) => updateTgForm({ ghToken: e.target.value })}
         placeholder={tgHasGhToken ? "Saved. Leave empty to keep" : "ghp_..."}
-        hint="Needs repo write access. Backups are committed to aries-backups/ in the repository below."
+        hint="Needs repo write access. Backups are committed to 9router-backups/ in the repository below."
         />
         <Input
         label="Repository (owner/repo)"
         value={tgForm.ghRepo}
         onChange={(e) => updateTgForm({ ghRepo: e.target.value })}
-        placeholder="e.g. serenhope/xrouter-backups"
+        placeholder="e.g. serenhope/9router-backups"
         />
         </div>
         )}
@@ -2280,17 +2055,6 @@ export default function ProfilePage() {
         loading={dbLoading}
       />
 
-      {/* Blocking progress card for backup export/import and test runs.
-          Backdrop-blurred and centered, same card everywhere a long
-          operation runs. */}
-      {busy ? (
-        <ProgressCard
-          title={busy.title}
-          message={busy.message}
-          section={busy.section}
-          progress={busy.progress}
-        />
-      ) : null}
 
       <Modal
         isOpen={dbAuth.open}

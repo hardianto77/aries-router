@@ -94,8 +94,8 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
   const pricingFields = ["input", "output", "cached", "reasoning", "cache_creation"];
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: "var(--color-scrim)" }}>
-      <div className="bg-bg-base border border-border rounded-[var(--r-card-lg)] shadow-[var(--elev-3)] max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4 backdrop-blur-md" style={{ backgroundColor: "var(--color-scrim)" }}>
+      <div className="bg-bg-base border border-border rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-border flex items-center justify-between">
           <h2 className="text-xl font-semibold">Pricing Configuration</h2>
@@ -180,7 +180,7 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
         <div className="p-4 border-t border-border flex items-center justify-between gap-2">
           <button
             onClick={handleReset}
-            className="px-4 py-2 text-sm text-danger hover:bg-danger/10 rounded border border-danger/20 transition-colors"
+            className="px-4 py-2 text-sm text-red-500 hover:bg-red-500/10 rounded border border-red-500/20 transition-colors"
             disabled={saving}
           >
             Reset to Defaults

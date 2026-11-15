@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
@@ -31,7 +32,7 @@ const navItems = [
 const workshopItems = [
   { href: "/dashboard/arena", label: "Compare Models", icon: "swords" },
   { href: "/dashboard/model-editor", label: "Custom Models", icon: "auto_awesome" },
-  { href: "/dashboard/plugins", label: "Custom Plugins", icon: "widgets" },
+  { href: "/dashboard/auto-harvester", label: "Auto Harvester", icon: "radar" },
 ];
 
 // Security Log and Inbox Error live in the bell, not the menu - they are
@@ -43,10 +44,6 @@ const debugItems = [
 
 const systemItems = [
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
-{ href: "/dashboard/vouchers", label: "Vouchers", icon: "confirmation_number" },
-{ href: "/dashboard/prd-builder", label: "PRD Builder", icon: "description" },
-{ href: "/dashboard/model-bypass", label: "Model Bypass", icon: "bolt" },
-{ href: "/dashboard/prompt-injection", label: "Prompt Injection", icon: "tune" },
 ];
 
 // Nothing is granted until /api/auth/status says so. The menu used to fall back
@@ -149,7 +146,9 @@ export default function Sidebar({ onClose }) {
     if (item.href === "/dashboard/model-editor" || item.href === "/dashboard/arena") {
       return permissions.manageModels;
     }
-    if (item.href === "/dashboard/plugins") return permissions.managePlugins;
+    if (item.href === "/dashboard/auto-harvester") {
+      return permissions.manageAdvanced;
+    }
     return false;
   });
 
@@ -185,18 +184,20 @@ export default function Sidebar({ onClose }) {
 
   return (
     <>
-      <aside className="flex w-72 flex-col border-r border-border-subtle bg-sidebar transition-colors duration-300 h-full overflow-hidden">
+      <aside className="flex w-72 flex-col border-r border-border-subtle bg-vibrancy backdrop-blur-xl transition-colors duration-300 min-h-full">
 
         {/* Logo */}
         <div className="px-6 py-4 flex flex-col gap-2">
           <Link href="/dashboard" className="flex items-center gap-3">
-            <img
+            <div className="flex items-center justify-center size-9 shrink-0 overflow-hidden rounded-[10px]">
+              <img
               src="/favicon.svg"
               alt="Aries"
               className="size-9 rounded-[10px] shadow-[var(--shadow-warm)] ring-1 ring-brand-500/30"
               width={36}
               height={36}
             />
+            </div>
             <div className="flex flex-col">
               <h1 className="text-lg font-semibold tracking-tight text-text-main">
                 {APP_CONFIG.name}
@@ -213,7 +214,7 @@ export default function Sidebar({ onClose }) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 min-h-0 px-4 py-2 space-y-0.5 overflow-y-auto custom-scrollbar overscroll-contain">
+        <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto custom-scrollbar">
           {filteredNavItems.map((item) => (
             <NavLink
               key={item.href}
@@ -225,12 +226,9 @@ export default function Sidebar({ onClose }) {
             />
           ))}
 
-          {/* FEATURE+ section - custom tools added by this fork */}
+          {/* Custom tools added by this fork */}
           {filteredWorkshopItems.length > 0 && (
             <div className="pt-3 mt-2 space-y-0.5">
-              <p className="px-4 text-xs font-semibold text-text-muted/60 uppercase tracking-wider mb-2">
-                FEATURE+
-              </p>
               {filteredWorkshopItems.map((item) => (
                 <NavLink
                   key={item.href}
@@ -268,7 +266,7 @@ export default function Sidebar({ onClose }) {
                 <span className="material-symbols-outlined size-[18px] text-[18px] leading-none shrink-0">perm_media</span>
                 <span className="text-[13px] font-medium leading-none flex-1 text-left min-w-0 truncate" title="Media Providers">Media Providers</span>
                 {MEDIA_PROVIDER_KINDS.some((k) => VISIBLE_MEDIA_KINDS.includes(k.id) && k.isNew) && (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[3px] bg-success/15 text-success">NEW</span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[3px] bg-green-500/15 text-green-400">NEW</span>
                 )}
                 <span className="material-symbols-outlined text-[14px] transition-transform" style={{ transform: mediaOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
                   expand_more

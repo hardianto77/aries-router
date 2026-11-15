@@ -7,15 +7,15 @@ import { useTaskStore } from "@/store/taskStore";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
 function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
   const borderColor = testStatus === "ok"
-    ? "border-success/40"
+    ? "border-green-500/40"
     : testStatus === "error"
-    ? "border-danger/40"
+    ? "border-red-500/40"
     : "border-border";
 
   const iconColor = testStatus === "ok"
-    ? "var(--color-success)"
+    ? "#22c55e"
     : testStatus === "error"
-    ? "var(--color-danger)"
+    ? "#ef4444"
     : undefined;
 
   return (
@@ -62,7 +62,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
       </div>
       <button
         onClick={onDeleteAlias}
-        className="p-1 hover:bg-danger rounded text-danger"
+        className="p-1 hover:bg-red-50 rounded text-red-500"
         title="Remove model"
       >
         <span className="material-symbols-outlined text-sm">delete</span>
@@ -125,7 +125,10 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
   // Client-side cap for the list-fetch step: the route bounds each upstream
   // read, but without this the browser still waits on the route itself with no
   // ceiling when the provider stalls.
-  const LIST_TIMEOUT_MS = 60000;
+  // Client-side cap for the list-fetch step: the route bounds each upstream
+  // read, but without this the browser still waits on the route itself with no
+  // ceiling when the provider stalls.
+  const LIST_TIMEOUT_MS = 20000;
   const handleImport = async () => {
     if (importing) return;
     const activeConnection = connections.find((conn) => conn.isActive !== false);
@@ -153,7 +156,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         });
       } catch (listError) {
         if (listError?.name === "AbortError") {
-          alert("Fetching the model list timed out after 60 seconds.");
+          alert("Fetching the model list timed out after 20 seconds.");
           return;
         }
         throw listError;

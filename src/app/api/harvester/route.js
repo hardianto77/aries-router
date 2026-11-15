@@ -6,18 +6,30 @@ export const dynamic = "force-dynamic";
 
 // Verified and active fresh proxy feeds (sorted by speed & working ratio)
 const HARVEST_FEEDS = [
-  "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-http.txt",
-  "https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/generated/http_proxies.txt",
   "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+  "https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/generated/http_proxies.txt",
   "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/http.txt",
-  "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
+  "https://raw.githubusercontent.com/litportnet/free-proxy-list/live/proxies/http.txt",
+  "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/http.txt",
+  "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/http.txt",
+  "https://raw.githubusercontent.com/tuanminpay/live-proxy/master/http.txt",
+  "https://raw.githubusercontent.com/Moleway/Free-Proxy-List/main/http.txt",
+  "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/http_all.txt",
+  "https://raw.githubusercontent.com/proxylist-to/proxy-list/main/http.txt",
+  "https://raw.githubusercontent.com/stormsia/proxy-list/main/http.txt",
+  "https://raw.githubusercontent.com/elliottophellia/yakumo/master/results/http/global/http_checked.txt",
   "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+  "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
+  "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-http.txt",
   "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
   "https://raw.githubusercontent.com/proxmint/free-proxy-list/main/proxies/http.txt",
   "https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/http.txt",
   "https://raw.githubusercontent.com/prxchk/proxy-list/main/http.txt",
+  "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt",
+  "https://raw.githubusercontent.com/zevtyardt/proxy-list/main/http.txt",
   "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/http.txt",
   "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
+  "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
 ];
 
 const CONCURRENCY_LIMIT = 50;
@@ -26,7 +38,7 @@ const TCP_PRECHECK_TIMEOUT_MS = 800;
 
 /**
  * Super-fast TCP handshake pre-check: filters out dead/offline IPs in <1s
- * using raw OS sockets, without paying Undici/HTTP connection setup overhead.
+ * using raw OS sockets with an explicit fallback timer so firewalled IPs cannot hang.
  */
 function tcpPrecheck(hostPort, timeoutMs = TCP_PRECHECK_TIMEOUT_MS) {
   return new Promise((resolve) => {
@@ -37,27 +49,36 @@ function tcpPrecheck(hostPort, timeoutMs = TCP_PRECHECK_TIMEOUT_MS) {
     const socket = new net.Socket();
     let settled = false;
 
-    socket.setTimeout(timeoutMs);
-
-    socket.on("connect", () => {
-      if (!settled) {
-        settled = true;
-        socket.destroy();
-        resolve(true);
-      }
-    });
-
-    socket.on("timeout", () => {
+    const timer = setTimeout(() => {
       if (!settled) {
         settled = true;
         socket.destroy();
         resolve(false);
       }
-    });
+    }, timeoutMs);
 
-    socket.on("error", () => {
+    socket.once("connect", () => {
       if (!settled) {
         settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(true);
+      }
+    });
+
+    socket.once("timeout", () => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(false);
+      }
+    });
+
+    socket.once("error", () => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
         socket.destroy();
         resolve(false);
       }
@@ -66,22 +87,34 @@ function tcpPrecheck(hostPort, timeoutMs = TCP_PRECHECK_TIMEOUT_MS) {
     try {
       socket.connect(port, host);
     } catch {
-      resolve(false);
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(false);
+      }
     }
   });
 }
 
 async function probeProxy(hostPort, timeoutMs = PROBE_TIMEOUT_MS) {
   let dispatcher;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    const { ProxyAgent } = await import("undici");
-    dispatcher = new ProxyAgent({ uri: `http://${hostPort}` });
+    const { ProxyAgent, fetch: undiciFetch } = await import("undici");
+    dispatcher = new ProxyAgent({
+      uri: `http://${hostPort}`,
+      connect: { timeout: timeoutMs },
+    });
     const startedAt = Date.now();
-    const res = await fetch("https://1.1.1.1/cdn-cgi/trace", {
+    const res = await undiciFetch("https://1.1.1.1/cdn-cgi/trace", {
       dispatcher,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: controller.signal,
       headers: { "User-Agent": "9Router" },
     });
+    clearTimeout(timer);
     if (!res.ok) return { ok: false };
     const text = await res.text();
     const fields = {};
@@ -98,8 +131,9 @@ async function probeProxy(hostPort, timeoutMs = PROBE_TIMEOUT_MS) {
   } catch {
     return { ok: false };
   } finally {
+    clearTimeout(timer);
     try {
-      await dispatcher?.close?.();
+      dispatcher?.destroy?.();
     } catch {}
   }
 }
@@ -110,6 +144,8 @@ if (!global._nineHarvesterState) {
     running: false,
     loopIntervalMinutes: 0,
     targetCount: 5,
+    maxCandidates: 1000,
+    customFeeds: [],
     timer: null,
     lastRunAt: null,
     lastAdded: 0,
@@ -121,13 +157,19 @@ if (!global._nineHarvesterState) {
 
 const state = global._nineHarvesterState;
 
-async function fetchCandidates(target = 50) {
+async function fetchCandidates(target = 50, maxScan = 1000, customFeeds = []) {
   const candidates = new Set();
-  const candidateLimit = Math.max(500, target * 15);
+  const numericMax = Math.max(50, Math.min(Number(maxScan) || 1000, 50000));
+  const candidateLimit = Math.max(numericMax, target * 15);
+
+  const activeFeeds = [
+    ...HARVEST_FEEDS,
+    ...(Array.isArray(customFeeds) ? customFeeds : []).filter((u) => typeof u === "string" && u.startsWith("http")),
+  ];
 
   // Fetch all feeds in parallel with strict 4s timeout for maximum speed
   await Promise.allSettled(
-    HARVEST_FEEDS.map(async (url) => {
+    activeFeeds.map(async (url) => {
       try {
         const res = await fetch(url, {
           headers: { "User-Agent": "Mozilla/5.0" },
@@ -152,16 +194,24 @@ async function fetchCandidates(target = 50) {
   return Array.from(candidates).sort(() => Math.random() - 0.5).slice(0, candidateLimit);
 }
 
-async function runWithConcurrency(items, limit, fn, shouldStop) {
-  for (let i = 0; i < items.length; i += limit) {
-    if (shouldStop && shouldStop()) break;
-    const chunk = items.slice(i, i + limit);
-    await Promise.all(chunk.map((item) => fn(item)));
-    if (shouldStop && shouldStop()) break;
+async function runWithPool(items, concurrency, fn, shouldStop) {
+  let index = 0;
+  async function worker() {
+    while (index < items.length) {
+      if (shouldStop && shouldStop()) break;
+      const idx = index++;
+      const item = items[idx];
+      await fn(item, idx);
+    }
   }
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
 }
 
-async function executeHarvestCycle(target = 5) {
+async function executeHarvestCycle(target = 5, maxScan = 1000, customFeeds = []) {
   if (state._inCycle) return;
   state._inCycle = true;
   state.lastRunAt = new Date().toISOString();
@@ -176,7 +226,7 @@ async function executeHarvestCycle(target = 5) {
       existingPools.map((p) => p.egressIp?.toLowerCase().trim()).filter(Boolean)
     );
 
-    const candidates = await fetchCandidates(target);
+    const candidates = await fetchCandidates(target, maxScan, customFeeds);
     const unadded = candidates.filter(
       (c) => !existingUrls.has(`http://${c}`) && !existingUrls.has(`https://${c}`)
     );
@@ -186,7 +236,7 @@ async function executeHarvestCycle(target = 5) {
     let scannedCount = 0;
     const liveProxies = [];
 
-    await runWithConcurrency(
+    await runWithPool(
       unadded,
       CONCURRENCY_LIMIT,
       async (hostPort) => {
@@ -195,9 +245,9 @@ async function executeHarvestCycle(target = 5) {
 
         // Stage 1: Ultra-fast TCP socket ping (<1s). Skip dead IPs immediately!
         const tcpAlive = await tcpPrecheck(hostPort);
+        scannedCount += 1;
         if (!tcpAlive) {
-          scannedCount += 1;
-          if (scannedCount % 25 === 0) {
+          if (scannedCount % 15 === 0) {
             state.lastMessage = `Scanning: ${scannedCount}/${unadded.length} tested (${addedCount}/${target} live proxies imported)...`;
           }
           return;
@@ -217,7 +267,7 @@ async function executeHarvestCycle(target = 5) {
             if (egressIp) existingEgressIps.add(egressIp);
 
             const locSuffix = result.loc ? `-[${result.loc}]` : "";
-            const name = `FreeProxy-${hostPort.replace(":", "_")}${locSuffix}`;
+            const name = `seren-${hostPort.replace(":", "_")}${locSuffix}`;
             await createProxyPool({
               name,
               proxyUrl,
@@ -231,16 +281,13 @@ async function executeHarvestCycle(target = 5) {
               lastTestedAt: new Date().toISOString(),
             });
             addedCount += 1;
-            liveProxies.push({ hostPort, latencyMs: result.elapsedMs, egressIp });
+            liveProxies.push({ hostPort, latencyMs: result.elapsedMs, egressIp, loc: result.loc });
           }
         } catch {
           // Drop dead proxy silently
         } finally {
-          scannedCount += 1;
-          if (scannedCount % 25 === 0 || addedCount > 0) {
-            state.lastAdded = addedCount;
-            state.lastMessage = `Scanning: ${scannedCount}/${unadded.length} tested (${addedCount}/${target} live proxies imported)...`;
-          }
+          state.lastAdded = addedCount;
+          state.lastMessage = `Scanning: ${scannedCount}/${unadded.length} tested (${addedCount}/${target} live proxies imported)...`;
         }
       },
       () => addedCount >= target || (!state.running && state.loopIntervalMinutes === 0)
@@ -250,9 +297,14 @@ async function executeHarvestCycle(target = 5) {
     state.lastTested = unadded.length;
     state.lastMessage = `Finished: Added ${addedCount} live proxies (tested ${unadded.length}).`;
     state.history = [
-      { at: new Date().toISOString(), added: addedCount, tested: unadded.length },
+      {
+        at: new Date().toISOString(),
+        added: addedCount,
+        tested: unadded.length,
+        proxies: liveProxies.slice(0, 10),
+      },
       ...(state.history || []),
-    ].slice(0, 8);
+    ].slice(0, 10);
   } catch (err) {
     state.lastMessage = `Cycle failed: ${err.message}`;
   } finally {
@@ -273,7 +325,7 @@ function scheduleNextLoop() {
     const ms = state.loopIntervalMinutes * 60 * 1000;
     state.timer = setInterval(() => {
       if (state.running) {
-        executeHarvestCycle(state.targetCount);
+        executeHarvestCycle(state.targetCount, state.maxCandidates, state.customFeeds);
       }
     }, ms);
   }
@@ -287,6 +339,9 @@ export async function GET() {
   return NextResponse.json({
     running: state.running,
     targetCount: state.targetCount,
+    maxCandidates: state.maxCandidates || 1000,
+    customFeeds: state.customFeeds || [],
+    builtInFeedsCount: HARVEST_FEEDS.length,
     loopIntervalMinutes: state.loopIntervalMinutes,
     lastRunAt: state.lastRunAt,
     lastAdded: state.lastAdded,
@@ -309,10 +364,11 @@ export async function POST(request) {
       body = {};
     }
 
-    const { action, target = 5, loopMinutes = 0 } = body;
+    const { action, target = 5, maxCandidates = 1000, loopMinutes = 0, customFeeds = [] } = body;
 
     if (action === "stop") {
       state.running = false;
+      state._inCycle = false;
       state.loopIntervalMinutes = 0;
       if (state.timer) {
         clearInterval(state.timer);
@@ -323,24 +379,32 @@ export async function POST(request) {
     }
 
     // Configure and start
-    const numericTarget = Math.max(1, Math.min(Number(target) || 5, 200));
+    const numericTarget = Math.max(1, Math.min(Number(target) || 5, 500));
+    const numericMaxScan = Math.max(50, Math.min(Number(maxCandidates) || 1000, 50000));
     const numericLoop = Number(loopMinutes) >= 0 ? Number(loopMinutes) : 0;
+    const cleanFeeds = Array.isArray(customFeeds)
+      ? customFeeds.map((f) => String(f).trim()).filter((f) => f.startsWith("http"))
+      : (state.customFeeds || []);
 
     state.targetCount = numericTarget;
+    state.maxCandidates = numericMaxScan;
+    state.customFeeds = cleanFeeds;
     state.loopIntervalMinutes = numericLoop;
     state.running = true;
 
     scheduleNextLoop();
 
     // Trigger cycle in background asynchronously without blocking HTTP response
-    executeHarvestCycle(numericTarget);
+    executeHarvestCycle(numericTarget, numericMaxScan, cleanFeeds);
 
     return NextResponse.json({
       success: true,
       running: true,
       targetCount: numericTarget,
+      maxCandidates: numericMaxScan,
+      customFeedsCount: cleanFeeds.length,
       loopIntervalMinutes: numericLoop,
-      message: `Harvester started: Target ${numericTarget} proxies${numericLoop > 0 ? `, looping every ${numericLoop}m` : ""}. Running in background.`,
+      message: `Harvester started: Target ${numericTarget} proxies (scanning up to ${numericMaxScan} candidates)${numericLoop > 0 ? `, looping every ${numericLoop}m` : ""}. Running in background.`,
     });
   } catch (error) {
     console.error("Proxy harvest error:", error);

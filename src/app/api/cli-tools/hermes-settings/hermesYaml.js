@@ -127,7 +127,7 @@ export const removeEnvVar = (envText, key) => {
 };
 
 // Detect 9router by base_url containing localhost/127.0.0.1 or matching tunnel URL
-export const hasAriesConfig = (modelCfg) => {
+export const has9RouterConfig = (modelCfg) => {
   if (!modelCfg?.base_url) return false;
   return modelCfg.provider === "custom" && /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(modelCfg.base_url);
 };
@@ -193,7 +193,7 @@ export const parseSttBlock = (yaml) => {
 // reference is the fingerprint — a user's own OpenAI audio setup keeps their own key (or
 // none), while ours always points at the OPENAI_API_KEY line we upsert in .env. base_url
 // may be a tunnel URL, so no localhost test here (same reasoning as isCustomBlock).
-export const isAriesStt = (cfg) =>
+export const is9RouterStt = (cfg) =>
   cfg?.provider === "openai" && !!cfg?.base_url && cfg?.api_key === STT_API_KEY_REF;
 
 export const buildSttBlock = (model, baseUrl) =>
@@ -227,7 +227,7 @@ const upsertSttOpenai = (body, key, value) => {
 
 // Write the 9router STT wiring, preserving every sibling setting the user already has
 // (language, local model, echo_transcripts, ...). Upserts the openai backend keys only.
-export const upsertSttAries = (yaml, model, baseUrl) => {
+export const upsertStt9Router = (yaml, model, baseUrl) => {
   let body = yaml.match(STT_BLOCK_RE)?.[1] ?? null;
   if (body === null) {
     const prefix = yaml.length === 0 ? "" : yaml.endsWith("\n") ? yaml : `${yaml}\n`;
@@ -246,7 +246,7 @@ export const upsertSttAries = (yaml, model, baseUrl) => {
 // user owns (language, local, an explicit provider choice) survives. Returns to Hermes'
 // STT autodetect ladder rather than remembering a pre-existing provider: the original
 // api_key line was already replaced by the upsert, so there is nothing to restore.
-export const removeSttAries = (yaml) => {
+export const removeStt9Router = (yaml) => {
   const match = yaml.match(STT_BLOCK_RE);
   if (!match) return yaml;
   let body = match[1] || "";

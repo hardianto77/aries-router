@@ -411,10 +411,10 @@ function ArenaContent() {
                     <span
                       className={`text-xs px-2 py-1 rounded font-mono shrink-0 ${
                         !result.ok
-                          ? "bg-danger/10 text-danger"
+                          ? "bg-red-500/10 text-red-500"
                           : result.kind === "empty" || result.stopped
                             ? "bg-amber-500/10 text-amber-500"
-                            : "bg-success/10 text-success"
+                            : "bg-green-500/10 text-green-500"
                       }`}
                     >
                       {!result.ok
@@ -445,10 +445,10 @@ function ArenaContent() {
                     <div className="flex flex-col h-full min-w-0">
                       {result.kind === "error" ? (
                         <div className="flex flex-col gap-2 min-w-0">
-                          <p className="text-sm text-danger break-words min-w-0">{result.content}</p>
+                          <p className="text-sm text-red-500 break-words min-w-0">{result.content}</p>
                           <div className="flex flex-wrap gap-1.5 text-[10px]">
                             {result.status && (
-                              <span className="px-1.5 py-0.5 rounded bg-danger/10 text-danger font-mono">
+                              <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 font-mono">
                                 HTTP {result.status}
                               </span>
                             )}
@@ -599,7 +599,7 @@ const METRIC_DEFS = [
   key: "ms",
   label: "Fastest",
   icon: "speed",
-  color: "var(--color-warning)",
+  color: "#f59e0b",
   lowerIsBetter: true,
   value: (r) => (r.ms == null ? null : r.ms),
   format: (v) => `${v}ms`,
@@ -619,7 +619,7 @@ const METRIC_DEFS = [
   key: "cost",
   label: "Cheapest",
   icon: "payments",
-  color: "var(--color-success)",
+  color: "#22c55e",
   lowerIsBetter: true,
   value: (r) => (r.cost == null ? null : r.cost),
   format: (v) => showCost(v),
@@ -803,7 +803,7 @@ function FinalResult({ ranked, pick, setPick, runId }) {
                       {isPicked && <Badge icon="check" text="your pick" accent />}
                     </div>
                     {!entry.answered && !entry.stopped && (
-                  <span className={`text-[11px] ${entry.ok ? "text-amber-500" : "text-danger"}`}>
+                  <span className={`text-[11px] ${entry.ok ? "text-amber-500" : "text-red-500"}`}>
                     {entry.ok ? "empty answer" : "failed"}
                   </span>
                 )}

@@ -382,20 +382,6 @@ const PROVIDER_MODELS_CONFIG = {
       };
     },
   },
-  glm: {
-    customResolver: async (connection) => {
-      return {
-        models: getStaticProviderModels("glm"),
-      };
-    },
-  },
-  zcode: {
-    customResolver: async (connection) => {
-      return {
-        models: getStaticProviderModels("zcode"),
-      };
-    },
-  },
   // Zed has no static catalog by design (live /models only) - same cursor
   // direct pattern: resolve with the connection's own credentials (never
   // exposed to the browser), return rich metadata, drop disabled entries.

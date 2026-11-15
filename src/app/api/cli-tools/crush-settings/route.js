@@ -34,7 +34,7 @@ const checkCrushInstalled = async () => {
   }
 };
 
-const hasAriesConfig = (settings) => {
+const has9RouterConfig = (settings) => {
   if (!settings || !settings.providers) return false;
   const p = settings.providers["9router"];
   if (p && p.base_url) return true;
@@ -69,7 +69,7 @@ export async function GET() {
     return NextResponse.json({
       installed: true,
       config,
-      hasAries: hasAriesConfig(config),
+      has9Router: has9RouterConfig(config),
       configPath: getCrushConfigPath(),
     });
   } catch (err) {
@@ -149,7 +149,7 @@ export async function DELETE() {
       await fs.writeFile(configPath, JSON.stringify(existing, null, 2), "utf-8");
     }
 
-    return NextResponse.json({ success: true, message: "Aries removed from Crush" });
+    return NextResponse.json({ success: true, message: "9Router removed from Crush" });
   } catch (err) {
     return NextResponse.json({ error: { message: err.message } }, { status: 500 });
   }

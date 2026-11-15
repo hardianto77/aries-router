@@ -220,7 +220,7 @@ export async function GET(request, { params }) {
     </div>
 
     <div class="alert-box">
-      The ZCode Rewards page requires a browser login session. Follow the 2 steps below to open it directly:
+      Halaman Rewards ZCode memerlukan sesi login di browser kamu. Ikuti 2 langkah mudah di bawah untuk membukanya langsung:
     </div>
 
     <!-- Step 1 -->
@@ -255,7 +255,7 @@ export async function GET(request, { params }) {
 
     <div style="background:#0F1622;border:1px solid #233045;border-radius:10px;padding:12px;">
       <p style="font-size:11px;color:#94A3B8;margin-bottom:8px;">
-        On a PC/laptop, you can skip the login by pasting the token script into the Console (F12):
+        Jika di PC/Laptop, kamu bisa langsung bypass login dengan paste script token di Console (F12):
       </p>
       <button type="button" class="btn btn-secondary" onclick="copyConsoleSnippet()">
         Salin Script Console (F12)

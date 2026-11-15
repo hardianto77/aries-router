@@ -411,7 +411,7 @@ export default function RequestDetailsTab() {
                 <span className="text-text-muted">Status:</span>{" "}
                 <span className={cn(
                   "font-medium",
-                  selectedDetail.status === "success" ? "text-success" : "text-danger"
+                  selectedDetail.status === "success" ? "text-green-600" : "text-red-600"
                 )}>
                   {selectedDetail.status}
                 </span>
@@ -460,7 +460,7 @@ export default function RequestDetailsTab() {
                   <span className={cn(
                     "text-xs px-2 py-0.5 rounded",
                     selectedDetail.pxpipe.applied
-                      ? "bg-success/15 text-success"
+                      ? "bg-green-500/15 text-green-600"
                       : "bg-amber-500/15 text-amber-600"
                   )}>
                     {selectedDetail.pxpipe.applied ? "Activated" : "Skipped"}
@@ -478,7 +478,7 @@ export default function RequestDetailsTab() {
                     </div>
                     <div>
                       <span className="text-text-muted block text-xs">Saved</span>
-                      <span className="font-mono text-success">{selectedDetail.pxpipe.savedPct || 0}%</span>
+                      <span className="font-mono text-green-600">{selectedDetail.pxpipe.savedPct || 0}%</span>
                     </div>
                     <div>
                       <span className="text-text-muted block text-xs">Images</span>

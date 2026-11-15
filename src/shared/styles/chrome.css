@@ -105,9 +105,9 @@
      reference resolves per element), so only the non-inherited parts of the
      ladder need restating here. */
   --edge-highlight: rgba(255, 255, 255, 0.06);
-  --tooltip-bg: rgba(18, 22, 33, 0.96);
-  --tooltip-fg: #f8fafc;
-  --tooltip-border: rgba(255, 255, 255, 0.12);
+  --tooltip-bg: rgba(17, 17, 17, 0.96);
+  --tooltip-fg: #ededed;
+  --tooltip-border: rgba(255, 255, 255, 0.14);
 }
 
 /* ============================================================
@@ -269,18 +269,6 @@
 
 /* Glass theme: the ring sits outside the panel it is drawn on, and a 2px
    offset on a frosted surface reads as a detached halo, so it is tightened. */
-.dark.glass {
-  --edge-highlight: rgba(255, 255, 255, 0.14);
-  --tooltip-bg: rgba(14, 18, 28, 0.90);
-  --tooltip-fg: #f8fafc;
-  --tooltip-border: rgba(255, 255, 255, 0.16);
-}
-
 .dark.glass .chrome-focus:focus-visible {
   outline-offset: 1px;
-}
-
-.dark.glass .chrome-tooltip {
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
