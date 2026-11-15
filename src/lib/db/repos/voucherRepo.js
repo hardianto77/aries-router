@@ -107,3 +107,16 @@ export async function getActiveBansosVoucher() {
   const any = db.prepare("SELECT * FROM vouchers WHERE isActive = 1 ORDER BY createdAt DESC LIMIT 1").all();
   return any[0] || null;
 }
+
+export async function claimVoucher(voucher, ip = null, created = null) {
+  // Compatibility shim: record the claim against the voucher. The caller
+  // (claim route) creates the API key itself and stores the receipt.
+  const db = await getAdapter();
+  ensureTable(db);
+  const vid = typeof voucher === "string" ? voucher : (voucher && voucher.id);
+  if (!vid) return { ok: false };
+  db.prepare("UPDATE vouchers SET usedCount = usedCount + 1 WHERE id = ?").run(vid);
+  db.prepare("INSERT INTO voucherClaims (voucherId, keyId, apiKeyPrefix, ip, claimedAt) VALUES (?,?,?,?,?)")
+    .run(vid, (created && created.id) || null, (created && created.key ? String(created.key).slice(0, 12) : null), ip, new Date().toISOString());
+  return { ok: true };
+}
