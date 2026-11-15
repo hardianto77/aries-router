@@ -84,6 +84,15 @@ export async function deleteApiKey(id) {
 // Allowed-model patterns of a key, or null when the key may use every model.
 // Backed by the per-key access columns (accessRestricted + accessAllow JSON list);
 // the /v1/models listing reads these through getAllowedModelsOfKey.
+
+// Pattern language shared with usage dashboards (import from here).
+export function parseAllowedModels(value) {
+  const raw = String(value ?? "" ).trim();
+  if (!raw || raw === "*") return null;
+  const patterns = raw.split(",").map((m) => m.trim().toLowerCase()).filter(Boolean);
+  return patterns.length ? patterns : null;
+}
+
 export function matchesAllowedModels(patterns, requestedModel) {
   if (!patterns) return true;
   const req = String(requestedModel || "").trim().toLowerCase();
