@@ -91,18 +91,3 @@ export async function setConnectionConfig(patch = {}) {
   await kv.set("config", toStore);
   return getConnectionConfig();
 }
-
-  const db = await getAdapter();
-  const conns = db.prepare("SELECT * FROM providerConnections").all();
-  const nodes = db.prepare("SELECT id FROM providerNodes").all();
-  const nodeIds = new Set(nodes.map((n) => n.id));
-  const removed = [];
-  for (const c of conns) {
-    const nodeId = c.nodeId || c.providerNodeId;
-    if (!nodeId || nodeIds.has(nodeId)) continue;
-    if (!includeWeb && c.kind === "web") continue;
-    db.prepare("DELETE FROM providerConnections WHERE id = ?").run(c.id);
-    removed.push(c.id);
-  }
-  return { count: conns.length, removed: removed.length };
-}
