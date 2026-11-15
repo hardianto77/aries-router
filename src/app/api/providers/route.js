@@ -49,7 +49,8 @@ async function normalizeProxyPoolId(proxyPoolId) {
 }
 
 // GET /api/providers - List all connections
-export async function GET() {
+export async function GET(request) {
+  const light = (() => { try { const { searchParams } = new URL(request.url); return searchParams.get("light") === "1"; } catch { return false; } })();
   try {
     const connections = await getProviderConnections();
 
@@ -63,7 +64,9 @@ export async function GET() {
     } catch { }
 
     // Hide sensitive fields, enrich name for compatible providers
-    const safeConnections = connections.map(c => {
+    const safeConnections = light
+      ? connections.map(c => ({ id: c.id, provider: c.provider, name: c.name || nodeNameMap[c.provider] || c.provider, isActive: c.isActive !== false }))
+      : connections.map(c => {
       const isCompatible = isOpenAICompatibleProvider(c.provider) || isAnthropicCompatibleProvider(c.provider);
       const name = isCompatible
         ? (c.name || nodeNameMap[c.provider] || c.providerSpecificData?.nodeName || c.provider)

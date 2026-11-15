@@ -666,7 +666,7 @@ const scopedModelPatterns =
       const fetchProvidersAndAliases = async () => {
         try {
           const [providersRes, aliasesRes] = await Promise.all([
-            fetch("/api/providers"),
+            fetch("/api/providers?light=1"),
             fetch("/api/models/alias"),
           ]);
           if (providersRes.ok) {
