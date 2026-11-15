@@ -136,6 +136,21 @@ export async function PUT(request, { params }) {
       updateData.dailyCostLimit = costLimit;
     }
     if (body.expiresAt !== undefined) updateData.expiresAt = body.expiresAt || null;
+    // KeyAccess: persist per-key model restriction (UI model picker)
+    if (body.accessRestricted !== undefined || body.accessAllow !== undefined || body.access !== undefined) {
+      const incoming = body.access || {
+        restricted: Boolean(body.accessRestricted),
+        allow: Array.isArray(body.accessAllow) ? body.accessAllow : [],
+      };
+      const existing = await getApiKeyById(id);
+      const restricted = incoming.restricted !== undefined ? Boolean(incoming.restricted) : Boolean(existing?.access?.restricted);
+      let allow = incoming.allow;
+      if (!Array.isArray(allow)) {
+        try { allow = typeof allow === "string" ? JSON.parse(allow) : (existing?.access?.allow || []); } catch { allow = existing?.access?.allow || []; }
+      }
+      allow = allow.map((m) => String(m).trim()).filter(Boolean);
+      updateData.access = { restricted, allow };
+    }
 
     const updated = await updateApiKey(id, updateData);
     return NextResponse.json({ key: updated });
