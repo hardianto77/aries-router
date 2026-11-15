@@ -203,4 +203,4 @@ export * from "./dashboardJobs.js";
 export * from "./proxyImportJobs.js";
 export * from "./importJobs.js";
 export * from "./importJobAuth.js";
-export * from "./compat.js";
+export { createProxyPools, deleteProxyPools } from "./compat.js";
