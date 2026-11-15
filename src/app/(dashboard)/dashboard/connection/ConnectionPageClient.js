@@ -170,7 +170,7 @@ export default function ConnectionPageClient() {
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6 max-w-5xl mx-auto w-full">
       {/* Hero Header */}
-      <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 sm:p-5 shadow-xs">
+      <div className="flex flex-col gap-2 rounded-[var(--r-card)] border border-border bg-surface p-4 sm:p-5 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg border border-brand-500/30 bg-brand-500/10 text-primary shadow-xs">
@@ -286,7 +286,7 @@ export default function ConnectionPageClient() {
               type="text"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              placeholder="e.g. 7515997355 (ID Telegram kamu)"
+              placeholder="e.g. 7515997355 (your Telegram ID)"
               className="font-mono text-xs"
             />
             <span className="text-[11px] text-text-muted">

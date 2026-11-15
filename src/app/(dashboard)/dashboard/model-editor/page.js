@@ -7,22 +7,16 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { findStudioCycle, describeStudioCycle } from "@/shared/utils/studioComboGuard";
 
-const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}(\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,63})*$/;
-// The name box itself holds one segment; the provider prefix (its own
-// toggle) holds any number, and the two are joined on submit.
-const SEGMENT_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
-const PREFIX_RE = NAME_RE;
+const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
 // Fields the bulk editor may write, and how each one reads to the operator.
 const MODEL_BULK_LABELS = {
-  targetModel: "Target model (what it routes to)",
   inputMultiplier: "Input multiplier (0 = none)",
   outputMultiplier: "Output multiplier (0 = none)",
   contextWindow: "Context window (0 = provider default)",
 };
 
 const MODEL_BULK_PLACEHOLDERS = {
-  targetModel: "Pick a model to route to",
   inputMultiplier: "e.g. 2",
   outputMultiplier: "e.g. 5",
   contextWindow: "e.g. 200000",
@@ -165,7 +159,7 @@ export default function ModelStudioPage() {
         <p className="text-xs text-text-muted mt-0.5">
           Give any model your own name, context size and behaviour, and it becomes a callable model ID for clients, combos, and API keys.
         </p>
-        <div className="mt-2 flex items-start justify-between gap-3 rounded-xl border border-border-subtle bg-surface-2 px-3 py-2">
+        <div className="mt-2 flex items-start justify-between gap-3 rounded-[var(--r-card)] border border-border-subtle bg-surface-2 px-3 py-2">
           <div className="min-w-0">
             <span className="flex items-center gap-1.5 text-xs font-semibold text-text-main">
               <span className="material-symbols-outlined text-[16px] leading-none text-primary">
@@ -319,7 +313,7 @@ function ModelStudioContent({ antiProbe = true }) {
           <span className="text-sm font-medium text-text-main">
             {models.length} {models.length === 1 ? "model" : "models"}
           </span>
-          {error && <span className="text-xs text-red-500 truncate">{error}</span>}
+          {error && <span className="text-xs text-danger truncate">{error}</span>}
         </div>
         <Button size="sm" icon="add" onClick={openCreate}>
           Add Model
@@ -354,7 +348,7 @@ function ModelStudioContent({ antiProbe = true }) {
               Clear
             </button>
             <Button size="sm" variant="primary" onClick={() => setShowBulkEdit(true)}>
-              Edit
+              Bulk edit
             </Button>
           </div>
         </div>
@@ -431,7 +425,7 @@ function ModelStudioContent({ antiProbe = true }) {
                     onClick={() => handleDelete(model)}
                     disabled={removing === model.callName}
                     title="Delete"
-                    className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"
                   >
                     <span className="material-symbols-outlined text-[16px]">
                       {removing === model.callName ? "progress_activity" : "delete"}
@@ -504,8 +498,6 @@ function ModelStudioContent({ antiProbe = true }) {
           count={selectedNames.size}
           onApply={handleBulkApply}
           onClose={() => setShowBulkEdit(false)}
-          activeProviders={activeProviders}
-          modelAliases={modelAliases}
         />
       )}
     </>
@@ -518,14 +510,12 @@ function ModelStudioContent({ antiProbe = true }) {
  * never rewrites what the user did not mean to change. Same shape as the API-key
  * bulk editor.
  */
-function BulkEditModels({ count, onApply, onClose, activeProviders = [], modelAliases = {} }) {
+function BulkEditModels({ count, onApply, onClose }) {
   const [fields, setFields] = useState({
-    targetModel: { on: false, value: "" },
     inputMultiplier: { on: false, value: "" },
     outputMultiplier: { on: false, value: "" },
     contextWindow: { on: false, value: "" },
   });
-  const [showPicker, setShowPicker] = useState(false);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState("");
 
@@ -538,15 +528,6 @@ function BulkEditModels({ count, onApply, onClose, activeProviders = [], modelAl
     const patch = {};
     for (const [name, { on, value }] of Object.entries(fields)) {
       if (!on) continue;
-      if (name === "targetModel") {
-        const target = String(value || "").trim();
-        if (!target) {
-          setError("Pick a target model to route to");
-          return;
-        }
-        patch.targetModel = target;
-        continue;
-      }
       const n = Number(value);
       if (!Number.isFinite(n) || n < 0) {
         setError(`${MODEL_BULK_LABELS[name]} must be a number of 0 or more`);
@@ -571,7 +552,7 @@ function BulkEditModels({ count, onApply, onClose, activeProviders = [], modelAl
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={`Edit ${count} model${count === 1 ? "" : "s"}`}>
+    <Modal isOpen onClose={onClose} title={`Bulk edit ${count} model${count === 1 ? "" : "s"}`}>
       <div className="flex flex-col gap-3">
         {Object.keys(fields).map((name) => (
           <div key={name} className="flex items-start gap-3">
@@ -586,56 +567,21 @@ function BulkEditModels({ count, onApply, onClose, activeProviders = [], modelAl
               <label className="text-sm font-medium text-text-main block mb-1">
                 {MODEL_BULK_LABELS[name]}
               </label>
-              {name === "targetModel" ? (
-                <button
-                  type="button"
-                  onClick={() => fields.targetModel.on && setShowPicker(true)}
-                  disabled={!fields[name].on}
-                  className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border text-left transition-colors ${fields[name].value
-                    ? "border-primary/40 bg-primary/5"
-                    : "border-dashed border-border hover:border-primary/50"
-                    } ${fields[name].on ? "" : "opacity-50 cursor-not-allowed"}`}
-                >
-                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-text-main">
-                    {fields[name].value || MODEL_BULK_PLACEHOLDERS[name]}
-                  </span>
-                  <span className="material-symbols-outlined text-[18px] text-primary shrink-0">
-                    {fields[name].value ? "swap_horiz" : "search"}
-                  </span>
-                </button>
-              ) : (
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={fields[name].value}
-                  onChange={(e) => setValue(name, e.target.value)}
-                  disabled={!fields[name].on}
-                  placeholder={MODEL_BULK_PLACEHOLDERS[name]}
-                />
-              )}
+              <Input
+                type="number"
+                step="0.1"
+                min="0"
+                value={fields[name].value}
+                onChange={(e) => setValue(name, e.target.value)}
+                disabled={!fields[name].on}
+                placeholder={MODEL_BULK_PLACEHOLDERS[name]}
+              />
             </div>
           </div>
         ))}
 
-        {showPicker && (
-          <ModelSelectModal
-            isOpen
-            onClose={() => setShowPicker(false)}
-            onSelect={(model) => {
-              if (!model?.value || model.isPlaceholder) return;
-              setFields((prev) => ({ ...prev, targetModel: { on: true, value: model.value } }));
-              setShowPicker(false);
-            }}
-            activeProviders={activeProviders}
-            modelAliases={modelAliases}
-            selectedModel={fields.targetModel.value}
-            showStudioTargets
-          />
-        )}
-
         {error && (
-          <p className="text-xs text-red-500" role="alert">{error}</p>
+          <p className="text-xs text-danger" role="alert">{error}</p>
         )}
 
         <div className="flex justify-end gap-2 pt-2">
@@ -655,8 +601,6 @@ BulkEditModels.propTypes = {
   count: PropTypes.number.isRequired,
   onApply: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
-  activeProviders: PropTypes.array,
-  modelAliases: PropTypes.object,
 };
 
 function StudioFormModal({
@@ -676,21 +620,7 @@ function StudioFormModal({
   // A duplicate opens with the source model's rules already filled in, so the
   // only thing left to decide is the new name.
   const source = editing || duplicating || null;
-  // The provider prefix is a separate concern from the model name, so it gets
-  // its own toggle and field instead of letting people type slashes into the
-  // name box. A stored name that already carries one opens with the toggle on
-  // and the prefix split out of it.
-  const [namePrefix, setNamePrefix] = useState(() => {
-    const stored = editing?.callName || duplicateName || "";
-    const idx = stored.lastIndexOf("/");
-    return idx > 0 ? stored.slice(0, idx) : "";
-  });
-  const [prefixEnabled, setPrefixEnabled] = useState(() => !!namePrefix);
-  const [callName, setCallName] = useState(() => {
-    const stored = editing?.callName || duplicateName || "";
-    const idx = stored.lastIndexOf("/");
-    return idx > 0 ? stored.slice(idx + 1) : stored;
-  });
+  const [callName, setCallName] = useState(editing?.callName || duplicateName || "");
   const [displayName, setDisplayName] = useState(source?.displayName || "");
   // Label this model claims in a model listing (owned_by). Free-form; blank means
   // "present itself as the model name clients call".
@@ -740,21 +670,10 @@ function StudioFormModal({
   );
   const nameError = useMemo(() => {
     if (!callName) return "";
-    if (!SEGMENT_RE.test(callName))
-      return "Letters, numbers, dot, dash and underscore only (max 64). The provider prefix has its own field below.";
+    if (callName.includes("/")) return "Use a name without \"/\" - it is the model ID clients send.";
+    if (!NAME_RE.test(callName)) return "Letters, numbers, dot, dash and underscore only (max 64).";
     return "";
   }, [callName]);
-  const prefixError = useMemo(() => {
-    if (!prefixEnabled || !namePrefix) return "";
-    if (!PREFIX_RE.test(namePrefix))
-      return "Prefix segments use letters, numbers, dot, dash and underscore (max 64 per segment).";
-    return "";
-  }, [prefixEnabled, namePrefix]);
-  const fullCallName = useMemo(() => {
-    const base = callName.trim();
-    if (!base) return "";
-    return prefixEnabled && namePrefix.trim() ? `${namePrefix.trim()}/${base}` : base;
-  }, [callName, prefixEnabled, namePrefix]);
 
   // Client-side precheck mirroring the server guard: warn before saving when
   // the picked combo leads back to this model. The server still decides.
@@ -762,12 +681,12 @@ function StudioFormModal({
   // Only computed while the switch is on: the panel is not rendered otherwise,
   // and re-deriving it on every keystroke for a hidden check is wasted work.
   const maskFindings = useMemo(
-    () => (antiProbe ? antiMaskFindings({ callName: fullCallName, ownedBy, targetModel }) : []),
-    [antiProbe, fullCallName, ownedBy, targetModel]
+    () => (antiProbe ? antiMaskFindings({ callName, ownedBy, targetModel }) : []),
+    [antiProbe, callName, ownedBy, targetModel]
   );
   const maskWarns = maskFindings.filter((f) => f.level === "warn");
   const cycleError = useMemo(() => {
-    const name = fullCallName;
+    const name = callName.trim();
     const target = targetModel.trim();
     if (!name || !target || target.includes("/")) return "";
     if (!combos.some((c) => c.name === target)) return "";
@@ -781,7 +700,7 @@ function StudioFormModal({
       extraSelfNames: editing?.callName && editing.callName !== name ? [editing.callName] : [],
     });
     return chain ? describeStudioCycle(chain) : "";
-  }, [fullCallName, targetModel, combos, siblings, editing]);
+  }, [callName, targetModel, combos, siblings, editing]);
 
   const handlePickModel = (model) => {
     if (!model?.value || model.isPlaceholder) return;
@@ -793,14 +712,14 @@ function StudioFormModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!fullCallName || !targetModel || nameError || prefixError || cycleError) return;
+    if (!callName.trim() || !targetModel || nameError || cycleError) return;
     setSaving(true);
     try {
       const res = await fetch("/api/model-editor", {
         method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          callName: fullCallName,
+          callName: callName.trim(),
           previousName: editing?.callName,
           displayName: displayName.trim(),
           ownedBy: ownedBy.trim(),
@@ -841,7 +760,7 @@ function StudioFormModal({
                 <button
                   type="button"
                   onClick={() => setTargetModel("")}
-                  className="text-[11px] text-text-muted hover:text-red-500 transition-colors"
+                  className="text-[11px] text-text-muted hover:text-danger transition-colors"
                 >
                   clear
                 </button>
@@ -881,7 +800,7 @@ function StudioFormModal({
               Any model you have connected - built-in, custom provider or combo.
             </p>
             {cycleError && (
-              <p className="text-[11px] text-red-500 mt-1">{cycleError}</p>
+              <p className="text-[11px] text-danger mt-1">{cycleError}</p>
             )}
           </div>
 
@@ -890,54 +809,15 @@ function StudioFormModal({
             <Input
               value={callName}
               onChange={(e) => setCallName(e.target.value)}
-              placeholder="e.g. claude-opus-5"
+              placeholder="e.g. workhorse"
               autoFocus
             />
             {nameError ? (
-              <p className="text-[11px] text-red-500 mt-1">{nameError}</p>
+              <p className="text-[11px] text-danger mt-1">{nameError}</p>
             ) : (
               <p className="text-[11px] text-text-muted mt-1">
-                Clients call <code className="font-mono">{`"${fullCallName || "name"}"`}</code> as the model ID.
+                Clients call <code className="font-mono">{`"${callName || "name"}"`}</code> as the model ID.
               </p>
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <label className="block text-xs font-medium text-text-main">Provider prefix</label>
-                <p className="text-[11px] text-text-muted mt-0.5">
-                  Clients call the model as <code className="font-mono">vendor/name</code> instead of plain{" "}
-                  <code className="font-mono">name</code>. The vendor is any label you choose.
-                </p>
-              </div>
-              <Toggle checked={prefixEnabled} onChange={setPrefixEnabled} />
-            </div>
-            {prefixEnabled && (
-              <div className="mt-2">
-                <div className="flex items-stretch rounded-lg border border-border overflow-hidden focus-within:border-primary/60 transition-colors">
-                  <input
-                    value={namePrefix}
-                    onChange={(e) => setNamePrefix(e.target.value)}
-                    placeholder="anthropic"
-                    spellCheck={false}
-                    className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm text-text-main outline-none font-mono placeholder:font-sans placeholder:text-text-muted/70"
-                  />
-                  <span className="flex items-center px-1 text-sm font-mono text-text-muted bg-surface-light/60 border-l border-border select-none">
-                    /
-                  </span>
-                  <span className="flex items-center px-3 text-sm font-mono text-text-muted bg-surface-light/60 border-l border-border truncate max-w-[45%]" title={callName || "name"}>
-                    {callName || "name"}
-                  </span>
-                </div>
-                {prefixError ? (
-                  <p className="text-[11px] text-red-500 mt-1">{prefixError}</p>
-                ) : (
-                  <p className="text-[11px] text-text-muted mt-1">
-                    Free-form label; it does not need to be a provider you connected.
-                  </p>
-                )}
-              </div>
             )}
           </div>
 
@@ -959,7 +839,7 @@ function StudioFormModal({
             <Input
               value={ownedBy}
               onChange={(e) => setOwnedBy(e.target.value)}
-              placeholder={`Defaults to "${fullCallName || "the model name"}"`}
+              placeholder={`Defaults to "${callName || "the model name"}"`}
             />
             <p className="text-[11px] text-text-muted mt-1">
               Shown as <code className="font-mono">owned_by</code> when clients list
@@ -971,7 +851,7 @@ function StudioFormModal({
 
 
           {antiProbe ? (
-          <div className="rounded-xl border border-border-subtle bg-surface-2 p-3 flex flex-col gap-2.5">
+          <div className="rounded-[var(--r-card)] border border-border-subtle bg-surface-2 p-3 flex flex-col gap-2.5">
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-xs font-semibold text-text-main">
                 <span className="material-symbols-outlined text-[16px] leading-none text-primary">
@@ -1121,7 +1001,7 @@ function StudioFormModal({
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!fullCallName || !targetModel || !!nameError || !!prefixError || !!cycleError || saving}>
+            <Button type="submit" disabled={!callName.trim() || !targetModel || !!nameError || !!cycleError || saving}>
               {saving ? "Saving..." : editing ? "Save" : "Create"}
             </Button>
           </div>

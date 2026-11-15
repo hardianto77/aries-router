@@ -47,6 +47,24 @@ export default function BulkEditKeys({ selectedCount, onApply, onClose }) {
     setValue("allowedModels", allowedModelsList().filter((m) => m !== modelVal).join(", "));
   };
 
+
+  const addAllowedModels = (modelVals) => {
+    const values = (Array.isArray(modelVals) ? modelVals : [modelVals]).filter(Boolean);
+    if (values.length === 0) return;
+    const seen = new Set(allowedModelsList());
+    const next = [...allowedModelsList()];
+    for (const v of values) {
+      if (!seen.has(v)) { seen.add(v); next.push(v); }
+    }
+    setValue("allowedModels", next.join(", "));
+  };
+  const removeAllowedModels = (modelVals) => {
+    const remove = new Set((Array.isArray(modelVals) ? modelVals : [modelVals]).filter(Boolean));
+    if (remove.size === 0) return;
+    const next = allowedModelsList().filter((m) => !remove.has(m));
+    if (next.length === 0) return;
+    setValue("allowedModels", next.join(", "));
+  };
   const handleApply = async () => {
     const patch = {};
     for (const [name, { on, value }] of Object.entries(fields)) {
@@ -91,7 +109,7 @@ export default function BulkEditKeys({ selectedCount, onApply, onClose }) {
   const rows = ["isActive", "limitKind", "tokenLimit", "dailyCostLimit", "requestLimit", "resetInterval", "rpmLimit", "tpmLimit", "allowedModels", "expiresAt"];
 
   return (
-    <Modal isOpen onClose={onClose} title={`Edit ${selectedCount} key${selectedCount === 1 ? "" : "s"}`}>
+    <Modal isOpen onClose={onClose} title={`Bulk edit ${selectedCount} key${selectedCount === 1 ? "" : "s"}`}>
       <div className="flex flex-col gap-3">
         {rows.map((name) => (
           <div key={name} className="flex items-start gap-3">
@@ -170,7 +188,7 @@ export default function BulkEditKeys({ selectedCount, onApply, onClose }) {
                             type="button"
                             onClick={() => removeAllowedModel(m)}
                             disabled={!fields[name].on}
-                            className="hover:text-red-500 transition-colors"
+                            className="hover:text-danger transition-colors"
                             aria-label={`Remove ${m}`}
                           >
                             ✕
@@ -194,7 +212,7 @@ export default function BulkEditKeys({ selectedCount, onApply, onClose }) {
         ))}
 
         {error && (
-          <p className="text-xs text-red-500" role="alert">{error}</p>
+          <p className="text-xs text-danger" role="alert">{error}</p>
         )}
 
         <div className="flex justify-end gap-2 pt-2">
@@ -210,7 +228,9 @@ export default function BulkEditKeys({ selectedCount, onApply, onClose }) {
       <ModelSelectModal
         isOpen={modelPickerOpen}
         onClose={() => setModelPickerOpen(false)}
+        onSelectBatch={(models) => addAllowedModels(models.map((m) => m?.value))}
         onSelect={(model) => addAllowedModel(model?.value)}
+        onDeselectBatch={(models) => removeAllowedModels(models.map((m) => m?.value))}
         onDeselect={(model) => removeAllowedModel(model?.value)}
         title="Select Allowed Models"
         addedModelValues={allowedModelsList()}

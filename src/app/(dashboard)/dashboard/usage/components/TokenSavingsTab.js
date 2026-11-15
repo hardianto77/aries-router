@@ -83,7 +83,7 @@ function DailyBars({ daily, peak }) {
                     }
                     style={{ height: d.savedTokens > 0 ? `max(3px, ${height}%)` : "2px" }}
                   />
-                  <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-surface px-2 py-1 text-[10px] leading-tight text-text-main shadow-lg group-hover:block">
+                  <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-[var(--r-chip)] border border-border bg-surface px-2 py-1 text-[10px] leading-tight text-text-main shadow-[var(--elev-2)] group-hover:block">
                     <div className="font-medium">{longDate(d.date)}</div>
                     <div className="tabular-nums text-emerald-400">{fmt(d.savedTokens)} tokens</div>
                     <div className="tabular-nums text-text-muted">
@@ -166,17 +166,17 @@ export default function TokenSavingsTab({ period }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-border bg-surface-2 p-4">
+        <div className="rounded-[var(--r-card)] border border-border bg-surface-2 p-4">
           <div className="text-xs text-text-muted">Tokens saved</div>
           <div className="mt-1 text-2xl font-semibold text-emerald-400">{fmt(data.totals.savedTokens)}</div>
           <div className="text-xs text-text-muted">across {fmt(data.totals.requests)} requests</div>
         </div>
-        <div className="rounded-xl border border-border bg-surface-2 p-4">
+        <div className="rounded-[var(--r-card)] border border-border bg-surface-2 p-4">
           <div className="text-xs text-text-muted">Est. cost avoided</div>
           <div className="mt-1 text-2xl font-semibold text-emerald-400">{money(data.totals.savedCost)}</div>
           <div className="text-xs text-text-muted">at live model rates</div>
         </div>
-        <div className="rounded-xl border border-border bg-surface-2 p-4">
+        <div className="rounded-[var(--r-card)] border border-border bg-surface-2 p-4">
           <div className="text-xs text-text-muted">Coverage</div>
           <div className="mt-1 text-2xl font-semibold text-text-main">{models.length} models</div>
           <div className="text-xs text-text-muted">
@@ -185,7 +185,7 @@ export default function TokenSavingsTab({ period }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-surface-2 p-4">
+      <div className="rounded-[var(--r-card)] border border-border bg-surface-2 p-4">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <div className="text-sm font-medium text-text-main">Daily savings</div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-muted">
@@ -202,7 +202,7 @@ export default function TokenSavingsTab({ period }) {
         <DailyBars daily={daily} peak={data.peak} />
       </div>
 
-      <div className="rounded-xl border border-border bg-surface-2 p-4">
+      <div className="rounded-[var(--r-card)] border border-border bg-surface-2 p-4">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm font-medium text-text-main">
             Per model

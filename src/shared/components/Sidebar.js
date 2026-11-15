@@ -268,7 +268,7 @@ export default function Sidebar({ onClose }) {
                 <span className="material-symbols-outlined size-[18px] text-[18px] leading-none shrink-0">perm_media</span>
                 <span className="text-[13px] font-medium leading-none flex-1 text-left min-w-0 truncate" title="Media Providers">Media Providers</span>
                 {MEDIA_PROVIDER_KINDS.some((k) => VISIBLE_MEDIA_KINDS.includes(k.id) && k.isNew) && (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[3px] bg-green-500/15 text-green-400">NEW</span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[3px] bg-success/15 text-success">NEW</span>
                 )}
                 <span className="material-symbols-outlined text-[14px] transition-transform" style={{ transform: mediaOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
                   expand_more

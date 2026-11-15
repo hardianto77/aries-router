@@ -27,7 +27,7 @@ export default function ModelLeaderboardTab({ period }) {
   };
 
   return (
-    <div className="rounded-xl border border-border bg-surface-2 p-4">
+    <div className="rounded-[var(--r-card)] border border-border bg-surface-2 p-4">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -48,7 +48,7 @@ export default function ModelLeaderboardTab({ period }) {
                 <td className="px-3 py-2.5 max-w-[240px] truncate text-text-main" title={m.model}>{m.model}</td>
                 <td className="px-3 py-2.5 text-right text-text-main">{fmt(m.requests)}</td>
                 <td className="px-3 py-2.5 text-right">
-                  <span className={Number(m.successRate) >= 95 ? "text-emerald-400" : Number(m.successRate) >= 80 ? "text-amber-400" : "text-red-400"}>
+                  <span className={Number(m.successRate) >= 95 ? "text-emerald-400" : Number(m.successRate) >= 80 ? "text-amber-400" : "text-danger"}>
                     {m.successRate}%
                   </span>
                 </td>

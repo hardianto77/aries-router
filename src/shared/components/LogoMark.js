@@ -1,7 +1,10 @@
+
 "use client";
 
 import React from "react";
 
+// Aries mark: ram-horn routing topology (matches public/favicon.svg). The old
+// 4-arrow "X" mark read as the Xrouter brand at small sizes, so it was replaced.
 export default function LogoMark({ className = "size-full" }) {
   return (
     <span className={`relative inline-flex items-center justify-center ${className}`.trim()}>
@@ -14,7 +17,7 @@ export default function LogoMark({ className = "size-full" }) {
         className="size-full overflow-hidden block"
       >
         <defs>
-          <linearGradient id="xr-logo-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+          <linearGradient id="aries-logo-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#E25539" />
             <stop offset="100%" stopColor="#EB6446" />
           </linearGradient>
@@ -31,25 +34,21 @@ export default function LogoMark({ className = "size-full" }) {
           strokeWidth="2"
         />
 
-        {/* 4 Crossing Arrow Arms */}
-        <g stroke="var(--color-brand-500, url(#xr-logo-gradient))" strokeLinecap="round" strokeWidth="7.5">
-          <line x1="26" y1="74" x2="44" y2="56" />
-          <line x1="26" y1="26" x2="44" y2="44" />
-          <line x1="56" y1="44" x2="72" y2="28" />
-          <line x1="56" y1="56" x2="72" y2="72" />
+        {/* Aries ram horns, curling outward from a center bridge */}
+        <g
+          stroke="var(--color-brand-500, url(#aries-logo-gradient))"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="8"
+          fill="none"
+        >
+          {/* Left horn */}
+          <path d="M 50 68 C 50 55 43 44 34 37 C 26 31 17 34 16 41 C 15 48 21 54 28 53 C 32 52.5 34.5 49 33.5 46" />
+          {/* Right horn */}
+          <path d="M 50 68 C 50 55 57 44 66 37 C 74 31 83 34 84 41 C 85 48 79 54 72 53 C 68 52.5 65.5 49 66.5 46" />
+          {/* Center bridge / muzzle */}
+          <path d="M 42 76 L 58 76" strokeWidth="7" />
         </g>
-
-        {/* Arrowheads */}
-        <path d="M63 23 H77 V37 L70 30 Z" fill="var(--color-brand-500, #EB6446)" />
-        <path d="M77 63 V77 H63 L70 70 Z" fill="var(--color-brand-500, #EB6446)" />
-
-        {/* Center Hub */}
-        <path
-          fillRule="evenodd"
-          clipRule="evenodd"
-          d="M50 39.5 C44.2 39.5 39.5 44.2 39.5 50 C39.5 55.8 44.2 60.5 50 60.5 C55.8 60.5 60.5 55.8 60.5 50 C60.5 44.2 55.8 39.5 50 39.5 Z M50 45 C47.2 45 45 47.2 45 50 C45 52.8 47.2 55 50 55 C52.8 55 55 52.8 55 50 C55 47.2 52.8 45 50 45 Z"
-          fill="var(--color-brand-500, url(#xr-logo-gradient))"
-        />
       </svg>
     </span>
   );

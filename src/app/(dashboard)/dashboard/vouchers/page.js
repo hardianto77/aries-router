@@ -392,7 +392,7 @@ export default function VouchersPage() {
                       <button
                         type="button"
                         onClick={() => handleDelete(v.id)}
-                        className="text-text-muted hover:text-red-500 p-1 transition-colors cursor-pointer"
+                        className="text-text-muted hover:text-danger p-1 transition-colors cursor-pointer"
                         title="Delete Voucher"
                       >
                         <span className="material-symbols-outlined text-[16px]">delete</span>
@@ -601,8 +601,8 @@ export default function VouchersPage() {
                 <div className="text-center py-4 text-text-muted text-xs font-mono">Scanning installed models...</div>
               ) : catalogModels.length === 0 ? (
                 <div className="text-center py-4 space-y-1">
-                  <p className="text-xs font-mono text-text-muted">No installed provider connections found in X Router.</p>
-                  <p className="text-[11px] text-[#777]">Connect an upstream provider in the Providers page to populate models here, or select Allow All Models (*).</p>
+                  <p className="text-xs font-mono text-text-muted">No installed provider connections found in Aries Router.</p>
+                  <p className="text-[11px] text-text-subtle">Connect an upstream provider in the Providers page to populate models here, or select Allow All Models (*).</p>
                 </div>
               ) : filteredModels.length === 0 ? (
                 <div className="text-center py-4 text-text-muted text-xs font-mono">No matching installed models found.</div>

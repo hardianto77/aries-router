@@ -15,9 +15,9 @@ const variants = {
     "bg-white text-neutral-900 border border-white/30 shadow-sm hover:bg-neutral-100 hover:shadow disabled:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
   ghost: "text-text-muted hover:bg-surface-2 hover:text-text-main",
   danger:
-    "bg-red-500 hover:bg-red-600 text-white shadow-sm disabled:bg-surface-3 disabled:text-text-muted",
+    "bg-danger hover:bg-danger/85 text-white shadow-sm disabled:bg-surface-3 disabled:text-text-muted",
   success:
-    "bg-green-600 hover:bg-green-700 text-white shadow-sm disabled:bg-surface-3 disabled:text-text-muted",
+    "bg-success hover:bg-success/85 text-white shadow-sm disabled:bg-surface-3 disabled:text-text-muted",
 };
 
 const sizes = {

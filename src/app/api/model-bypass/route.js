@@ -73,6 +73,7 @@ export async function POST(request) {
       matchCondition: body.matchCondition || { type: "always", pattern: "", caseSensitive: false },
       position: body.position || "system_prepend",
       normalizeTriggers: body.normalizeTriggers === true,
+      stripRefusal: body.stripRefusal === true,
       content: body.content,
       priority: body.priority,
     });

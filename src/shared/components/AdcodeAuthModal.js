@@ -52,7 +52,7 @@ export default function AdcodeAuthModal({ isOpen, providerInfo, onSuccess, onClo
         payload.password = password.trim();
       } else if (action === "token") {
         if (!token.trim()) {
-          throw new Error("Masukkan refresh token atau idToken ADCode.");
+          throw new Error("Enter the ADCode refresh token or idToken.");
         }
         payload.token = token.trim();
       }
@@ -201,7 +201,7 @@ export default function AdcodeAuthModal({ isOpen, providerInfo, onSuccess, onClo
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <Button type="button" variant="ghost" onClick={handleClose} disabled={loading}>
-                    Batal
+                    Cancel
                   </Button>
                   <Button type="submit" loading={loading} disabled={loading}>
                     Sign In & Connect
@@ -242,7 +242,7 @@ export default function AdcodeAuthModal({ isOpen, providerInfo, onSuccess, onClo
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <Button type="button" variant="ghost" onClick={handleClose} disabled={loading}>
-                    Batal
+                    Cancel
                   </Button>
                   <Button type="submit" loading={loading} disabled={loading}>
                     Daftar & Connect
@@ -261,7 +261,7 @@ export default function AdcodeAuthModal({ isOpen, providerInfo, onSuccess, onClo
                 className="flex flex-col gap-3"
               >
                 <p className="text-xs text-muted-foreground">
-                  Punya refreshToken atau idToken dari aplikasi desktop ADCode? Masukkan langsung di sini.
+                  Have a refreshToken or idToken from the ADCode desktop app? Paste it here.
                 </p>
                 <Input
                   label="Firebase Refresh Token / ID Token"
@@ -274,7 +274,7 @@ export default function AdcodeAuthModal({ isOpen, providerInfo, onSuccess, onClo
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <Button type="button" variant="ghost" onClick={handleClose} disabled={loading}>
-                    Batal
+                    Cancel
                   </Button>
                   <Button type="submit" loading={loading} disabled={loading}>
                     Import Token

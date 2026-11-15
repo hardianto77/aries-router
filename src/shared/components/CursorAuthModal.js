@@ -111,10 +111,10 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
           <>
             {/* Success message if auto-detected */}
             {autoDetected && (
-              <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg border border-green-200 dark:border-green-800">
+              <div className="bg-success dark:bg-success/20 p-3 rounded-lg border border-success dark:border-success">
                 <div className="flex gap-2">
-                  <span className="material-symbols-outlined text-green-600 dark:text-green-400">check_circle</span>
-                  <p className="text-sm text-green-800 dark:text-green-200">
+                  <span className="material-symbols-outlined text-success dark:text-success">check_circle</span>
+                  <p className="text-sm text-success dark:text-success">
                     Tokens auto-detected from Cursor IDE successfully!
                   </p>
                 </div>
@@ -154,7 +154,7 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
             {/* Access Token Input */}
             <div>
               <label className="block text-sm font-medium mb-2">
-                Access Token <span className="text-red-500">*</span>
+                Access Token <span className="text-danger">*</span>
               </label>
               <textarea
                 value={accessToken}
@@ -168,7 +168,7 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
             {/* Machine ID Input */}
             <div>
               <label className="block text-sm font-medium mb-2">
-                Machine ID <span className="text-red-500">*</span>
+                Machine ID <span className="text-danger">*</span>
               </label>
               <Input
                 value={machineId}
@@ -180,8 +180,8 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
 
             {/* Error Display */}
             {error && (
-              <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-800">
-                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+              <div className="bg-danger dark:bg-danger/20 p-3 rounded-lg border border-danger dark:border-danger">
+                <p className="text-sm text-danger dark:text-danger">{error}</p>
               </div>
             )}
 

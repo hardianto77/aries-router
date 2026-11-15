@@ -47,7 +47,7 @@ function QuotaBar({ used, limit, percent, kind = "tokens" }) {
   if (!limit) {
     return <p className="text-xs text-text-muted">No limit set</p>;
   }
-  const color = percent >= 100 ? "bg-red-500" : percent >= 80 ? "bg-amber-500" : "bg-primary";
+  const color = percent >= 100 ? "bg-danger" : percent >= 80 ? "bg-amber-500" : "bg-primary";
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
@@ -101,14 +101,14 @@ function KeyCard({ k, expanded, onToggle }) {
           <p className="text-[10px] uppercase tracking-wider text-text-muted">Cost</p>
           <p className="text-sm font-semibold">{formatCost(k.cost)}</p>
           {k.limitKind === "cost" && k.dailyCostLimit > 0 && (
-            <p className={`text-[10px] mt-0.5 ${(k.costPercent ?? 0) >= 100 ? "text-red-500 font-semibold" : "text-text-muted"}`}>
+            <p className={`text-[10px] mt-0.5 ${(k.costPercent ?? 0) >= 100 ? "text-danger font-semibold" : "text-text-muted"}`}>
               today {formatCost(k.costSpentToday)} / {formatCost(k.dailyCostLimit)}
             </p>
           )}
         </div>
         <div className="rounded-lg bg-surface-2/50 p-2">
           <p className="text-[10px] uppercase tracking-wider text-text-muted">Errors</p>
-          <p className={`text-sm font-semibold ${k.errorRate > 0.1 ? "text-red-500" : ""}`}>
+          <p className={`text-sm font-semibold ${k.errorRate > 0.1 ? "text-danger" : ""}`}>
             {(k.errorRate * 100).toFixed(1)}%
           </p>
         </div>
@@ -197,8 +197,8 @@ export default function ApiKeyUsagePage() {
       </div>
 
       {error && (
-        <Card className="border-red-300 bg-red-500/5">
-          <p className="text-sm text-red-500">{error}</p>
+        <Card className="border-danger bg-danger/5">
+          <p className="text-sm text-danger">{error}</p>
         </Card>
       )}
 

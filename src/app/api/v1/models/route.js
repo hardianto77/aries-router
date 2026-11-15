@@ -1,6 +1,5 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
 import { resolveModelDisplayName } from "@/shared/utils/modelDisplayName";
-import { isOpencodeFreeModel } from "@/shared/utils/modelTier";
 
 export const dynamic = "force-dynamic";
 import {
@@ -621,13 +620,6 @@ export async function buildModelsList(kindFilter, options = {}) {
         // Hidden behind a studio name: only the studio name is published.
         if (studioTargets.isStudioTarget([providerId, staticAlias, outputAlias], modelId)) continue;
 
-        const customName = customModelNameById.get(modelId);
-        const staticName = staticModelNameById.get(modelId);
-        const liveName = liveModelNameById.get(modelId);
-        const candidateName = (customName && customName !== modelId)
-          ? customName
-          : (liveName || staticName || customName);
-
         const model = {
           id: `${outputAlias}/${modelId}`,
           object: "model",
@@ -636,7 +628,10 @@ export async function buildModelsList(kindFilter, options = {}) {
           owned_by: customOwnedByById.get(modelId) || outputAlias,
           // Prefer the name the provider/custom entry published; ids with none
           // (combos, raw passthrough slugs) get a readable name derived from it.
-          name: resolveModelDisplayName(modelId, candidateName),
+          name: resolveModelDisplayName(
+            modelId,
+            customModelNameById.get(modelId) || liveModelNameById.get(modelId) || staticModelNameById.get(modelId),
+          ),
         };
         // Live-catalog resolvers (kiro/qoder/github/clinepass) mostly only return
         // { id, name } - no per-model capability data. Fall back to the same
@@ -646,10 +641,6 @@ export async function buildModelsList(kindFilter, options = {}) {
         const serviceCaps = capabilitiesFromServiceKind(customKind || liveKind);
         const caps = liveCaps || serviceCaps || (kind === LLM_KIND ? getCapabilitiesForModel(providerId, modelId) : null);
         if (caps) model.capabilities = caps;
-        if (isOpencodeFreeModel(modelId, outputAlias)) {
-          model.is_free = true;
-          model.isFree = true;
-        }
         // Token limits under the snake_case names the OpenAI/OpenRouter
         // convention uses. `capabilities.contextWindow` is camelCase and nested,
         // so clients matching context_length find nothing, fall back to guessing
@@ -711,15 +702,10 @@ export async function buildModelsList(kindFilter, options = {}) {
         id: `${alias}/${model.id}`,
         object: "model",
         owned_by: alias,
-        name: resolveModelDisplayName(model.id, model.name),
       };
       if (caps) entry.capabilities = caps;
       if (Number.isFinite(caps?.contextWindow)) entry.context_length = caps.contextWindow;
       if (Number.isFinite(caps?.maxOutput)) entry.max_completion_tokens = caps.maxOutput;
-      if (model.isFree || isOpencodeFreeModel(model.id, alias)) {
-        entry.is_free = true;
-        entry.isFree = true;
-      }
       models.push(entry);
     }
   }
@@ -744,7 +730,6 @@ export async function buildModelsList(kindFilter, options = {}) {
         id: `${alias}/${live.id}`,
         object: "model",
         owned_by: alias,
-        name: resolveModelDisplayName(live.id, live.name),
       };
       if (caps) entry.capabilities = caps;
       if (Number.isFinite(caps?.contextWindow)) entry.context_length = caps.contextWindow;
@@ -752,10 +737,6 @@ export async function buildModelsList(kindFilter, options = {}) {
         entry.context_length = live.contextLength;
       }
       if (Number.isFinite(caps?.maxOutput)) entry.max_completion_tokens = caps.maxOutput;
-      if (live?.isFree || isOpencodeFreeModel(live.id, alias)) {
-        entry.is_free = true;
-        entry.isFree = true;
-      }
       models.push(entry);
     }
   }

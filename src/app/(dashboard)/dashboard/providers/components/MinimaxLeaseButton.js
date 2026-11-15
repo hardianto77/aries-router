@@ -48,7 +48,7 @@ export default function MinimaxLeaseButton({ providerId, onConnected, size = "sm
       >
         {busy ? translate("Connecting...") : translate("Use Desktop App")}
       </Button>
-      {error && <p className="w-full text-xs text-red-500 break-words">{error}</p>}
+      {error && <p className="w-full text-xs text-danger break-words">{error}</p>}
     </>
   );
 }

@@ -183,7 +183,7 @@ export default function ErrorLogClient() {
 
         {/* Quick Metric Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <div className="p-3 rounded-xl border border-border-subtle bg-surface flex flex-col">
+          <div className="p-3 rounded-[var(--r-card)] border border-border-subtle bg-surface flex flex-col">
             <span className="text-[11px] text-text-muted font-medium uppercase tracking-wider">Total Recorded</span>
             <span className="text-lg font-bold text-text-main mt-0.5">{metrics.total}</span>
           </div>

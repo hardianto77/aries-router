@@ -4,15 +4,15 @@ import { CapacityBadges, ModelTierBadge } from "@/shared/components";
 export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, onDisable, caps, thinkingSuffix }) {
   const displayModel = thinkingSuffix ? `${fullModel}(${thinkingSuffix})` : fullModel;
   const borderColor = testStatus === "ok"
-    ? "border-green-500/40"
+    ? "border-success/40"
     : testStatus === "error"
-    ? "border-red-500/40"
+    ? "border-danger/40"
     : "border-border";
 
   const iconColor = testStatus === "ok"
-    ? "#22c55e"
+    ? "var(--color-success)"
     : testStatus === "error"
-    ? "#ef4444"
+    ? "var(--color-danger)"
     : undefined;
 
   return (
@@ -61,7 +61,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
           {isCustom ? (
             <button
               onClick={onDeleteAlias}
-              className="rounded p-1 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100 inline-flex items-center justify-center"
+              className="rounded p-1 text-text-muted opacity-100 transition-opacity hover:bg-danger/10 hover:text-danger sm:opacity-0 sm:group-hover:opacity-100 inline-flex items-center justify-center"
               title="Remove custom model"
             >
               <span className="material-symbols-outlined text-sm leading-none">close</span>
@@ -69,7 +69,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
           ) : onDisable ? (
             <button
               onClick={onDisable}
-              className="rounded p-1 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100 inline-flex items-center justify-center"
+              className="rounded p-1 text-text-muted opacity-100 transition-opacity hover:bg-danger/10 hover:text-danger sm:opacity-0 sm:group-hover:opacity-100 inline-flex items-center justify-center"
               title="Disable this model"
             >
               <span className="material-symbols-outlined text-sm leading-none">close</span>

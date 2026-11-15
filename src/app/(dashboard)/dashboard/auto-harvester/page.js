@@ -1,21 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import Link from "next/link";
-import { Badge, Button, Card, CardSkeleton, Input, PageShell, Modal } from "@/shared/components";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Badge, Button, Card, Input, PageShell } from "@/shared/components";
 import { cn } from "@/shared/utils/cn";
 
 const LOOP_OPTIONS = [
-  { value: 0, label: "Manual (Once)" },
-  { value: 2, label: "Every 2m (Fast)" },
+  { value: 0, label: "Once (no loop)" },
+  { value: 2, label: "Every 2m (aggressive)" },
   { value: 5, label: "Every 5m" },
   { value: 15, label: "Every 15m" },
   { value: 30, label: "Every 30m" },
-  { value: 60, label: "Every 1h" },
+  { value: 60, label: "Every 60m" },
 ];
 
 function formatTime(iso) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -25,49 +24,26 @@ function formatTime(iso) {
 
 export default function AutoHarvesterPage() {
   const [status, setStatus] = useState(null);
-  const [pools, setPools] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [target, setTarget] = useState(10);
-  const [maxScan, setMaxScan] = useState(1000);
+  const [target, setTarget] = useState(5);
   const [loop, setLoop] = useState(0);
-  const [customFeedsText, setCustomFeedsText] = useState("");
-  const [showFeedsModal, setShowFeedsModal] = useState(false);
   const [busy, setBusy] = useState(false);
   const timerRef = useRef(null);
 
-  const fetchStatus = useCallback(async () => {
+  const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/harvester");
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
-        if (data.maxCandidates && !maxScan) {
-          setMaxScan(data.maxCandidates);
-        }
-      }
-    } catch {}
-  }, [maxScan]);
-
-  const fetchPools = useCallback(async () => {
-    try {
-      const res = await fetch("/api/proxy-pools");
-      if (res.ok) {
-        const data = await res.json();
-        setPools(data.proxyPools || []);
       }
     } catch {}
   }, []);
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([fetchStatus(), fetchPools()]);
-    setLoading(false);
-  }, [fetchStatus, fetchPools]);
-
   useEffect(() => {
-    refreshAll();
-    timerRef.current = setInterval(refreshAll, 3000);
+    refresh();
+    timerRef.current = setInterval(refresh, 2500);
     return () => clearInterval(timerRef.current);
-  }, [refreshAll]);
+  }, [refresh]);
 
   const send = async (payload) => {
     setBusy(true);
@@ -80,7 +56,6 @@ export default function AutoHarvesterPage() {
       if (res.ok) {
         const data = await res.json();
         setStatus((prev) => ({ ...prev, ...data }));
-        await fetchPools();
       }
     } catch {}
     finally {
@@ -88,301 +63,137 @@ export default function AutoHarvesterPage() {
     }
   };
 
-  const start = () => send({
-    action: "start",
-    target: Number(target) || 10,
-    maxCandidates: Number(maxScan) || 1000,
-    loopMinutes: Number(loop) || 0,
-    customFeeds: customFeedsText.split("\n").map((s) => s.trim()).filter((s) => s.startsWith("http")),
-  });
+  const start = () => send({ action: "start", target: Number(target) || 5, loopMinutes: Number(loop) || 0 });
   const stop = () => send({ action: "stop" });
 
   const running = status?.running;
   const lastAdded = status?.lastAdded ?? 0;
   const lastTested = status?.lastTested ?? 0;
   const targetCount = status?.targetCount ?? target;
-  const maxCandidatesCount = status?.maxCandidates ?? maxScan;
-
-  const harvestedPools = useMemo(() => {
-    return pools.filter((p) => {
-      const n = String(p.name || "");
-      return n.startsWith("seren-") || n.startsWith("FreeProxy-");
-    });
-  }, [pools]);
-
-  const activeHarvested = useMemo(() => {
-    return harvestedPools.filter((p) => p.isActive && p.testStatus === "working").length;
-  }, [harvestedPools]);
-
-  if (loading) {
-    return (
-      <PageShell width="reading">
-        <div className="flex flex-col gap-4">
-          <CardSkeleton />
-          <CardSkeleton />
-        </div>
-      </PageShell>
-    );
-  }
+  const progress = targetCount > 0 ? Math.min(100, Math.round((lastAdded / targetCount) * 100)) : 0;
 
   return (
     <PageShell width="reading">
-      <div className="flex flex-col gap-4 sm:gap-6">
-        {/* Header Bar */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold sm:text-2xl">Proxy Harvester</h1>
-            </div>
-            <p className="text-xs text-text-muted mt-0.5">
-              Autonomous background worker discovering and testing public proxy feeds.
-            </p>
-          </div>
-
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Link href="/dashboard/proxy-pools">
-              <Button size="sm" variant="secondary" icon="lan">
-                View in Pools ({harvestedPools.length})
-              </Button>
-            </Link>
+            <h1 className="text-xl font-semibold sm:text-2xl">Auto Harvester</h1>
+            <Badge variant="warning">FEATURE+</Badge>
           </div>
+          <p className="text-sm text-text-muted mt-1">
+            Auto-fills your proxy pool from 12 public free-proxy feeds.
+          </p>
         </div>
-
-        {/* Controller Card */}
-        <Card className="p-4 sm:p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-lg border",
-                running
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
-                  : "border-border bg-surface-2 text-text-muted"
-              )}>
-                <span className={cn("material-symbols-outlined text-[22px]", running && "animate-spin")}>
-                  {running ? "autorenew" : "radar"}
-                </span>
-              </div>
-              <div className="min-w-0 flex flex-col">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-text-main">Harvester Worker</span>
-                </div>
-                <span className="text-xs text-text-muted truncate mt-0.5">
-                  {status?.lastMessage || "Ready to discover and verify proxy feeds"}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50 sm:pt-0 sm:border-t-0">
-              <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs">
-                <label className="text-text-muted font-mono whitespace-nowrap">Target:</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="500"
-                  value={target}
-                  onChange={(e) => setTarget(e.target.value)}
-                  disabled={running}
-                  className="w-14 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-center font-mono text-xs text-text-main focus:border-primary focus:outline-none disabled:opacity-40"
-                  title="Target number of working proxies to collect"
-                />
-              </div>
-
-              <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs">
-                <label className="text-text-muted font-mono whitespace-nowrap">Max Scan:</label>
-                <input
-                  type="number"
-                  min="50"
-                  max="50000"
-                  step="500"
-                  value={maxScan}
-                  onChange={(e) => setMaxScan(e.target.value)}
-                  disabled={running}
-                  className="w-16 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-center font-mono text-xs text-text-main focus:border-primary focus:outline-none disabled:opacity-40"
-                  title="Maximum candidate proxies to scan before ending cycle"
-                />
-              </div>
-
-              <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs">
-                <label className="text-text-muted font-mono whitespace-nowrap">Schedule:</label>
-                <select
-                  value={loop}
-                  onChange={(e) => setLoop(Number(e.target.value))}
-                  disabled={running}
-                  className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text-main focus:border-primary focus:outline-none cursor-pointer disabled:opacity-40"
-                >
-                  {LOOP_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="rss_feed"
-                onClick={() => setShowFeedsModal(true)}
-                title="Configure custom proxy feeds"
-              >
-                Custom Feeds{status?.customFeeds?.length ? ` (${status.customFeeds.length})` : ""}
-              </Button>
-
-              {running ? (
-                <Button
-                  size="sm"
-                  variant="danger"
-                  icon="stop_circle"
-                  onClick={stop}
-                  loading={busy}
-                >
-                  Stop
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  icon="play_arrow"
-                  onClick={start}
-                  loading={busy}
-                >
-                  Start
-                </Button>
-              )}
-            </div>
-          </div>
-        </Card>
-
-        {/* Live Metrics Row */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Card className="p-3">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Target Batch</span>
-            <div className="text-lg font-semibold mt-1 tabular-nums text-text-main">
-              {targetCount} <span className="text-xs font-normal text-text-muted">proxies</span>
-            </div>
-          </Card>
-          <Card className="p-3">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Cycle Tested</span>
-            <div className="text-lg font-semibold mt-1 tabular-nums text-text-main">
-              {lastTested} <span className="text-xs font-normal text-text-muted">candidates</span>
-            </div>
-          </Card>
-          <Card className="p-3">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Cycle Live</span>
-            <div className="text-lg font-semibold mt-1 tabular-nums text-emerald-500">
-              +{lastAdded} <span className="text-xs font-normal text-text-muted">imported</span>
-            </div>
-          </Card>
-          <Card className="p-3">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Total in Pool</span>
-            <div className="text-lg font-semibold mt-1 tabular-nums text-text-main">
-              {activeHarvested} <span className="text-xs font-normal text-text-muted">/ {harvestedPools.length}</span>
-            </div>
-          </Card>
-        </div>
-
-        {/* Harvested Proxies Table */}
-        <Card className="overflow-hidden">
-          <div className="border-b border-border p-3 sm:px-4 sm:py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                Harvested Proxies
-              </span>
-              <Badge variant="default" className="font-mono text-[10px]">
-                {harvestedPools.length}
-              </Badge>
-            </div>
-            {harvestedPools.length > 0 && (
-              <span className="text-xs text-text-muted">
-                {activeHarvested} verified working
-              </span>
-            )}
-          </div>
-
-          {harvestedPools.length === 0 ? (
-            <div className="p-8 text-center text-xs text-text-muted">
-              No proxies harvested yet. Click <span className="font-semibold text-text-main">Start</span> to run a discovery cycle.
-            </div>
-          ) : (
-            <div className="divide-y divide-border/50 max-h-80 overflow-y-auto font-mono text-xs">
-              {harvestedPools.map((p) => {
-                const locMatch = p.name?.match(/-\[([A-Z]{2})\]$/);
-                const loc = locMatch ? locMatch[1] : (p.loc || "—");
-                const isWorking = p.testStatus === "working";
-                return (
-                  <div key={p.id} className="flex items-center justify-between px-3 py-2.5 sm:px-4 hover:bg-surface-2/40 transition-colors">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={cn(
-                        "size-2 rounded-full shrink-0",
-                        isWorking ? "bg-emerald-500" : "bg-red-500"
-                      )} />
-                      <span className="text-text-main font-medium truncate">{p.proxyUrl}</span>
-                    </div>
-
-                    <div className="flex items-center gap-3 shrink-0 text-text-muted">
-                      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold text-text-main">
-                        {loc}
-                      </span>
-                      <span className="text-[11px] capitalize">
-                        {p.testStatus || "unknown"}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-
-        {/* Cycle History Card */}
-        {status?.history?.length > 0 && (
-          <Card className="p-4">
-            <div className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-              Recent Harvest Runs
-            </div>
-            <div className="divide-y divide-border/40 font-mono text-xs">
-              {status.history.map((h, i) => (
-                <div key={i} className="flex items-center justify-between py-2">
-                  <span className="text-text-muted tabular-nums">{formatTime(h.at)}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-emerald-500 font-medium tabular-nums">+{h.added} live</span>
-                    <span className="text-text-muted">/</span>
-                    <span className="text-text-muted tabular-nums">{h.tested} tested</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
+        <Badge variant={running ? "success" : "default"} className="shrink-0">
+          {running ? "Running" : "Idle"}
+        </Badge>
       </div>
 
-      {/* Proxy Feeds Modal */}
-      <Modal
-        isOpen={showFeedsModal}
-        onClose={() => setShowFeedsModal(false)}
-        title="Custom Proxy Feeds"
-        size="md"
-        footer={
-          <Button onClick={() => setShowFeedsModal(false)}>
-            Done
-          </Button>
-        }
-      >
-        <div className="flex flex-col gap-3 text-xs">
-          <div>
-            <p className="text-sm font-semibold text-text-main">Custom Feed URLs</p>
-            <p className="text-text-muted mt-1 leading-relaxed">
-              Add your own raw HTTP or HTTPS proxy list URLs (one URL per line). The harvester will fetch candidates from them alongside the global feed pool.
-            </p>
-            <textarea
-              value={customFeedsText}
-              onChange={(e) => setCustomFeedsText(e.target.value)}
-              placeholder="https://example.com/proxies.txt&#10;https://raw.githubusercontent.com/user/repo/main/http.txt"
-              rows={6}
-              className="mt-3 w-full rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs text-text-main focus:border-primary focus:outline-none resize-none"
-            />
+      {/*__PART2__*/}
+
+      <div className="grid grid-cols-2 gap-3 mt-3 sm:grid-cols-4">
+        <Card className="p-3">
+          <div className="text-[11px] uppercase tracking-wider text-text-muted">Tested</div>
+          <div className="text-xl font-semibold mt-1 tabular-nums">{lastTested}</div>
+        </Card>
+        <Card className="p-3">
+          <div className="text-[11px] uppercase tracking-wider text-text-muted">Live imported</div>
+          <div className="text-xl font-semibold mt-1 tabular-nums text-emerald-400">{lastAdded}</div>
+        </Card>
+        <Card className="p-3">
+          <div className="text-[11px] uppercase tracking-wider text-text-muted">Target</div>
+          <div className="text-xl font-semibold mt-1 tabular-nums">{targetCount}</div>
+        </Card>
+        <Card className="p-3">
+          <div className="text-[11px] uppercase tracking-wider text-text-muted">Loop</div>
+          <div className="text-xl font-semibold mt-1">
+            {status?.loopIntervalMinutes > 0 ? `every ${status.loopIntervalMinutes}m` : "once"}
           </div>
+        </Card>
+      </div>
+
+      <Card className="p-4 mt-3">
+        <div className="flex items-center justify-between text-sm mb-2">
+          <span className="text-text-muted">Progress toward target</span>
+          <span className="font-semibold tabular-nums">{progress}%</span>
         </div>
-      </Modal>
+        <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+          <div
+            className={cn("h-full rounded-full transition-all", running ? "bg-emerald-500" : "bg-primary")}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-text-muted">Target live proxies</label>
+              <Input
+                type="number"
+                min={1}
+                max={200}
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                disabled={running}
+                className="w-28"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-text-muted">Loop interval</label>
+              <select
+                value={loop}
+                onChange={(e) => setLoop(Number(e.target.value))}
+                disabled={running}
+                className="h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface text-sm text-text-main disabled:opacity-40"
+              >
+                {LOOP_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {running ? (
+            <Button variant="danger" icon="stop_circle" onClick={stop} loading={busy}>
+              Stop
+            </Button>
+          ) : (
+            <Button icon="radar" onClick={start} loading={busy}>
+              Start Harvest
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      {/*__PART3__*/}
+
+      <Card className="p-4 mt-3">
+        <div className="text-[11px] uppercase tracking-wider text-text-muted mb-2">Live status</div>
+        <p className="text-sm whitespace-pre-wrap break-words">
+          {status?.lastMessage || "Waiting for harvester status..."}
+        </p>
+      </Card>
+
+      <Card className="p-4 mt-3">
+        <div className="text-[11px] uppercase tracking-wider text-text-muted mb-2">Cycle history</div>
+        {status?.history?.length ? (
+          <div className="flex flex-col divide-y divide-black/5 dark:divide-white/5">
+            {status.history.map((h, i) => (
+              <div key={i} className="flex items-center justify-between py-2 text-sm">
+                <span className="text-text-muted tabular-nums">{formatTime(h.at)}</span>
+                <span>
+                  <span className="text-emerald-400 font-semibold tabular-nums">+{h.added}</span>
+                  <span className="text-text-muted"> / {h.tested} tested</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-text-muted">
+            No runs yet. Press <span className="text-text-main">Start Harvest</span> to begin.
+          </p>
+        )}
+      </Card>
     </PageShell>
   );
 }

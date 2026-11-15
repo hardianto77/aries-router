@@ -758,7 +758,7 @@ export default function BasicChatPageClient() {
             </button>
 
             {modelMenuOpen ? (
-              <div className="absolute left-0 top-[calc(100%+10px)] z-30 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-[20px] border border-border bg-surface shadow-2xl">
+              <div className="absolute left-0 top-[calc(100%+10px)] z-30 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-[20px] border border-border bg-surface shadow-[var(--elev-3)]">
                 <div className="border-b border-border px-4 py-3">
                   <p className="text-xs uppercase tracking-[0.22em] text-text-muted">Models</p>
                   <p className="text-sm text-text-main">Only from connected providers</p>
@@ -813,7 +813,7 @@ export default function BasicChatPageClient() {
         </div>
 
         {historyOpen ? (
-          <div ref={historyMenuRef} className="absolute right-4 top-[72px] z-20 w-[min(360px,calc(100vw-2rem))] rounded-[20px] border border-border bg-surface p-2 shadow-2xl shadow-black/50 lg:right-6">
+          <div ref={historyMenuRef} className="absolute right-4 top-[72px] z-20 w-[min(360px,calc(100vw-2rem))] rounded-[20px] border border-border bg-surface p-2 shadow-[var(--elev-3)] shadow-black/50 lg:right-6">
             <div className="px-3 py-2">
               <p className="text-xs uppercase tracking-[0.22em] text-white/45">Recent chats</p>
             </div>
@@ -923,7 +923,7 @@ export default function BasicChatPageClient() {
             ) : null}
 
             <div className="mx-auto w-full max-w-3xl px-4 pb-2">
-              <div className="rounded-[26px] bg-surface-2 px-3 pt-3 pb-2 shadow-[0_0_15px_rgba(0,0,0,0.10)] ring-1 ring-border-subtle">
+              <div className="rounded-[26px] bg-surface-2 px-3 pt-3 pb-2 shadow-[var(--elev-2)] ring-1 ring-border-subtle">
                 <textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}

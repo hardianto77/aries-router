@@ -1824,7 +1824,7 @@ function getMaintenanceMenuKeyboard() {
       ],
       [
         { text: "⚡ Cek Spek & Server Health", callback_data: "tool_specs", style: "primary" },
-        { text: "🔄 Restart X Router Service", callback_data: "tool_restart", style: "danger" },
+        { text: "🔄 Restart Aries Router Service", callback_data: "tool_restart", style: "danger" },
       ],
       [
         { text: "« Menu Utama", callback_data: "menu_main", style: "danger" },
@@ -1877,7 +1877,7 @@ async function configureTelegramBot() {
           }).catch(() => {});
         } else {
           await ctx.reply(
-            "<b>Akses Ditolak</b>\nAnda tidak memiliki otorisasi untuk mengontrol X Router ini.",
+            "<b>Akses Ditolak</b>\nAnda tidak memiliki otorisasi untuk mengontrol Aries Router ini.",
             { parse_mode: "HTML" }
           ).catch(() => {});
         }
@@ -2542,9 +2542,9 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
 
       let text = `<blockquote>[ PILIH PROVIDER (SLOT ${slot}) ]</blockquote>\n\n`;
       if (keys.length === 0) {
-        text += `<i>Belum ada provider dengan akun aktif terhubung di X Router. Tambahkan akun provider terlebih dahulu!</i>`;
+        text += `<i>Belum ada provider dengan akun aktif terhubung di Aries Router. Tambahkan akun provider terlebih dahulu!</i>`;
       } else {
-        text += `Menemukan <b>${keys.length} provider aktif</b> di X Router.\nPilih provider untuk mengisi <b>Slot ${slot}</b>:`;
+        text += `Menemukan <b>${keys.length} provider aktif</b> di Aries Router.\nPilih provider untuk mengisi <b>Slot ${slot}</b>:`;
       }
 
       await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: getArenaProvidersKeyboard(slot, activeMap) }).catch(() => {});
@@ -3439,7 +3439,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       const text =
         `<blockquote>[ FREE PROVIDERS (1-CLICK ACTIVATE) ]</blockquote>\n\n` +
         `Provider di bawah ini <b>gratis dan tidak membutuhkan API Key / token</b>!\n` +
-        `Cukup klik nama provider di bawah untuk langsung mengaktifkannya ke pool routing X Router:`;
+        `Cukup klik nama provider di bawah untuk langsung mengaktifkannya ke pool routing Aries Router:`;
 
       await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: getCategoryKeyboard("free", 1) }).catch(() => {});
     });
@@ -3450,7 +3450,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       const text =
         `<blockquote>[ FREE PROVIDERS (1-CLICK ACTIVATE) ]</blockquote>\n\n` +
         `Provider di bawah ini <b>gratis dan tidak membutuhkan API Key / token</b>!\n` +
-        `Cukup klik nama provider di bawah untuk langsung mengaktifkannya ke pool routing X Router:`;
+        `Cukup klik nama provider di bawah untuk langsung mengaktifkannya ke pool routing Aries Router:`;
 
       await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: getCategoryKeyboard("free", page) }).catch(() => {});
     });
@@ -3486,7 +3486,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
           `<blockquote>[ PROVIDER FREE AKTIF ]</blockquote>\n\n` +
           `• <b>Provider:</b> <code>${prov.toUpperCase()}</code>\n` +
           `• <b>Autentikasi:</b> <code>Bebas Kunci (Free / No Auth)</code>\n` +
-          `• <b>Status:</b> 🟢 Active & Terdaftar di Pool X Router!\n\n` +
+          `• <b>Status:</b> 🟢 Active & Terdaftar di Pool Aries Router!\n\n` +
           `<i>Provider sudah siap merutekan request tanpa batas biaya.</i>`;
         await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: getProvidersMenuKeyboard() }).catch(() => {});
       } catch (e) {
@@ -3510,7 +3510,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ DAFTAR OAUTH & CLOUD PROVIDERS ]</blockquote>\n\n` +
-        `Pilih provider yang ingin Anda hubungkan ke X Router:\n` +
+        `Pilih provider yang ingin Anda hubungkan ke Aries Router:\n` +
         `<i>(Klik nama provider langsung di bawah — total 30 provider bawaan)</i>`;
 
       await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: getCategoryKeyboard("oauth", page) }).catch(() => {});
@@ -3577,7 +3577,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
 
       const text =
         `<blockquote>[ METODE LOGIN: ${prov.toUpperCase()} ]</blockquote>\n\n` +
-        `Provider <b>${prov.toUpperCase()}</b> mendukung 2 metode autentikasi di X Router.\n` +
+        `Provider <b>${prov.toUpperCase()}</b> mendukung 2 metode autentikasi di Aries Router.\n` +
         `Pilih metode yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3596,7 +3596,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ METODE LOGIN: KIRO AI ]</blockquote>\n\n` +
-        `Kiro mendukung 4 metode autentikasi berbeda di X Router.\n` +
+        `Kiro mendukung 4 metode autentikasi berbeda di Aries Router.\n` +
         `Pilih metode yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3616,7 +3616,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ METODE LOGIN: OPENAI CODEX ]</blockquote>\n\n` +
-        `Codex mendukung 3 metode autentikasi berbeda di X Router.\n` +
+        `Codex mendukung 3 metode autentikasi berbeda di Aries Router.\n` +
         `Pilih metode yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3635,7 +3635,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ METODE LOGIN: IFLOW AI ]</blockquote>\n\n` +
-        `iFlow mendukung 2 metode autentikasi di X Router.\n` +
+        `iFlow mendukung 2 metode autentikasi di Aries Router.\n` +
         `Pilih metode yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3653,7 +3653,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ METODE LOGIN: GITLAB DUO ]</blockquote>\n\n` +
-        `GitLab Duo mendukung 2 metode autentikasi di X Router.\n` +
+        `GitLab Duo mendukung 2 metode autentikasi di Aries Router.\n` +
         `Pilih metode yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3671,7 +3671,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ METODE LOGIN: CURSOR IDE ]</blockquote>\n\n` +
-        `Cursor mendukung import token dan auto-detect di X Router.\n` +
+        `Cursor mendukung import token dan auto-detect di Aries Router.\n` +
         `Pilih metode yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3689,7 +3689,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ METODE LOGIN: GROK CLI ]</blockquote>\n\n` +
-        `Grok CLI mendukung 2 metode autentikasi di X Router.\n` +
+        `Grok CLI mendukung 2 metode autentikasi di Aries Router.\n` +
         `Pilih metode yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3707,7 +3707,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ METODE LOGIN: XIAOMI MIMO ]</blockquote>\n\n` +
-        `Xiaomi MiMo mendukung 2 tier autentikasi di X Router.\n` +
+        `Xiaomi MiMo mendukung 2 tier autentikasi di Aries Router.\n` +
         `Pilih tier yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3725,7 +3725,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       await ctx.answerCallbackQuery().catch(() => {});
       const text =
         `<blockquote>[ METODE LOGIN: ZED IDE ]</blockquote>\n\n` +
-        `Zed mendukung 2 metode autentikasi di X Router.\n` +
+        `Zed mendukung 2 metode autentikasi di Aries Router.\n` +
         `Pilih metode yang ingin Anda gunakan:`;
 
       const kb = {
@@ -3881,7 +3881,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
             `2. Masukkan kode berikut jika diminta:\n` +
             `<code>${userCode}</code> (Klik teks untuk menyalin)\n\n` +
             `3. Klik <b>Izinkan / Authorize</b> di browser.\n\n` +
-            `<i>Bot secara otomatis memantau status login di background. Setelah Anda klik Authorize, akun akan langsung terdaftar di X Router!</i>`;
+            `<i>Bot secara otomatis memantau status login di background. Setelah Anda klik Authorize, akun akan langsung terdaftar di Aries Router!</i>`;
 
           const kb = {
             inline_keyboard: [
@@ -3921,7 +3921,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
                   `<blockquote>[ AKUN ${prov.toUpperCase()} BERHASIL TERHUBUNG ]</blockquote>\n\n` +
                   `• <b>Provider:</b> <code>${prov.toUpperCase()}</code>\n` +
                   `• <b>Akun:</b> <code>${conn.email || conn.displayName || conn.id}</code>\n` +
-                  `• <b>Status:</b> 🟢 Active & Terdaftar di Pool X Router!\n\n` +
+                  `• <b>Status:</b> 🟢 Active & Terdaftar di Pool Aries Router!\n\n` +
                   `<i>Akun sudah siap merutekan request AI.</i>`,
                   { parse_mode: "HTML", reply_markup: getProvidersMenuKeyboard() }
                 );
@@ -4148,7 +4148,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       const kb = { inline_keyboard: [] };
 
       if (provs.length === 0) {
-        text += `<i>Belum ada provider terhubung di X Router.</i>\n`;
+        text += `<i>Belum ada provider terhubung di Aries Router.</i>\n`;
       } else {
         provs.forEach((p, i) => {
           const status = (p.isActive === 1 || p.isActive === true) ? "[ACTIVE]" : "[DISABLED]";
@@ -4501,7 +4501,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
     });
 
     bot.callbackQuery("tool_restart", async (ctx) => {
-      await ctx.answerCallbackQuery({ text: "Restarting X Router service...", show_alert: true }).catch(() => {});
+      await ctx.answerCallbackQuery({ text: "Restarting Aries Router service...", show_alert: true }).catch(() => {});
       await ctx.editMessageText(
         `<blockquote>[ RESTART SERVICE TRIGGERED ]</blockquote>\n\n` +
         `Service <code>xrouter.service</code> sedang di-restart.\n` +
@@ -5001,7 +5001,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
             `• <b>Provider:</b> <code>${provName.toUpperCase()}</code>\n` +
             `• <b>Service Kind:</b> <code>${kind}</code>\n` +
             `• <b>Status:</b> 🟢 Active & Terdaftar di Pool\n\n` +
-            `<i>Data tersimpan permanen di database SQLite X Router.</i>`,
+            `<i>Data tersimpan permanen di database SQLite Aries Router.</i>`,
             { parse_mode: "HTML", reply_markup: view.kb }
           );
         } catch (e) {
@@ -5500,7 +5500,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
             `<blockquote>[ AKUN ${prov.toUpperCase()} BERHASIL TERHUBUNG ]</blockquote>\n\n` +
             `• <b>Provider:</b> <code>${prov.toUpperCase()}</code>\n` +
             `• <b>Akun:</b> <code>${conn.email || conn.displayName || conn.id}</code>\n` +
-            `• <b>Status:</b> 🟢 Active & Terdaftar di Pool X Router!\n\n` +
+            `• <b>Status:</b> 🟢 Active & Terdaftar di Pool Aries Router!\n\n` +
             `<i>Akun sudah siap digunakan untuk merutekan request AI.</i>`,
             { parse_mode: "HTML", reply_markup: getProvidersMenuKeyboard() }
           );
@@ -5886,7 +5886,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
               `• <b>Provider:</b> <code>IFLOW AI</code>\n` +
               `• <b>Akun:</b> <code>${conn.email || "Active User"}</code>\n` +
               `• <b>Token:</b> <code>${extractedKey || "BXAuth"}</code> ${rawCount > 1 ? `(Disaring dari ${rawCount} cookie)` : ""}\n` +
-              `• <b>Status:</b> 🟢 Active & Terdaftar di Pool X Router!\n\n` +
+              `• <b>Status:</b> 🟢 Active & Terdaftar di Pool Aries Router!\n\n` +
               `<i>API Key berhasil di-refresh dan siap digunakan.</i>`,
               { parse_mode: "HTML", reply_markup: getProvidersMenuKeyboard() }
             );
@@ -5931,7 +5931,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
             `• <b>Auth Type:</b> <code>Web Session Cookie</code>\n` +
             filterInfo +
             `• <b>Status:</b> 🟢 Active & Siap Digunakan\n\n` +
-            `<i>Session cookie resmi sudah tersimpan rapi di database X Router.</i>`,
+            `<i>Session cookie resmi sudah tersimpan rapi di database Aries Router.</i>`,
             { parse_mode: "HTML", reply_markup: getProvidersMenuKeyboard() }
           );
         } catch (e) {
@@ -6233,7 +6233,7 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
       }
     });
 
-    bot.api.setMyCommands([{ command: "start", description: "Buka Master Console X Router" }]).catch(() => {});
+    bot.api.setMyCommands([{ command: "start", description: "Buka Master Console Aries Router" }]).catch(() => {});
     await bot.api.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
 
     activeRunner = run(bot);

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import ChangelogModal from "./ChangelogModal";
+import ThemeModal from "./ThemeModal";
 import { ConfirmModal } from "./Modal";
 import { useSessionStore } from "@/store/sessionStore";
 
@@ -12,7 +13,7 @@ function MenuItem({ icon, label, onClick, trailing, danger }) {
       onClick={onClick}
       className={`flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors ${
         danger
-          ? "text-red-500 hover:bg-red-500/10"
+          ? "text-danger hover:bg-danger/10"
           : "text-text-main hover:bg-surface-2"
       }`}
     >
@@ -39,6 +40,8 @@ export default function HeaderMenu({ onLogout }) {
   // it never sees shutdown (the route refuses it anyway).
   const canShutdown = role !== "apikey";
   const [isOpen, setIsOpen] = useState(false);
+  const canChangeTheme = useSessionStore((state) => state.role) !== "apikey";
+  const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [shutdownOpen, setShutdownOpen] = useState(false);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
@@ -87,6 +90,9 @@ export default function HeaderMenu({ onLogout }) {
               label="Change Log"
               onClick={() => { close(); setChangelogOpen(true); }}
             />
+            {canChangeTheme && (
+              <MenuItem icon="palette" label="Theme" onClick={() => { close(); setThemeModalOpen(true); }} />
+            )}
             {canShutdown && (
               <MenuItem
                 icon="power_settings_new"
@@ -106,6 +112,7 @@ export default function HeaderMenu({ onLogout }) {
       </div>
 
       <ChangelogModal isOpen={changelogOpen} onClose={() => setChangelogOpen(false)} />
+      <ThemeModal isOpen={themeModalOpen} onClose={() => setThemeModalOpen(false)} />
       <ConfirmModal
         isOpen={shutdownOpen}
         onClose={() => setShutdownOpen(false)}

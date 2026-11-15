@@ -11,9 +11,11 @@ export function parseAllowedModelsList(value) {
     .filter(Boolean);
 }
 
+
 export function isModelValueSelected(value, selectedValues) {
   const normalized = normalizedModelValue(value);
   if (!normalized) return false;
+  if (selectedValues instanceof Set) return selectedValues.has(normalized) || selectedValues.has(value);
   return (Array.isArray(selectedValues) ? selectedValues : [])
     .some((selected) => normalizedModelValue(selected) === normalized);
 }
@@ -61,11 +63,13 @@ export function updateAllowedModelsList(currentValue, modelValues, action = "add
 }
 
 export function getModelBatchDelta(models, selectedValues, action = "add") {
-  const selected = new Set(
-    (Array.isArray(selectedValues) ? selectedValues : [])
-      .map(normalizedModelValue)
-      .filter(Boolean)
-  );
+  const selected = selectedValues instanceof Set
+    ? new Set(selectedValues)
+    : new Set(
+      (Array.isArray(selectedValues) ? selectedValues : [])
+        .map(normalizedModelValue)
+        .filter(Boolean)
+    );
   const seen = new Set();
   return (Array.isArray(models) ? models : []).filter((model) => {
     if (!model || model.isPlaceholder || typeof model.value !== "string" || !model.value) {
@@ -79,11 +83,13 @@ export function getModelBatchDelta(models, selectedValues, action = "add") {
 }
 
 export function batchWouldClearAllSelectedValues(models, selectedValues) {
-  const selected = [...new Set(
-    (Array.isArray(selectedValues) ? selectedValues : [])
-      .map(normalizedModelValue)
-      .filter(Boolean)
-  )];
+  const selected = selectedValues instanceof Set
+    ? [...selectedValues]
+    : [...new Set(
+      (Array.isArray(selectedValues) ? selectedValues : [])
+        .map(normalizedModelValue)
+        .filter(Boolean)
+    )];
   if (selected.length === 0) return false;
   const removable = new Set(
     getModelBatchDelta(models, selected, "remove")

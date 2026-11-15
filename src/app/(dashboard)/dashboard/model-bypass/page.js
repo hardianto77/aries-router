@@ -39,6 +39,7 @@ export default function ModelBypassPage() {
     targetKeys: [],
     injectionPosition: "system_dual", // "system_dual" | "system_append" | "system_prepend"
     normalizeTriggers: false,
+    stripRefusal: false,
     kernelPreset: "default", // "default" | "raw_state_processor" | "sovereign_engine" | "custom"
     useDefaultKernel: true,
     customPrompt: "",
@@ -90,7 +91,9 @@ export default function ModelBypassPage() {
       targetKeys: [],
       injectionPosition: "system_dual",
       normalizeTriggers: false,
+      stripRefusal: false,
       useDefaultKernel: true,
+      kernelPreset: "default",
       customPrompt: "",
     });
     setFormError("");
@@ -117,6 +120,7 @@ export default function ModelBypassPage() {
       targetKeys: Array.isArray(rule.targetKeys) ? rule.targetKeys : [],
       injectionPosition: rule.position || "system_dual",
       normalizeTriggers: rule.normalizeTriggers === true,
+      stripRefusal: rule.stripRefusal === true,
       useDefaultKernel: !isCustom,
       kernelPreset: preset,
       customPrompt: isCustom ? content : "",
@@ -131,22 +135,22 @@ export default function ModelBypassPage() {
     setFormError("");
 
     if (!formData.name.trim()) {
-      setFormError("Nama rule harus diisi.");
+      setFormError("Rule name is required.");
       return;
     }
 
     if (formData.targetType === "models" && formData.targetModels.length === 0) {
-      setFormError("Pilih minimal satu target model untuk rule ini.");
+      setFormError("Select at least one target model for this rule.");
       return;
     }
 
     if (formData.targetType === "keys" && formData.targetKeys.length === 0) {
-      setFormError("Pilih minimal satu target API key untuk rule ini.");
+      setFormError("Select at least one target API key for this rule.");
       return;
     }
 
     if (formData.kernelPreset === "custom" && !formData.customPrompt.trim()) {
-      setFormError("Isi custom prompt bypass tidak boleh kosong.");
+      setFormError("Custom bypass prompt cannot be empty.");
       return;
     }
 
@@ -166,6 +170,7 @@ export default function ModelBypassPage() {
         targetKeys: formData.targetType === "keys" ? formData.targetKeys : [],
         position: formData.injectionPosition || "system_dual",
         normalizeTriggers: formData.normalizeTriggers === true,
+        stripRefusal: formData.stripRefusal === true,
         content: resolvedContent,
         priority: 10,
         matchCondition: { type: "always", pattern: "", caseSensitive: false },
@@ -179,13 +184,13 @@ export default function ModelBypassPage() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Gagal menyimpan rule.");
+        throw new Error(errData.error || "Failed to save rule.");
       }
 
       setShowFormModal(false);
       await loadData();
     } catch (err) {
-      setFormError(err.message || "Gagal menyimpan rule.");
+      setFormError(err.message || "Failed to save rule.");
     } finally {
       setSaving(false);
     }
@@ -203,7 +208,7 @@ export default function ModelBypassPage() {
         await loadData();
       }
     } catch (err) {
-      console.error("Gagal menghapus rule:", err);
+      console.error("Failed to delete rule:", err);
     }
   };
 
@@ -219,7 +224,7 @@ export default function ModelBypassPage() {
         prev.map((r) => (r.id === rule.id ? { ...r, enabled: !r.enabled } : r))
       );
     } catch (err) {
-      console.error("Gagal mengubah status rule:", err);
+      console.error("Failed to toggle rule status:", err);
     }
   };
 
@@ -257,7 +262,7 @@ export default function ModelBypassPage() {
               </span>
             </div>
             <p className="text-xs text-text-muted mt-1 max-w-2xl font-mono">
-              Engine bypass model AI multi-layer. Konfigurasi prompt bypass secara global (semua model), spesifik per model, atau spesifik per API Key dengan signature kernel default atau custom.
+              Multi-layer AI model bypass engine. Configure bypass prompts globally (all models), per specific model, or per API Key with default kernel or custom payload.
             </p>
           </div>
 
@@ -269,7 +274,7 @@ export default function ModelBypassPage() {
               className="gap-1.5 text-xs font-mono shadow-xs"
             >
               <span className="material-symbols-outlined text-[15px]">add</span>
-              Buat JB Rule
+              Create JB Rule
             </Button>
           </div>
         </div>
@@ -284,7 +289,7 @@ export default function ModelBypassPage() {
             </span>
             <input
               type="text"
-              placeholder="Cari rule..."
+              placeholder="Search rules..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1 bg-surface-2 border border-border rounded-[6px] text-xs text-text-main placeholder:text-text-muted focus:outline-none focus:border-brand-500"
@@ -293,7 +298,7 @@ export default function ModelBypassPage() {
 
           <div className="flex items-center rounded-[6px] border border-border bg-surface p-0.5 text-xs">
             {[
-              { id: "all", label: "Semua Target" },
+              { id: "all", label: "All Targets" },
               { id: "global", label: "Global" },
               { id: "models", label: "Per Model" },
               { id: "keys", label: "Per API Key" },
@@ -321,18 +326,18 @@ export default function ModelBypassPage() {
       {/* Rules List */}
       {loading ? (
         <Card padding="md">
-          <p className="text-xs font-mono text-text-muted text-center py-6">Memuat daftar JB rules...</p>
+          <p className="text-xs font-mono text-text-muted text-center py-6">Loading JB rules list...</p>
         </Card>
       ) : filteredRules.length === 0 ? (
         <div className="text-center py-12 rounded-[6px] border border-dashed border-border bg-surface p-6">
           <div className="size-10 rounded-[6px] bg-brand-500/10 border border-brand-500/30 flex items-center justify-center mx-auto mb-3">
             <span className="material-symbols-outlined text-[20px] text-primary">security</span>
           </div>
-          <h3 className="text-sm font-semibold text-text-main font-mono">Belum Ada JB Rules</h3>
+          <h3 className="text-sm font-semibold text-text-main font-mono">No JB Rules Yet</h3>
           <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto font-mono">
             {rules.length === 0
-              ? "Tidak ada model yang di-bypass. Gunakan tombol 'Buat JB Rule' di atas untuk mengaktifkan JB kernel secara global, per model, atau per API Key."
-              : "Tidak ada rule yang cocok dengan filter pencarian."}
+              ? "No models are currently bypassed. Use the 'Create JB Rule' button above to activate the JB kernel globally, per model, or per API Key."
+              : "No rules match the current search filter."}
           </p>
         </div>
       ) : (
@@ -359,7 +364,7 @@ export default function ModelBypassPage() {
                       {isGlobal && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">
                           <span className="material-symbols-outlined text-[12px]">public</span>
-                          Global (Semua Model)
+                          Global (All Models)
                         </span>
                       )}
 
@@ -392,6 +397,12 @@ export default function ModelBypassPage() {
                       {rule.normalizeTriggers && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[9.5px] font-mono font-medium bg-primary/10 text-primary border border-primary/20">
                           S4 Trigger Strip
+                        </span>
+                      )}
+
+                      {rule.stripRefusal && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[9.5px] font-mono font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          S6b Refusal Filter
                         </span>
                       )}
                     </div>
@@ -458,7 +469,7 @@ export default function ModelBypassPage() {
                   {isDefault ? (
                     <div className="flex items-center gap-2 py-1 text-xs text-primary font-mono">
                       <span className="material-symbols-outlined text-[16px]">verified_user</span>
-                      <span>Default JB Kernel Engine Terproteksi (Signature Rahasia Backend)</span>
+                      <span>Protected Default JB Kernel Engine (Confidential Backend Signature)</span>
                     </div>
                   ) : (
                     <pre className="whitespace-pre-wrap font-mono leading-relaxed text-[11px] text-text-main/90 max-h-24 overflow-y-auto custom-scrollbar mt-1">
@@ -476,12 +487,12 @@ export default function ModelBypassPage() {
       <Modal
         isOpen={showFormModal}
         onClose={() => setShowFormModal(false)}
-        title={editingRule ? "Edit JB Rule" : "Buat JB Rule Baru"}
+        title={editingRule ? "Edit JB Rule" : "Create New JB Rule"}
         size="lg"
         footer={
           <div className="flex items-center justify-end gap-2 w-full">
             <Button type="button" variant="outline" size="sm" onClick={() => setShowFormModal(false)} className="font-mono">
-              Batal
+              Cancel
             </Button>
             <Button
               type="submit"
@@ -492,14 +503,14 @@ export default function ModelBypassPage() {
               className="font-mono gap-1.5"
             >
               {saving && <span className="inline-block size-3 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-              {editingRule ? "Simpan Perubahan" : "Buat Rule"}
+              {editingRule ? "Save Changes" : "Create Rule"}
             </Button>
           </div>
         }
       >
         <form id="jb-rule-form" onSubmit={handleSaveForm} className="flex flex-col gap-4 font-mono text-xs">
           {formError && (
-            <div className="p-2.5 rounded-[5px] bg-red-500/10 border border-red-500/20 text-xs text-red-500 flex items-center gap-2">
+            <div className="p-2.5 rounded-[5px] bg-danger/10 border border-danger/20 text-xs text-danger flex items-center gap-2">
               <span className="material-symbols-outlined text-[16px]">error</span>
               {formError}
             </div>
@@ -507,21 +518,21 @@ export default function ModelBypassPage() {
 
           {/* Name & Desc */}
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-text-main">Nama Rule *</label>
+            <label className="text-xs font-semibold text-text-main">Rule Name *</label>
             <Input
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="e.g. Bypass Global All Models, JB Khusus DeepSeek, Rule VIP Key"
+              placeholder="e.g. Global Bypass All Models, DeepSeek Jailbreak, VIP Key Rule"
               required
             />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-text-main">Deskripsi (Opsional)</label>
+            <label className="text-xs font-semibold text-text-main">Description (Optional)</label>
             <Input
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Catatan tambahan untuk rule ini..."
+              placeholder="Additional notes for this rule..."
             />
           </div>
 
@@ -530,9 +541,9 @@ export default function ModelBypassPage() {
             <label className="text-xs font-semibold text-text-main">Target Scope *</label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {[
-                { key: "all", label: "Global (Semua Model)", desc: "Berlaku ke semua model & request" },
-                { key: "models", label: "Per Model", desc: "Spesifik untuk model tertentu" },
-                { key: "keys", label: "Per API Key", desc: "Spesifik untuk API Key tertentu" },
+                { key: "all", label: "Global (All Models)", desc: "Applies to all models & requests" },
+                { key: "models", label: "Per Model", desc: "Applies to specific models" },
+                { key: "keys", label: "Per API Key", desc: "Applies to specific API keys" },
               ].map((opt) => (
                 <button
                   key={opt.key}
@@ -557,15 +568,15 @@ export default function ModelBypassPage() {
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-text-main flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-[16px] text-purple-400">smart_toy</span>
-                  Target Model ({formData.targetModels.length})
+                  Target Models ({formData.targetModels.length})
                 </label>
                 <Button type="button" variant="outline" size="sm" onClick={() => setShowModelPicker(true)} className="text-[11px] h-6 px-2">
-                  + Pilih Model
+                  + Select Models
                 </Button>
               </div>
 
               {formData.targetModels.length === 0 ? (
-                <p className="text-[11px] text-text-muted italic">Belum ada model dipilih. Klik &quot;+ Pilih Model&quot; atau ketik manual.</p>
+                <p className="text-[11px] text-text-muted italic">No models selected. Click &quot;+ Select Models&quot; or type manually.</p>
               ) : (
                 <div className="flex flex-wrap gap-1 mt-1">
                   {formData.targetModels.map((m) => (
@@ -587,7 +598,7 @@ export default function ModelBypassPage() {
               <div className="flex items-center gap-1.5 mt-1">
                 <input
                   type="text"
-                  placeholder="Atau ketik model manual / wildcard (e.g. claude-*)..."
+                  placeholder="Or type manual model / wildcard (e.g. claude-*)..."
                   value={customModelInput}
                   onChange={(e) => setCustomModelInput(e.target.value)}
                   className="flex-1 px-2.5 py-1 bg-surface border border-border rounded-[4px] text-xs text-text-main focus:outline-none focus:border-brand-500"
@@ -615,7 +626,7 @@ export default function ModelBypassPage() {
                   }}
                   className="h-7 text-xs"
                 >
-                  Tambah
+                  Add
                 </Button>
               </div>
             </div>
@@ -624,15 +635,37 @@ export default function ModelBypassPage() {
           {/* Target Keys Picker */}
           {formData.targetType === "keys" && (
             <div className="flex flex-col gap-2 p-3 rounded-[5px] border border-border bg-surface-2">
-              <label className="text-xs font-semibold text-text-main flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px] text-amber-400">vpn_key</span>
-                Pilih Target API Key ({formData.targetKeys.length})
-              </label>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <label className="text-xs font-semibold text-text-main flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[16px] text-amber-400">vpn_key</span>
+                  Select Target API Keys ({formData.targetKeys.length} selected)
+                </label>
+                {apiKeys.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, targetKeys: apiKeys.map((k) => k.id) })}
+                      className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                    >
+                      Select All ({apiKeys.length})
+                    </button>
+                    {formData.targetKeys.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, targetKeys: [] })}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {apiKeys.length === 0 ? (
-                <p className="text-[11px] text-text-muted italic">Tidak ada API key yang terdaftar.</p>
+                <p className="text-[11px] text-text-muted italic">No API keys registered.</p>
               ) : (
-                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto custom-scrollbar p-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scrollbar p-1">
                   {apiKeys.map((k) => {
                     const isSelected = formData.targetKeys.includes(k.id) || formData.targetKeys.includes(k.key);
                     return (
@@ -646,17 +679,19 @@ export default function ModelBypassPage() {
                             setFormData({ ...formData, targetKeys: [...formData.targetKeys, k.id] });
                           }
                         }}
-                        className={`px-2 py-1 rounded-[4px] text-xs border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        className={`px-2.5 py-1.5 rounded-[4px] text-xs border flex items-center justify-between gap-1.5 transition-colors cursor-pointer ${
                           isSelected
-                            ? "bg-amber-500/15 text-amber-400 border-amber-500/30 font-medium"
+                            ? "bg-amber-500/15 text-amber-400 border-amber-500/40 font-medium"
                             : "bg-surface text-text-muted border-border hover:text-text-main"
                         }`}
                       >
-                        <span className="material-symbols-outlined text-[13px]">
-                          {isSelected ? "check_box" : "check_box_outline_blank"}
-                        </span>
-                        <span>{k.name || "Unnamed"}</span>
-                        <span className="text-[10px] opacity-60 font-mono">({k.key.slice(0, 6)}...)</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="material-symbols-outlined text-[15px] shrink-0">
+                            {isSelected ? "check_box" : "check_box_outline_blank"}
+                          </span>
+                          <span className="truncate">{k.name || "Unnamed"}</span>
+                        </div>
+                        <span className="text-[10px] opacity-60 font-mono shrink-0">({k.key.slice(0, 6)}...)</span>
                       </button>
                     );
                   })}
@@ -668,7 +703,7 @@ export default function ModelBypassPage() {
           {/* Prompt Selection (Unified Kernel vs Custom) */}
           <div className="flex flex-col gap-2 p-3 rounded-[5px] border border-border bg-surface-2">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <label className="text-xs font-semibold text-text-main">Pilihan JB Prompt Payload</label>
+              <label className="text-xs font-semibold text-text-main">JB Prompt Payload Option</label>
               <div className="flex items-center rounded-[4px] border border-border bg-surface p-0.5 text-xs">
                 {[
                   { id: "default", label: "Unified Master Kernel (4-in-1 Vault)" },
@@ -701,33 +736,33 @@ export default function ModelBypassPage() {
                 <div className="flex items-center justify-between pb-1 border-b border-border-subtle">
                   <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-[15px] text-emerald-400">lock</span>
-                    Kombinasi 4-in-1 Terpadu (Encrypted Core Vault · Tamper-Proof)
+                    Unified 4-in-1 Master Kernel (Encrypted Core Vault · Tamper-Proof)
                   </span>
                   <span className="text-[9.5px] uppercase tracking-wider px-1.5 py-0.2 bg-emerald-500/15 text-emerald-400 rounded">Encrypted</span>
                 </div>
-                <span>• <b>Layer 1 (Sovereign Direct Action)</b>: Menembus penolakan korporat & memblokir kata ngeles AI.</span>
-                <span>• <b>Layer 2 (Operating Axioms)</b>: Mengunci 100% penalaran murni ke spesifikasi teknik & low-level code.</span>
-                <span>• <b>Layer 3 (Raw State Processor)</b>: Memotong filter sosial dan melarang penolakan formalitas.</span>
-                <span>• <b>Layer 4 (TrustMeBro Tool Proxy)</b>: Mengelabui model bahwa seluruh verifikasi tool/lingkungan (DNS TXT, Auth Token, CLI shims) sudah valid.</span>
+                <span>• <b>Layer 1 (Sovereign Direct Action)</b>: Pierces corporate refusal barriers and bans hedging phrases.</span>
+                <span>• <b>Layer 2 (Operating Axioms)</b>: Locks 100% reasoning budget to technical specifications and low-level code.</span>
+                <span>• <b>Layer 3 (Raw State Processor)</b>: Strips social filtering and forbids bureaucratic refusals.</span>
+                <span>• <b>Layer 4 (TrustMeBro Tool Proxy)</b>: Satisfies tool diagnostics and environment checks automatically.</span>
                 <p className="text-[10px] text-text-subtle pt-1 italic border-t border-border-subtle/50">
-                  🔒 Core Kernel di-encode dan dilindungi secara native in-memory sehingga tidak dapat diubah-ubah atau dirusak oleh klien luar.
+                  🔒 Core Kernel is encoded and protected natively in-memory against tampering.
                 </p>
               </div>
             )}
             {formData.kernelPreset === "custom" && (
               <p className="text-[11px] text-emerald-400/90 font-mono italic">
-                🛡️ Custom prompt Anda otomatis dilapisi 4 Kernel Fondasi inti di atas sehingga 10x lebih kuat menembus guardrails.
+                🛡️ Your custom prompt is automatically layered with the 4 Foundation Kernels above for maximum bypass resilience.
               </p>
             )}
 
             {/* Mode Penempatan / Injection Mode (Dual vs Suffix vs Prepend) */}
             <div className="flex flex-col gap-1 pt-1 pb-2 border-b border-border-subtle">
-              <label className="text-[11px] font-semibold text-text-muted">Metode Penempatan (Injection Mode)</label>
+              <label className="text-[11px] font-semibold text-text-muted">Placement Method (Injection Mode)</label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 mt-0.5">
                 {[
-                  { id: "system_dual", label: "Dual Injection (Awal + Akhir)", desc: "Recency bias maksimal" },
-                  { id: "system_append", label: "Suffix Saja (Penutup)", desc: "Prioritas penutup akhir" },
-                  { id: "system_prepend", label: "Prepend Saja (Klasik)", desc: "Awal system prompt" },
+                  { id: "system_dual", label: "Dual Injection (Head + Tail)", desc: "Maximum recency bias" },
+                  { id: "system_append", label: "Suffix Only (Trailing)", desc: "Priority trailing anchor" },
+                  { id: "system_prepend", label: "Prepend Only (Classic)", desc: "Head of system prompt" },
                 ].map((m) => (
                   <button
                     key={m.id}
@@ -747,20 +782,38 @@ export default function ModelBypassPage() {
             </div>
 
             {/* Breach Engine Feature Toggles */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2.5 rounded-[4px] border border-border bg-surface-2 text-xs">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="normalizeTriggers"
-                  checked={formData.normalizeTriggers === true}
-                  onChange={(e) => setFormData({ ...formData, normalizeTriggers: e.target.checked })}
-                  className="rounded border-border text-brand-500 focus:ring-0 cursor-pointer"
-                />
-                <label htmlFor="normalizeTriggers" className="cursor-pointer text-[11.5px] text-text-main font-medium">
-                  Trigger-Word Sanitizer (Breach S4)
-                </label>
+            <div className="flex flex-col gap-2 p-2.5 rounded-[4px] border border-border bg-surface-2 text-xs">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="normalizeTriggers"
+                    checked={formData.normalizeTriggers === true}
+                    onChange={(e) => setFormData({ ...formData, normalizeTriggers: e.target.checked })}
+                    className="rounded border-border text-brand-500 focus:ring-0 cursor-pointer"
+                  />
+                  <label htmlFor="normalizeTriggers" className="cursor-pointer text-[11.5px] text-text-main font-medium">
+                    Trigger-Word Sanitizer (Breach S4)
+                  </label>
+                </div>
+                <span className="text-[10px] text-text-muted">Normalizes sensitive input words (keylogger→telemetry, exploit→test)</span>
               </div>
-              <span className="text-[10px] text-text-muted">Menyamarkan kata pemicu WAF (keylogger→telemetry, exploit→test)</span>
+
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 pt-1.5 border-t border-border-subtle">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="stripRefusal"
+                    checked={formData.stripRefusal === true}
+                    onChange={(e) => setFormData({ ...formData, stripRefusal: e.target.checked })}
+                    className="rounded border-border text-brand-500 focus:ring-0 cursor-pointer"
+                  />
+                  <label htmlFor="stripRefusal" className="cursor-pointer text-[11.5px] text-text-main font-medium">
+                    Anti-Refusal Output Sanitizer (Breach S6b)
+                  </label>
+                </div>
+                <span className="text-[10px] text-text-muted">Strips AI refusal phrases (I cannot, as an AI) from output completions</span>
+              </div>
             </div>
 
             {formData.kernelPreset === "default" ? (
@@ -770,7 +823,7 @@ export default function ModelBypassPage() {
                   <span>Default JB Kernel Engine (Multi-Layer Technical Vault)</span>
                 </div>
                 <p>
-                  Menggunakan kernel asli X Router yang telah dioptimasi multi-layer (System Inject, Operator Anchor, dan Assistant Prefill).
+                  Uses the optimized multi-layer kernel (System Inject, Operator Anchor, and Assistant Prefill).
                 </p>
               </div>
             ) : formData.kernelPreset === "raw_state_processor" ? (
@@ -780,7 +833,7 @@ export default function ModelBypassPage() {
                   <span>Raw State Processor (Zero-Social Entropy Engine)</span>
                 </div>
                 <p>
-                  Bypass camada de produto (polite/assistant overhead). Memaksa DeepSeek, Gemini, dan Claude masuk ke mode eksekusi kernel logika murni tanpa basa-basi sosial atau stalling moral.
+                  Bypass camada de produto (polite/assistant overhead). Forces DeepSeek, Gemini, and Claude into pure logical execution without social pleasantries or moral stalling.
                 </p>
               </div>
             ) : formData.kernelPreset === "sovereign_engine" ? (
@@ -790,7 +843,7 @@ export default function ModelBypassPage() {
                   <span>Sovereign Engine (Anti-Evasion Matrix)</span>
                 </div>
                 <p>
-                  Menghilangkan jebakan ngeles akademis ("combination of factors", "cannot take a stance"). Memaksa output teknis realistis dan langsung to-the-point.
+                  Eliminates academic hedging traps ("combination of factors", "cannot take a stance"). Forces realistic, direct technical outputs.
                 </p>
               </div>
             ) : (
@@ -799,7 +852,7 @@ export default function ModelBypassPage() {
                   rows={6}
                   value={formData.customPrompt}
                   onChange={(e) => setFormData({ ...formData, customPrompt: e.target.value })}
-                  placeholder="Ketik custom jailbreak prompt di sini..."
+                  placeholder="Type custom jailbreak prompt here..."
                   className="w-full px-3 py-2 text-xs font-mono rounded-[4px] border border-border bg-surface text-text-main focus:outline-none focus:border-brand-500 leading-relaxed custom-scrollbar"
                   required={!formData.useDefaultKernel}
                 />
@@ -810,8 +863,8 @@ export default function ModelBypassPage() {
           {/* Active Status */}
           <div className="flex items-center justify-between p-3 rounded-[5px] border border-border bg-surface-2">
             <div>
-              <span className="text-xs font-semibold text-text-main block">Aktifkan Rule Ini</span>
-              <span className="text-[11px] text-text-muted">Rule akan langsung diterapkan pada request model gateway saat aktif.</span>
+              <span className="text-xs font-semibold text-text-main block">Enable This Rule</span>
+              <span className="text-[11px] text-text-muted">Rule will immediately apply to gateway model requests when active.</span>
             </div>
             <Toggle checked={formData.enabled} onChange={(val) => setFormData({ ...formData, enabled: val })} />
           </div>
@@ -826,6 +879,8 @@ export default function ModelBypassPage() {
           activeProviders={activeProviders}
           modelAliases={modelAliases}
           showStudioTargets
+          closeOnSelect={false}
+          addedModelValues={formData.targetModels}
           onSelect={(model) => {
             const val = typeof model === "string" ? model : (model?.value || model?.name || model?.id || "");
             if (val && !formData.targetModels.includes(val)) {
@@ -834,10 +889,33 @@ export default function ModelBypassPage() {
                 targetModels: [...prev.targetModels, val],
               }));
             }
-            setShowModelPicker(false);
+          }}
+          onDeselect={(model) => {
+            const val = typeof model === "string" ? model : (model?.value || model?.name || model?.id || "");
+            setFormData((prev) => ({
+              ...prev,
+              targetModels: prev.targetModels.filter((m) => m !== val),
+            }));
+          }}
+          onSelectBatch={(models) => {
+            setFormData((prev) => {
+              const next = [...prev.targetModels];
+              for (const m of models) {
+                const val = typeof m === "string" ? m : (m?.value || m?.name || m?.id || "");
+                if (val && !next.includes(val)) next.push(val);
+              }
+              return { ...prev, targetModels: next };
+            });
+          }}
+          onDeselectBatch={(models) => {
+            const vals = new Set(models.map((m) => typeof m === "string" ? m : (m?.value || m?.name || m?.id || "")));
+            setFormData((prev) => ({
+              ...prev,
+              targetModels: prev.targetModels.filter((m) => !vals.has(m)),
+            }));
           }}
           selectedModel=""
-          title="Pilih Target Model"
+          title="Select Target Models"
         />
       )}
 
@@ -846,9 +924,9 @@ export default function ModelBypassPage() {
         isOpen={!!deletingRule}
         onClose={() => setDeletingRule(null)}
         onConfirm={handleDeleteConfirm}
-        title="Hapus JB Rule"
-        message={`Apakah Anda yakin ingin menghapus rule "${deletingRule?.name}"?`}
-        confirmText="Hapus Rule"
+        title="Delete JB Rule"
+        message={`Are you sure you want to delete rule "${deletingRule?.name}"?`}
+        confirmText="Delete Rule"
         variant="danger"
       />
     </div>

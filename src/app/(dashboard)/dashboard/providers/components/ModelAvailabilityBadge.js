@@ -12,10 +12,10 @@ import { Button } from "@/shared/components";
 import { useNotificationStore } from "@/store/notificationStore";
 
 const STATUS_CONFIG = {
-  available: { icon: "check_circle", color: "#22c55e", label: "Available" },
-  cooldown: { icon: "schedule", color: "#f59e0b", label: "Cooldown" },
-  unavailable: { icon: "error", color: "#ef4444", label: "Unavailable" },
-  unknown: { icon: "help", color: "#6b7280", label: "Unknown" },
+  available: { icon: "check_circle", color: "var(--color-success)", label: "Available" },
+  cooldown: { icon: "schedule", color: "var(--color-warning)", label: "Cooldown" },
+  unavailable: { icon: "error", color: "var(--color-danger)", label: "Unavailable" },
+  unknown: { icon: "help", color: "var(--color-text-subtle)", label: "Unknown" },
 };
 
 export default function ModelAvailabilityBadge() {
@@ -110,7 +110,7 @@ export default function ModelAvailabilityBadge() {
       </button> */}
 
       {expanded && (
-        <div className="absolute top-full right-0 mt-2 w-80 bg-surface border border-border rounded-xl shadow-2xl z-50 overflow-hidden">
+        <div className="absolute top-full right-0 mt-2 w-80 bg-surface border border-border rounded-xl shadow-[var(--elev-3)] z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg">
             <div className="flex items-center gap-2">
               <span

@@ -220,7 +220,7 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
           {sessBusy ? "Starting..." : "Choose cluster & sign in"}
         </Button>
       )}
-      {sessError && <p className="text-[11px] text-red-500">{translate(sessError)}</p>}
+      {sessError && <p className="text-[11px] text-danger">{translate(sessError)}</p>}
     </div>
   );
 

@@ -48,7 +48,7 @@ async function probeWebProvider(provider, apiKey) {
     body = JSON.stringify({ query: "ping", q: "ping", url: "https://example.com" });
   }
 
-  const res = await fetch(url, { method: cfg.method, headers, body, signal: AbortSignal.timeout(8000) });
+  const res = await fetch(url, { method: cfg.method, headers, body, signal: AbortSignal.timeout(30000) });
   return res.status !== 401 && res.status !== 403;
 }
 
@@ -86,7 +86,7 @@ async function probeMediaProvider(provider, apiKey) {
     method,
     headers,
     body: method === "GET" ? undefined : JSON.stringify({ input: "ping", text: "ping", prompt: "ping", model: getDefaultModel(provider) || "test" }),
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(30000),
   });
   return res.status !== 401 && res.status !== 403;
 }
@@ -324,7 +324,7 @@ export async function POST(request) {
           const probe = createNousApiKeyProbe(apiKey);
           const res = await fetch(probe.url, {
             ...probe.options,
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(30000),
           });
           isValid = isNousApiKeyAccepted(res.status);
           if (!isValid) error = getNousApiKeyValidationError(res.status);
@@ -400,7 +400,7 @@ export async function POST(request) {
               messages: [{ role: "user", content: "ping" }],
               max_tokens: 1,
             }),
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(30000),
           });
           isValid = res.status !== 401 && res.status !== 403;
           break;
@@ -437,7 +437,7 @@ export async function POST(request) {
           };
           const headers = {};
           if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-          const res = await fetch(endpoints[provider], { headers, signal: AbortSignal.timeout(8000) });
+          const res = await fetch(endpoints[provider], { headers, signal: AbortSignal.timeout(30000) });
           // xai returns 400 for bad key, 403 for valid-but-no-credit. Other providers use 401.
           if (provider === "xai") {
             isValid = res.status === 200 || res.status === 403;
@@ -580,7 +580,7 @@ export async function POST(request) {
           // PAT (pt-...) needs the job-token exchange before it can sign
           // anything - the generic OpenAI-compat probe below can't validate it.
           try {
-            const resolved = await resolveQoderCredentials({ provider, apiKey, providerSpecificData }, null, AbortSignal.timeout(8000));
+            const resolved = await resolveQoderCredentials({ provider, apiKey, providerSpecificData }, null, AbortSignal.timeout(30000));
             const result = await resolveQoderModels(resolved, { forceRefresh: true });
             isValid = !!result?.models?.length;
           } catch (err) {
@@ -608,7 +608,7 @@ export async function POST(request) {
           const modelsUrl = cfg.baseUrl.replace(/\/chat\/completions$/, "/models").replace(/\/chatbot$/, "/models");
           let probeOk = null;
           try {
-            const probeRes = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(8000) });
+            const probeRes = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(30000) });
             if (probeRes.status === 401 || probeRes.status === 403) probeOk = false;
             else if (probeRes.ok) probeOk = true;
           } catch { /* fallback to chat */ }
