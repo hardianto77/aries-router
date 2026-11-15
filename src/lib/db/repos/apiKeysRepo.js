@@ -118,7 +118,7 @@ export async function validateApiKey(key) {
 }
 
 // Restored from d915f17c (lost in keyAccess rewrite)
-{
+export async function reconcileAllowedModels({ removed = [], renamed = {} } = {}) {
   if (!removed.length && !Object.keys(renamed).length) {
     return { updated: 0, emptied: [] };
   }
