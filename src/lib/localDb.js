@@ -23,5 +23,5 @@ export {
   recordErrorLog, getErrorLogs, clearErrorLogs,
   pruneDeadProviderConnections,
   getVouchers, createVoucher, getVoucherById, updateVoucher, deleteVoucher, getVoucherClaims, getVoucherByCode, getActiveBansosVoucher,
-  claimVoucher: async (...a) => { const { claimVoucher: cv } = await import("@/lib/db/repos/voucherRepo.js"); return cv(...a); },
+  claimVoucher,
 } from "@/lib/db/index.js";
