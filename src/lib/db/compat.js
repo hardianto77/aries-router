@@ -11,7 +11,7 @@ export async function createProxyPools(list) {
   return out;
 }
 
-export async function deleteProxyPools(ids) {
+export async function deleteProxyPoolsCompat(ids) {
   const out = [];
   for (const id of Array.isArray(ids) ? ids : [ids]) {
     out.push(await deleteProxyPool(id));

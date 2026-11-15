@@ -203,7 +203,5 @@ export * from "./dashboardJobs.js";
 export * from "./proxyImportJobs.js";
 export * from "./importJobs.js";
 export * from "./importJobAuth.js";
-export { createProxyPools, deleteProxyPools } from "./compat.js";
+export * from "./compat.js";
 
-// Backups summary lives in the compat layer
-export { getDbSummary } from "./compat.js";

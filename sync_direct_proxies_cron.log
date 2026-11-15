@@ -656,3 +656,25 @@
   "strictlyOneToOne": true,
   "groupProxyCount": 0
 }
+[2026-11-15 13:45:02] [*] Triggering WARP egress rotation...
+[2026-11-15 13:45:20] [✓] WARP rotation stdout: 
+[2026-11-15 13:45:21] [✓] WARP current egress IP: 104.28.254.47
+[2026-11-15 13:45:22] [-] ProxyVault fetch error: HTTP Error 401: Unauthorized
+[2026-11-15 13:45:22] [✓] Residential files loaded: 1094 unique candidates
+[2026-11-15 13:45:22] [*] Total unique combined pool: 1094 candidates
+[2026-11-15 13:45:33] [✓] Pre-verified active fresh proxies: 125
+[2026-11-15 13:45:33] [*] Inspecting 540 connections for provider: glm...
+[2026-11-15 13:45:33] [*] Checking health of existing assigned proxies...
+[2026-11-15 13:45:51] [*] Status existing: Alive=540, Dead/Missing=0
+[2026-11-15 13:45:51] [✓] SYNC COMPLETE: {"success": true, "provider": "glm", "totalConnections": 540, "aliveKept": 540, "replacedFresh": 0, "warpEgressIp": "104.28.254.47", "poolAvailable": 125, "strictlyOneToOne": true, "groupProxyCount": 0}
+{
+  "success": true,
+  "provider": "glm",
+  "totalConnections": 540,
+  "aliveKept": 540,
+  "replacedFresh": 0,
+  "warpEgressIp": "104.28.254.47",
+  "poolAvailable": 125,
+  "strictlyOneToOne": true,
+  "groupProxyCount": 0
+}
