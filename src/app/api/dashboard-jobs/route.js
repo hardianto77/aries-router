@@ -48,12 +48,12 @@ export async function GET(request) {
   const id = searchParams.get("id");
 
   if (id) {
-    const job = getDashboardJob(id);
+    const job = await getDashboardJob(id);
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     return NextResponse.json({ job });
   }
 
-  const jobs = listDashboardJobs().filter(
+  const jobs = (await listDashboardJobs()).filter(
     (j) => j.status === "queued" || j.status === "running"
   );
   return NextResponse.json({ jobs, pollMs: DASHBOARD_JOB_POLL_MS });
@@ -65,7 +65,7 @@ export async function DELETE(request) {
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-  const ok = cancelDashboardJob(id);
+  const ok = await cancelDashboardJob(id);
   if (!ok) return NextResponse.json({ error: "Job not found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
