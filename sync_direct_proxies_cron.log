@@ -393,3 +393,90 @@
   "strictlyOneToOne": true,
   "groupProxyCount": 0
 }
+[2026-11-15 10:45:01] [*] Triggering WARP egress rotation...
+[2026-11-15 10:45:01] [✓] WARP rotation stdout: 
+[2026-11-15 10:45:01] [✓] WARP current egress IP: 104.28.222.43
+[2026-11-15 10:45:04] [✓] ProxyVault export: 300 fresh candidates loaded (best latency: 10ms)
+[2026-11-15 10:45:04] [✓] Residential files loaded: 1094 unique candidates
+[2026-11-15 10:45:04] [*] Total unique combined pool: 1386 candidates
+[2026-11-15 10:45:14] [✓] Pre-verified active fresh proxies: 70
+[2026-11-15 10:45:14] [*] Inspecting 538 connections for provider: glm...
+[2026-11-15 10:45:14] [*] Checking health of existing assigned proxies...
+[2026-11-15 10:45:36] [*] Status existing: Alive=490, Dead/Missing=48
+[2026-11-15 10:45:36] [✓] SYNC COMPLETE: {"success": true, "provider": "glm", "totalConnections": 538, "aliveKept": 490, "replacedFresh": 48, "warpEgressIp": "104.28.222.43", "poolAvailable": 70, "strictlyOneToOne": true, "groupProxyCount": 0}
+{
+  "success": true,
+  "provider": "glm",
+  "totalConnections": 538,
+  "aliveKept": 490,
+  "replacedFresh": 48,
+  "warpEgressIp": "104.28.222.43",
+  "poolAvailable": 70,
+  "strictlyOneToOne": true,
+  "groupProxyCount": 0
+}
+[2026-11-15 11:00:01] [*] Triggering WARP egress rotation...
+[2026-11-15 11:00:18] [✓] WARP rotation stdout: 
+[2026-11-15 11:00:19] [✓] WARP current egress IP: 104.28.222.43
+[2026-11-15 11:00:21] [✓] ProxyVault export: 300 fresh candidates loaded (best latency: 10ms)
+[2026-11-15 11:00:21] [✓] Residential files loaded: 1094 unique candidates
+[2026-11-15 11:00:21] [*] Total unique combined pool: 1386 candidates
+[2026-11-15 11:00:35] [✓] Pre-verified active fresh proxies: 80
+[2026-11-15 11:00:35] [*] Inspecting 538 connections for provider: glm...
+[2026-11-15 11:00:35] [*] Checking health of existing assigned proxies...
+[2026-11-15 11:01:05] [*] Status existing: Alive=501, Dead/Missing=37
+[2026-11-15 11:01:06] [✓] SYNC COMPLETE: {"success": true, "provider": "glm", "totalConnections": 538, "aliveKept": 501, "replacedFresh": 37, "warpEgressIp": "104.28.222.43", "poolAvailable": 80, "strictlyOneToOne": true, "groupProxyCount": 0}
+{
+  "success": true,
+  "provider": "glm",
+  "totalConnections": 538,
+  "aliveKept": 501,
+  "replacedFresh": 37,
+  "warpEgressIp": "104.28.222.43",
+  "poolAvailable": 80,
+  "strictlyOneToOne": true,
+  "groupProxyCount": 0
+}
+[2026-11-15 11:15:02] [*] Triggering WARP egress rotation...
+[2026-11-15 11:15:18] [✓] WARP rotation stdout: 
+[2026-11-15 11:15:18] [✓] WARP current egress IP: 104.28.222.47
+[2026-11-15 11:15:21] [✓] ProxyVault export: 300 fresh candidates loaded (best latency: 10ms)
+[2026-11-15 11:15:21] [✓] Residential files loaded: 1094 unique candidates
+[2026-11-15 11:15:21] [*] Total unique combined pool: 1386 candidates
+[2026-11-15 11:15:31] [✓] Pre-verified active fresh proxies: 74
+[2026-11-15 11:15:31] [*] Inspecting 538 connections for provider: glm...
+[2026-11-15 11:15:31] [*] Checking health of existing assigned proxies...
+[2026-11-15 11:15:51] [*] Status existing: Alive=538, Dead/Missing=0
+[2026-11-15 11:15:51] [✓] SYNC COMPLETE: {"success": true, "provider": "glm", "totalConnections": 538, "aliveKept": 538, "replacedFresh": 0, "warpEgressIp": "104.28.222.47", "poolAvailable": 74, "strictlyOneToOne": true, "groupProxyCount": 0}
+{
+  "success": true,
+  "provider": "glm",
+  "totalConnections": 538,
+  "aliveKept": 538,
+  "replacedFresh": 0,
+  "warpEgressIp": "104.28.222.47",
+  "poolAvailable": 74,
+  "strictlyOneToOne": true,
+  "groupProxyCount": 0
+}
+[2026-11-15 11:30:01] [*] Triggering WARP egress rotation...
+[2026-11-15 11:31:18] [✓] WARP rotation stdout: 
+[2026-11-15 11:31:20] [✓] ProxyVault export: 300 fresh candidates loaded (best latency: 10ms)
+[2026-11-15 11:31:20] [✓] Residential files loaded: 1094 unique candidates
+[2026-11-15 11:31:20] [*] Total unique combined pool: 1386 candidates
+[2026-11-15 11:31:32] [✓] Pre-verified active fresh proxies: 79
+[2026-11-15 11:31:32] [*] Inspecting 538 connections for provider: glm...
+[2026-11-15 11:31:32] [*] Checking health of existing assigned proxies...
+[2026-11-15 11:31:56] [*] Status existing: Alive=535, Dead/Missing=3
+[2026-11-15 11:31:56] [✓] SYNC COMPLETE: {"success": true, "provider": "glm", "totalConnections": 538, "aliveKept": 535, "replacedFresh": 3, "warpEgressIp": "127.0.0.1:8118", "poolAvailable": 79, "strictlyOneToOne": true, "groupProxyCount": 0}
+{
+  "success": true,
+  "provider": "glm",
+  "totalConnections": 538,
+  "aliveKept": 535,
+  "replacedFresh": 3,
+  "warpEgressIp": "127.0.0.1:8118",
+  "poolAvailable": 79,
+  "strictlyOneToOne": true,
+  "groupProxyCount": 0
+}

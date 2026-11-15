@@ -1,3 +1,4 @@
+import { isOpencodeFreeModel } from "@/shared/utils/modelTier";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
 import { resolveModelDisplayName } from "@/shared/utils/modelDisplayName";
 
