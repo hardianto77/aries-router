@@ -141,14 +141,14 @@ export async function reconcileAllowedModels({ removed = [], renamed = {} } = {}
   }
 }
 
-{
+export function recordApiKeyUsageInWindow(key, tokens = 0) {
   if (!key) return;
   const now = Date.now();
   if (!rateLimits[key]) rateLimits[key] = [];
   rateLimits[key].push({ ts: now, tokens: tokens || 0 });
 }
 
-{
+export function parsePermissions(permStr) {
   if (!permStr) return { ...DEFAULT_PERMISSIONS };
   if (typeof permStr === "object") return permStr;
   try {
@@ -158,7 +158,7 @@ export async function reconcileAllowedModels({ removed = [], renamed = {} } = {}
   }
 }
 
-{
+export function utcDayKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
