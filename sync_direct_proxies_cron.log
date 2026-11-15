@@ -678,3 +678,47 @@
   "strictlyOneToOne": true,
   "groupProxyCount": 0
 }
+[2026-11-15 14:00:02] [*] Triggering WARP egress rotation...
+[2026-11-15 14:00:20] [✓] WARP rotation stdout: 
+[2026-11-15 14:00:20] [✓] WARP current egress IP: 104.28.222.43
+[2026-11-15 14:00:22] [-] ProxyVault fetch error: HTTP Error 401: Unauthorized
+[2026-11-15 14:00:22] [✓] Residential files loaded: 1094 unique candidates
+[2026-11-15 14:00:22] [*] Total unique combined pool: 1094 candidates
+[2026-11-15 14:00:36] [✓] Pre-verified active fresh proxies: 124
+[2026-11-15 14:00:36] [*] Inspecting 540 connections for provider: glm...
+[2026-11-15 14:00:36] [*] Checking health of existing assigned proxies...
+[2026-11-15 14:01:09] [*] Status existing: Alive=539, Dead/Missing=1
+[2026-11-15 14:01:09] [✓] SYNC COMPLETE: {"success": true, "provider": "glm", "totalConnections": 540, "aliveKept": 539, "replacedFresh": 1, "warpEgressIp": "104.28.222.43", "poolAvailable": 124, "strictlyOneToOne": true, "groupProxyCount": 0}
+{
+  "success": true,
+  "provider": "glm",
+  "totalConnections": 540,
+  "aliveKept": 539,
+  "replacedFresh": 1,
+  "warpEgressIp": "104.28.222.43",
+  "poolAvailable": 124,
+  "strictlyOneToOne": true,
+  "groupProxyCount": 0
+}
+[2026-11-15 14:15:01] [*] Triggering WARP egress rotation...
+[2026-11-15 14:15:02] [✓] WARP rotation stdout: 
+[2026-11-15 14:15:02] [✓] WARP current egress IP: 104.28.222.43
+[2026-11-15 14:15:03] [-] ProxyVault fetch error: HTTP Error 401: Unauthorized
+[2026-11-15 14:15:03] [✓] Residential files loaded: 1094 unique candidates
+[2026-11-15 14:15:03] [*] Total unique combined pool: 1094 candidates
+[2026-11-15 14:15:12] [✓] Pre-verified active fresh proxies: 120
+[2026-11-15 14:15:12] [*] Inspecting 540 connections for provider: glm...
+[2026-11-15 14:15:12] [*] Checking health of existing assigned proxies...
+[2026-11-15 14:15:33] [*] Status existing: Alive=506, Dead/Missing=34
+[2026-11-15 14:15:33] [✓] SYNC COMPLETE: {"success": true, "provider": "glm", "totalConnections": 540, "aliveKept": 506, "replacedFresh": 34, "warpEgressIp": "104.28.222.43", "poolAvailable": 120, "strictlyOneToOne": true, "groupProxyCount": 0}
+{
+  "success": true,
+  "provider": "glm",
+  "totalConnections": 540,
+  "aliveKept": 506,
+  "replacedFresh": 34,
+  "warpEgressIp": "104.28.222.43",
+  "poolAvailable": 120,
+  "strictlyOneToOne": true,
+  "groupProxyCount": 0
+}

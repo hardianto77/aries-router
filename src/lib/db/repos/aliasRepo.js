@@ -5,7 +5,6 @@ import { makeKv } from "../helpers/kvStore.js";
 const aliasKv = makeKv("modelAliases");
 const customKv = makeKv("customModels");
 const mitmKv = makeKv("mitmAlias");
-
 // modelAliases: key=alias, value=modelString
 export async function getModelAliases() {
   return await aliasKv.getAll();
@@ -19,6 +18,7 @@ export async function deleteModelAlias(alias) {
   await aliasKv.remove(alias);
 }
 
+
 // customModels: key=`${providerAlias}|${id}|${type}`, value=full model object
 function customKey(providerAlias, id, type) {
   return `${providerAlias}|${id}|${type}`;
@@ -31,19 +31,42 @@ export async function getCustomModels() {
 
 // Atomic upsert inside transaction to prevent duplicate races.
 // Re-adding an existing model updates caps/name/transport without resetting omitted fields.
-export async function addCustomModel({ providerAlias, id, type = "llm", name, caps, transport }) {
+export async function addCustomModel({ providerAlias, id, type = "llm", name, ownedBy, caps, transport, inputMultiplier, outputMultiplier, antiProbe }) {
   const k = customKey(providerAlias, id, type);
+  const inMult = Number(inputMultiplier) > 0 ? Number(inputMultiplier) : undefined;
+  const outMult = Number(outputMultiplier) > 0 ? Number(outputMultiplier) : undefined;
+  const ap = typeof antiProbe === "boolean" ? antiProbe : undefined;
   const db = await getAdapter();
   let added = false;
   db.transaction(() => {
     const row = db.get(`SELECT value FROM kv WHERE scope = 'customModels' AND key = ?`, [k]);
     if (row) {
       const prev = parseJson(row.value) || {};
-      const next = { ...prev, ...(name ? { name } : {}), ...(caps ? { caps } : {}), ...(transport ? { transport } : {}) };
+      const next = {
+        ...prev,
+        ...(name ? { name } : {}),
+        ...(ownedBy ? { ownedBy } : {}),
+        ...(caps ? { caps } : {}),
+        ...(transport ? { transport } : {}),
+        ...(inMult !== undefined ? { inputMultiplier: inMult } : {}),
+        ...(outMult !== undefined ? { outputMultiplier: outMult } : {}),
+        ...(ap !== undefined ? { antiProbe: ap } : {}),
+      };
       db.run(`UPDATE kv SET value = ? WHERE scope = 'customModels' AND key = ?`, [stringifyJson(next), k]);
       return;
     }
-    const value = stringifyJson({ providerAlias, id, type, name: name || id, ...(caps ? { caps } : {}), ...(transport ? { transport } : {}) });
+    const value = stringifyJson({
+      providerAlias,
+      id,
+      type,
+      name: name || id,
+      ...(ownedBy ? { ownedBy } : {}),
+      ...(caps ? { caps } : {}),
+      ...(transport ? { transport } : {}),
+      ...(inMult !== undefined ? { inputMultiplier: inMult } : {}),
+      ...(outMult !== undefined ? { outputMultiplier: outMult } : {}),
+      ...(ap !== undefined ? { antiProbe: ap } : {}),
+    });
     db.run(`INSERT INTO kv(scope, key, value) VALUES('customModels', ?, ?)`, [k, value]);
     added = true;
   });

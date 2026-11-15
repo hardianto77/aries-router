@@ -205,3 +205,4 @@ export * from "./importJobs.js";
 export * from "./importJobAuth.js";
 export * from "./compat.js";
 
+export { applyModelChangesToAllowList } from "./repos/allowedModels.js";

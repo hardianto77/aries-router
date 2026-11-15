@@ -86,24 +86,7 @@ export async function deleteApiKey(id) {
 // the /v1/models listing reads these through getAllowedModelsOfKey.
 
 // Pattern language shared with usage dashboards (import from here).
-export function parseAllowedModels(value) {
-  const raw = String(value ?? "" ).trim();
-  if (!raw || raw === "*") return null;
-  const patterns = raw.split(",").map((m) => m.trim().toLowerCase()).filter(Boolean);
-  return patterns.length ? patterns : null;
-}
 
-export function matchesAllowedModels(patterns, requestedModel) {
-  if (!patterns) return true;
-  const req = String(requestedModel || "").trim().toLowerCase();
-  if (!req) return false;
-  return patterns.some((allowed) => {
-    if (allowed === "*" || allowed === req) return true;
-    if (allowed.endsWith("*")) return req.startsWith(allowed.slice(0, -1));
-    if (allowed.startsWith("*")) return req.endsWith(allowed.slice(1));
-    return false;
-  });
-}
 
 export async function getAllowedModelsOfKey(key) {
   const raw = typeof key === "string" ? key.trim() : "";
