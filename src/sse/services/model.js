@@ -136,6 +136,8 @@ export async function getComboModels(modelStr) {
 
   const combo = await getComboByName(modelStr);
   if (combo && combo.models && combo.models.length > 0) {
+    if (Array.isArray(combo.models)) return combo.models;
+    if (typeof combo.models === "string") return combo.models.split(",").map((s) => s.trim()).filter(Boolean);
     return combo.models;
   }
   return null;
