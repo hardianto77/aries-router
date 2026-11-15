@@ -3,7 +3,7 @@ import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
 
-import { matchesAllowedModels as matchesModelPatterns, parseAllowedModels } from "./apiKeysRepo.js";
+import { matchesAllowedModels as matchesModelPatterns, parseAllowedModels } from "./allowedModels.js";
 
 function maskApiKey(key) {
   if (!key || typeof key !== "string") return null;
