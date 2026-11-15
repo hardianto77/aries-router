@@ -3,13 +3,6 @@ import { getAdapter } from "./driver.js";
 import { stringifyJson, parseJson } from "./helpers/jsonCol.js";
 import { createProxyPool, deleteProxyPool } from "./repos/proxyPoolsRepo.js";
 
-export async function createProxyPools(list) {
-  const out = [];
-  for (const item of Array.isArray(list) ? list : [list]) {
-    out.push(await createProxyPool(item));
-  }
-  return out;
-}
 
 export async function deleteProxyPoolsCompat(ids) {
   const out = [];
