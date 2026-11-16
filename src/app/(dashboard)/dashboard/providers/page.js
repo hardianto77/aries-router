@@ -510,7 +510,9 @@ export default function ProvidersPage() {
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-text-muted">
           <span className="material-symbols-outlined text-[16px] text-emerald-500">check_circle</span>
           <span>
-            Pool <b>{pvSyncInfo.poolAdded}</b> egress &middot; Residential <b>{pvSyncInfo.resiAlive}/{pvSyncInfo.resiTotal}</b> &middot; <b>{pvSyncInfo.rotatedProviders}</b> accounts rotated &middot; WARP {pvSyncInfo.warpOk ? "OK" : "rotating"}
+            {pvSyncInfo.mode === "warp"
+              ? <>WARP egress <b>{pvSyncInfo.warpOk ? "healthy" : "rotating"}</b> &middot; proxy pool untouched</>
+              : <>Pool <b>{pvSyncInfo.poolAdded}</b> egress &middot; Residential <b>{pvSyncInfo.resiAlive}/{pvSyncInfo.resiTotal}</b> &middot; <b>{pvSyncInfo.rotatedProviders}</b> accounts rotated</>}
           </span>
         </div>
       )}

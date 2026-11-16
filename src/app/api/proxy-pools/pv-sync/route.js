@@ -13,10 +13,13 @@ export async function POST(request) {
     let body = {};
     try { body = await request.json(); } catch {}
     const force = body.force !== false ? ["--force"] : [];
+    // mode: "proxy" (default, ProxyVault+residential pool) | "warp" (WARP rotate only) | "both"
+    const mode = String(body.mode || "proxy").toLowerCase();
+    const modeArgs = mode === "warp" ? ["--skip-proxy"] : mode === "both" ? [] : ["--skip-warp"];
     const log = await new Promise((resolve, reject) => {
       execFile(
         "python3",
-        ["/opt/aries-router/scripts/pv_pool_sync.py", ...force],
+        ["/opt/aries-router/scripts/pv_pool_sync.py", ...modeArgs, ...force],
         { timeout: 150000, maxBuffer: 10 * 1024 * 1024 },
         (err, stdout, stderr) => {
           if (err && !stdout) return reject(err);
@@ -36,6 +39,7 @@ export async function POST(request) {
     const skipped = /skip/.test(log) && healthy === 0;
     return NextResponse.json({
       success: true,
+      mode,
       poolAdded: healthy,
       resiAlive,
       resiTotal,

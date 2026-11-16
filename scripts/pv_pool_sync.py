@@ -74,6 +74,8 @@ def stable_idx(key, n):
     return int(hashlib.md5(key.encode()).hexdigest(), 16) % n
 
 def main():
+    skip_warp = "--skip-warp" in sys.argv
+    skip_proxy = "--skip-proxy" in sys.argv
     _con0 = sqlite3.connect(DB, timeout=10)
     _n0 = _con0.execute("select count(*) from providerConnections").fetchone()[0]
     _con0.close()
@@ -81,29 +83,36 @@ def main():
         print(f"[GUARD] providerConnections={_n0} (>150k) - indikasi banjir import, sync di-skip. Cek DB!")
         sys.exit(1)
     t = now()
-    cands = pv_candidates()
-    # residential fresh: ~/resi-fresh-alive.txt (klasifikasi ip-api, hosting=false)
-    try:
-        resi = [l.strip().split()[0] for l in open("/home/ubuntu/resi-fresh-alive.txt")
-                if l.strip().startswith("http")]
-    except Exception:
-        resi = []
-    for u in resi:
-        if u not in cands: cands.insert(0, u)
-    print(f"[PV] candidates: {len(cands)} (resi: {len(resi)})")
-    alive = healthy_pool(cands)
-    print(f"[PV] healthy: {len(alive)}")
-    warp_ok = warp_alive()
-    if not warp_ok:
-        warp_ok = warp_fix()
-    print(f"[WARP] alive: {warp_ok}")
+    alive, resi, resi_alive = [], [], []
+    if not skip_proxy:
+        cands = pv_candidates()
+        # residential fresh: ~/resi-fresh-alive.txt (klasifikasi ip-api, hosting=false)
+        try:
+            resi = [l.strip().split()[0] for l in open("/home/ubuntu/resi-fresh-alive.txt")
+                    if l.strip().startswith("http")]
+        except Exception:
+            resi = []
+        for u in resi:
+            if u not in cands: cands.insert(0, u)
+        print(f"[PV] candidates: {len(cands)} (resi: {len(resi)})")
+        alive = healthy_pool(cands)
+        print(f"[PV] healthy: {len(alive)}")
+        alive_set = set(alive)
+        resi_alive = [u for u in resi if u in alive_set]
+        print(f"[resi] sehat: {len(resi_alive)}/{len(resi)}")
 
-    if not alive and not warp_ok:
-        print("[ABORT] tidak ada egress hidup"); sys.exit(1)
+    warp_ok = None
+    if not skip_warp:
+        warp_ok = warp_alive()
+        if not warp_ok:
+            warp_ok = warp_fix()
+        print(f"[WARP] alive: {warp_ok}")
 
-    alive_set = set(alive)
-    resi_alive = [u for u in resi if u in alive_set]
-    print(f"[resi] sehat: {len(resi_alive)}/{len(resi)}")
+    if not skip_proxy and not alive and (warp_ok is None or not warp_ok):
+        print("[ABORT] no healthy egress"); sys.exit(1)
+    if skip_proxy and (warp_ok is None or not warp_ok):
+        print("[ABORT] WARP not alive after rotate"); sys.exit(1)
+
     urls = ([WARP_URL] if warp_ok else []) + alive[:TOP_N]
     print(f"[pool] total egress sehat: {len(urls)}")
 
@@ -144,6 +153,13 @@ def main():
 
     # 4. assignment ke SEMUA akun provider aktif — SQL-side json_set, stable hash per akun
     urls_js = json.dumps(urls)
+    if skip_proxy:
+        # WARP-only mode: refresh pv_pool.json for live failover, do NOT touch per-connection proxy binding
+        con.close()
+        json.dump({"urls": urls, "ts": t}, open("/home/ubuntu/.aries-router/pv_pool.json","w"))
+        open(sigfile, "w").write(sig)
+        print("[failover] pv_pool.json updated (warp-only, no per-account rotation)")
+        return
     n = len(urls)
     # CASE expr: rowid % n -> url & poolId
     url_cases = " ".join(f"when {i} then json_quote('{u}')" for i, u in enumerate(urls))

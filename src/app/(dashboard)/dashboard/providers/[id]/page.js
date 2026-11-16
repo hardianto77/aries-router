@@ -1039,31 +1039,33 @@ export default function ProviderDetailPage() {
     });
   };
 
-  const handleSyncDirectProxy = async () => {
+  const runPvSync = async (mode) => {
     if (pvDirectSyncing) return;
-    setPvDirectSyncing(true);
-    setPvSyncStatusMsg("Sinkronisasi ProxyVault, Residensial Fresh & WARP Egress...");
+    setPvDirectSyncing(mode);
+    setPvSyncStatusMsg(mode === "warp" ? "Checking WARP egress health..." : "Testing & refreshing proxy pool...");
     try {
       const res = await fetch("/api/proxy-pools/pv-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: providerId || "",
-          rotateWarp: true,
+          mode,
           allRotate: false,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        setPvSyncStatusMsg(`Sync OK: ${data.poolAdded} egress sehat (residential ${data.resiAlive}/${data.resiTotal}) | ${data.rotatedProviders} akun ter-assign | WARP ${data.warpOk ? "OK" : "rotating"}`);
-        await fetchConnections();
+        setPvSyncStatusMsg(mode === "warp"
+          ? `WARP rotate OK: egress ${data.warpOk ? "healthy" : "still rotating"}`
+          : `Proxy pool sync OK: ${data.poolAdded} healthy egress (residential ${data.resiAlive}/${data.resiTotal}) | ${data.rotatedProviders} accounts rotated`);
+        if (mode !== "warp") await fetchConnections();
       } else {
-        setPvSyncStatusMsg(`Gagal: ${data.error || "Gagal sinkronisasi"}`);
+        setPvSyncStatusMsg(`Failed: ${data.error || "Sync failed"}`);
       }
     } catch (err) {
       setPvSyncStatusMsg(`Error: ${String(err?.message || err).slice(0, 120)}`);
     } finally {
-      setPvDirectSyncing(false);
+      setPvDirectSyncing(null);
       setTimeout(() => setPvSyncStatusMsg(null), 8000);
     }
   };
@@ -2004,16 +2006,30 @@ export default function ProviderDetailPage() {
             <h2 className="text-lg font-semibold">Connections</h2>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
               {connections.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  icon="refresh"
-                  onClick={handleSyncDirectProxy}
-                  disabled={pvDirectSyncing}
-                  className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-                >
-                  {pvDirectSyncing ? "Syncing PV & WARP Fresh..." : "Sync PV & WARP Fresh"}
-                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    icon="lan"
+                    onClick={() => runPvSync("proxy")}
+                    disabled={!!pvDirectSyncing}
+                    className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/20"
+                    title="Test & refresh ProxyVault + residential egress pool, then rotate per-account proxy binding"
+                  >
+                    {pvDirectSyncing === "proxy" ? "Syncing Proxy Pool..." : "Sync Proxy Pool"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    icon="cloud_sync"
+                    onClick={() => runPvSync("warp")}
+                    disabled={!!pvDirectSyncing}
+                    className="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/20"
+                    title="Check WARP egress health and rotate the WARP identity if it is dead (no proxy pool changes)"
+                  >
+                    {pvDirectSyncing === "warp" ? "Rotating WARP..." : "Rotate WARP"}
+                  </Button>
+                </div>
               )}
               {connections.length > 0 && proxyPools.length > 0 && (
                 <Button
