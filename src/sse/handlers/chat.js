@@ -22,7 +22,7 @@ import { handleComboChat, handleFusionChat, detectRequiredCapabilities } from "o
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
-import { OPENCODE_FALLBACK_BUDGET_MS, GENERIC_FALLBACK_BUDGET_MS } from "open-sse/config/errorConfig.js";
+import { OPENCODE_FALLBACK_BUDGET_MS, GENERIC_FALLBACK_BUDGET_MS, ANTIGRAVITY_FALLBACK_BUDGET_MS } from "open-sse/config/errorConfig.js";
 import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
@@ -399,7 +399,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   // aborts (probe budget spent, user cancelled), every proxy is answering the
   // same spent-quota 429 and more attempts cannot help, so stop instead of
   // burning the pool dry past the caller's deadline.
-  const fallbackDeadlineMs = Date.now() + (provider === "opencode" ? OPENCODE_FALLBACK_BUDGET_MS : GENERIC_FALLBACK_BUDGET_MS);
+  const fallbackDeadlineMs = Date.now() + (provider === "opencode" ? OPENCODE_FALLBACK_BUDGET_MS : provider === "antigravity" ? ANTIGRAVITY_FALLBACK_BUDGET_MS : GENERIC_FALLBACK_BUDGET_MS);
 
   while (true) {
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model });

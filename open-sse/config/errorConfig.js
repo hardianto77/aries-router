@@ -57,6 +57,9 @@ export const OPENCODE_FALLBACK_BUDGET_MS = 100 * 1000;
 /** Other providers never rotate sessions, so the generic loop stays short. */
 export const GENERIC_FALLBACK_BUDGET_MS = 25 * 1000;
 
+/** Antigravity rate limits are per-account/minute; rotating 8-9 accounts needs a longer window. */
+export const ANTIGRAVITY_FALLBACK_BUDGET_MS = 120 * 1000;
+
 // Cooldown durations (ms)
 const COOLDOWN = {
   long: 2 * 60 * 1000,
