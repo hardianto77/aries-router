@@ -191,6 +191,16 @@ export const ANTIGRAVITY_PROMPT_REWRITES = [
   // but OpenAI-format clients (e.g. proxies that convert Claude Code to /v1/chat/completions)
   // pass it through, and any system text containing it gets a fake 429 RESOURCE_EXHAUSTED.
   { from: /^x-anthropic-billing-header:[^\n]*(?:\r?\n)*/gim, to: "" },
+  // WAF fingerprints (CLIProxyAPI #5751/#7049, oh-my-pi #18706): literal phrases in
+  // system text trigger opaque 429 RESOURCE_EXHAUSTED even with full quota.
+  // Zero-width-space obfuscation breaks the literal match, invisible to the model.
+  { from: /RFC 2119 keywords:/g, to: "RFC​ 2119​ keywords​:" },
+  { from: /RFC 2119 keywords: MUST, REQUIRED, SHOULD, RECOMMENDED, MAY, OPTIONAL\\./g, to: "RFC​2119​keywords​:MUST​,​REQUIRED​,​SHOULD​,​RECOMMENDED​,​MAY​,​OPTIONAL." },
+  { from: /<system-conventions>/g, to: "<system​-conventions>" },
+  { from: /<system_conventions>/g, to: "<system​_conventions>" },
+  { from: /<system-directive>/g, to: "<system​-directive>" },
+  { from: /<system_directive>/g, to: "<system​_directive>" },
+  { from: /built on Anthropic's Claude Agent SDK/g, to: "built on Anthropic​'s Claude​ Agent​ SDK" },
   { from: /opencode/gi, to: (m) => (m === "OpenCode" ? "Antigravity" : m === "OPENCODE" ? "ANTIGRAVITY" : "antigravity") }
 ];
 

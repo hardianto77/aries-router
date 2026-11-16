@@ -303,7 +303,9 @@ export class AntigravityExecutor extends BaseExecutor {
       for (const part of requestWithoutTools.systemInstruction.parts) {
         if (typeof part.text !== "string") continue;
         for (const { from, to } of ANTIGRAVITY_PROMPT_REWRITES) {
+          const before = part.text;
           part.text = part.text.replaceAll(from, to);
+          if (before !== part.text) console.log("[WAF-SCRUB] applied", String(from).slice(0,60), "->", JSON.stringify(part.text.slice(0,120)));
         }
       }
     }
