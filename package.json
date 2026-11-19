@@ -53,7 +53,7 @@
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.6.1",
     "recharts": "^3.7.0",
-    "sharp": "^0.33.5",
+    "sharp": "^0.35.5",
     "socks-proxy-agent": "^8.0.5",
     "sql.js": "^1.14.1",
     "undici": "^7.19.2",
