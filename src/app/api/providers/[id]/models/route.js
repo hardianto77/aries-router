@@ -269,7 +269,7 @@ const PROVIDER_MODELS_CONFIG = {
           const models = raw
             .map((item) => {
               const id = item?.id || item?.model || item?.name;
-              if (!id || id.endsWith("-disabled")) return null;
+              if (!id || id.endsWith("-disabled") || item?.disabled === true) return null;
               return { id, name: item?.displayName || item?.name || id };
             })
             .filter(Boolean);
