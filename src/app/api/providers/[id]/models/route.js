@@ -239,13 +239,49 @@ const PROVIDER_MODELS_CONFIG = {
     })
   },
   antigravity: {
-    url: "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:models",
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    authHeader: "Authorization",
-    authPrefix: "Bearer ",
-    body: {},
-    parseResponse: (data) => data.models || []
+    customResolver: async (connection) => {
+      // Live per-account catalog: fetchAvailableModels returns the model set
+      // the connected account's plan (free / standard g1-pro / ultra) is
+      // actually entitled to, instead of a hardcoded static list.
+      const AG_FETCH_MODELS_URL = "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
+      const AG_UA = "antigravity/cli/1.4.5 (aidev_client; os_type=linux; arch=x64; auth_method=consumer)";
+      let token = connection.accessToken;
+      if (!token) {
+        return { models: getStaticProviderModels("antigravity"), warning: "No access token on connection; static catalog." };
+      }
+      try {
+        const projectId = connection.projectId || connection.providerSpecificData?.projectId;
+        const res = await fetch(AG_FETCH_MODELS_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+            "User-Agent": AG_UA,
+            "X-Client-Name": "antigravity",
+            "X-Client-Version": "1.4.5",
+          },
+          body: JSON.stringify(projectId ? { project: projectId } : {}),
+          signal: AbortSignal.timeout(MODELS_TIMEOUT_MS),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const raw = Array.isArray(data?.models) ? data.models : (data?.models && typeof data.models === "object" ? Object.entries(data.models).filter(([, i]) => !i?.isInternal).map(([id, i]) => ({ id, ...i })) : []);
+          const models = raw
+            .map((item) => {
+              const id = item?.id || item?.model || item?.name;
+              if (!id || id.endsWith("-disabled")) return null;
+              return { id, name: item?.displayName || item?.name || id };
+            })
+            .filter(Boolean);
+          if (models.length > 0) return { models };
+          return { models: getStaticProviderModels("antigravity"), warning: "Upstream returned no models; static catalog." };
+        }
+        return { models: getStaticProviderModels("antigravity"), warning: `Upstream ${res.status}; static catalog.` };
+      } catch (error) {
+        console.log("antigravity live model fetch failed, static fallback:", error?.message);
+        return { models: getStaticProviderModels("antigravity"), warning: "Live fetch failed; static catalog." };
+      }
+    },
   },
   github: {
     url: "https://api.githubcopilot.com/models",

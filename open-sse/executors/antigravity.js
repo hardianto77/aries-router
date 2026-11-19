@@ -8,6 +8,121 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { cleanJSONSchemaForAntigravity, normalizeGeminiContents } from "../translator/formats/gemini.js";
 import { DEFAULT_THINKING_AG_SIGNATURE } from "../config/defaultThinkingSignature.js";
 import { getGeminiThoughtSignatureSync } from "../services/thoughtSignatureStore.js";
+import { cloakUser, outgoing } from "../services/antigravityPromptCloak.js";
+import { executeViaAgyCli, resolveAgyTransport } from "./agyCliExecutor.js";
+import { refusedPromptHint } from "./antigravityUpstreamError.js";
+
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+const acpQuotaExhaustedMap = new Map();
+
+export function markConnectionQuotaExhausted(connectionId, cooldownMs, modelId = "") {
+  if (!connectionId || !Number.isFinite(cooldownMs) || cooldownMs <= 0) return;
+  const untilMs = Date.now() + cooldownMs;
+  const key = `${connectionId}|${modelId || "*"}`;
+  acpQuotaExhaustedMap.set(key, untilMs);
+}
+
+export function getConnectionQuotaExhaustedUntil(connectionId, modelId = "") {
+  const key = `${connectionId}|${modelId || "*"}`;
+  const untilMs = acpQuotaExhaustedMap.get(key);
+  if (!untilMs) return null;
+  if (untilMs <= Date.now()) {
+    acpQuotaExhaustedMap.delete(key);
+    return null;
+  }
+  return untilMs;
+}
+
+function readSystemPromptText(requestOrBody) {
+  const record = asRecord(requestOrBody);
+  const request = asRecord(record?.request) || record;
+  const systemInstruction = asRecord(request?.systemInstruction);
+  if (!Array.isArray(systemInstruction?.parts)) return undefined;
+  const text = systemInstruction.parts
+    .map((part) => (asRecord(part) && typeof part.text === "string" ? part.text : ""))
+    .filter(Boolean)
+    .join("\n");
+  return text || undefined;
+}
+
+/**
+ * Full cloak.mjs parity over systemInstruction parts: strips legacy standalone
+ * Claude Agent SDK sentence and rewords every TURNED_AWAY signature + REWORDED
+ * paragraph via `outgoing()`, without mutating the caller's object.
+ */
+export function normalizeAntigravitySystemInstruction(systemInstruction) {
+  const record = asRecord(systemInstruction);
+  if (!record || !Array.isArray(record.parts)) return systemInstruction;
+
+  let changed = false;
+  const nextParts = [];
+  for (const part of record.parts) {
+    const p = asRecord(part);
+    if (!p) {
+      nextParts.push(part);
+      continue;
+    }
+    if (Object.keys(p).length === 0) {
+      changed = true;
+      continue;
+    }
+    if (typeof p.text !== "string") {
+      nextParts.push(part);
+      continue;
+    }
+    let text = p.text;
+    const stripped = text.replace(
+      /You are a Claude agent,\s*built on Anthropic's Claude Agent SDK\.\s*/gi,
+      ""
+    );
+    if (stripped !== text) {
+      changed = true;
+      text = stripped;
+    }
+    const cloaked = outgoing(text);
+    if (cloaked !== text) {
+      changed = true;
+      text = cloaked;
+    }
+    if (text === "" && Object.keys(p).length === 1) {
+      changed = true;
+      continue;
+    }
+    nextParts.push(text === p.text ? part : { ...p, text });
+  }
+
+  if (nextParts.length === 0) return undefined;
+  return changed ? { ...record, parts: nextParts } : systemInstruction;
+}
+
+/**
+ * cloakUser over the string text parts of a request's `contents` (cloak.mjs
+ * USER_TURNED_AWAY). Non-mutating; returns original reference when clean.
+ */
+export function cloakAntigravityUserContents(contents) {
+  if (!Array.isArray(contents)) return contents;
+  let changed = false;
+  const next = contents.map((content) => {
+    const record = asRecord(content);
+    if (!record || !Array.isArray(record.parts)) return content;
+    let partsChanged = false;
+    const parts = record.parts.map((part) => {
+      const p = asRecord(part);
+      if (!p || typeof p.text !== "string" || p.text.length === 0) return part;
+      const cloaked = cloakUser(p.text);
+      if (cloaked === p.text) return part;
+      partsChanged = true;
+      return { ...p, text: cloaked };
+    });
+    if (!partsChanged) return content;
+    changed = true;
+    return { ...record, parts };
+  });
+  return changed ? next : contents;
+}
 
 // Sanitize function name: Gemini requires [a-zA-Z_][a-zA-Z0-9_.:\-]{0,63}
 function sanitizeFunctionName(name) {
@@ -116,11 +231,27 @@ export class AntigravityExecutor extends BaseExecutor {
   }
 
   // Parse Antigravity quota error to extract precise resetsAtMs from ErrorInfo/RetryInfo
+  // 403 (e.g. Google UberProxy HTML block page) is account/edge-level and
+  // identical across all Antigravity mirror hosts - cycling the 3 sandbox
+  // mirrors only adds ~90s of pointless retries. Veto fallback on 403.
+  shouldRetry(status, urlIndex) {
+    if (status === 403) return false;
+    return status === HTTP_STATUS.RATE_LIMITED && urlIndex + 1 < this.getFallbackCount();
+  }
+
   parseError(response, bodyText) {
     if ((response.status === 429 || response.status === 409) && bodyText) {
       try {
         const json = JSON.parse(bodyText);
         const err = json?.error;
+        const rawMsg = typeof err?.message === "string" ? err.message : bodyText;
+        const hintSuffix = refusedPromptHint(
+          response.status,
+          this._lastRawSystemPrompt,
+          typeof err?.message === "string" ? err.message : null,
+          bodyText
+        );
+        const message = `${rawMsg}${hintSuffix}`;
         let resetsAtMs = null;
         const details = Array.isArray(err?.details) ? err.details : [];
         for (const d of details) {
@@ -143,9 +274,21 @@ export class AntigravityExecutor extends BaseExecutor {
           }
         }
         if (resetsAtMs) {
-          return { status: response.status, message: err?.message || bodyText, resetsAtMs };
+          return { status: response.status, message, resetsAtMs };
+        }
+        if (hintSuffix) {
+          return { status: response.status, message };
         }
       } catch { /* fall through to default */ }
+    }
+    // Google edge (UberProxy) block page: raw HTML is useless to clients -
+    // surface a clean, actionable message instead of a 14KB HTML blob.
+    if (response.status === 403 && typeof bodyText === "string" && bodyText.includes("UberProxy") || bodyText.includes("&Uuml;berProxy") || bodyText.includes("berProxy: Error 403")) {
+      return {
+        status: 403,
+        message: "Google edge blocked this account/IP (UberProxy 403). Wait, switch egress IP/proxy, or re-auth the account.",
+        code: "UPSTREAM_BLOCKED",
+      };
     }
     return super.parseError(response, bodyText);
   }
@@ -267,7 +410,7 @@ export class AntigravityExecutor extends BaseExecutor {
         parts: modifiedParts || parts || [],
       };
     });
-    const contents = normalizeGeminiContents(rawContents, model);
+    const contents = cloakAntigravityUserContents(normalizeGeminiContents(rawContents, model));
 
     // Sanitize tool schemas and function names before sending to Antigravity.
     let tools = body.request?.tools;
@@ -296,23 +439,42 @@ export class AntigravityExecutor extends BaseExecutor {
     // Strip tools/toolConfig (handled separately) and blacklisted fields that Google rejects
     const { tools: _originalTools, toolConfig: _originalToolConfig, ...requestWithoutTools } = body.request || {};
     stripBlacklisted(requestWithoutTools);
-    
-    // Rewrite competing-client branding in system prompts (e.g. Zed's Claude prompt,
-    // OpenCode naming) so Antigravity doesn't flag the request with a 429 Quota Exhausted.
-    if (requestWithoutTools.systemInstruction?.parts) {
-      for (const part of requestWithoutTools.systemInstruction.parts) {
-        if (typeof part.text !== "string") continue;
-        for (const { from, to } of ANTIGRAVITY_PROMPT_REWRITES) {
-          const before = part.text;
-          part.text = part.text.replaceAll(from, to);
-          if (before !== part.text) console.log("[WAF-SCRUB] applied", String(from).slice(0,60), "->", JSON.stringify(part.text.slice(0,120)));
-        }
+
+    // Cache pre-cloaked system prompt for bare-429 refused-prompt diagnostics,
+    // then apply full cloak.mjs parity (`outgoing()`) without mutating input.
+    this._lastRawSystemPrompt = readSystemPromptText(requestWithoutTools);
+    if (requestWithoutTools.systemInstruction !== undefined) {
+      const normalizedSystem = normalizeAntigravitySystemInstruction(requestWithoutTools.systemInstruction);
+      if (normalizedSystem === undefined) {
+        delete requestWithoutTools.systemInstruction;
+      } else {
+        requestWithoutTools.systemInstruction = normalizedSystem;
       }
     }
 
+    const isClaude = String(model || "").toLowerCase().includes("claude");
     const generationConfig = { ...(requestWithoutTools.generationConfig || {}) };
-    if (generationConfig.maxOutputTokens > MAX_ANTIGRAVITY_OUTPUT_TOKENS) {
-      generationConfig.maxOutputTokens = MAX_ANTIGRAVITY_OUTPUT_TOKENS;
+    const maxTokensCap = isClaude ? 64000 : 65536;
+    if (!generationConfig.maxOutputTokens || generationConfig.maxOutputTokens > maxTokensCap) {
+      generationConfig.maxOutputTokens = maxTokensCap;
+    }
+
+    // Antigravity reasoning effort mapping: translate client reasoning_effort to thinkingConfig budget
+    const rawEffort = body.reasoning_effort || body.request?.reasoning_effort;
+    if (rawEffort && typeof rawEffort === "string") {
+      const budgetMap = { low: 1024, medium: 4096, high: 16384 };
+      const budget = budgetMap[rawEffort.toLowerCase()] || 4096;
+      generationConfig.thinkingConfig = {
+        thinkingBudget: budget
+      };
+    }
+
+    // Claude path: ensure maxOutputTokens is strictly greater than thinkingBudget
+    if (isClaude && generationConfig.thinkingConfig?.thinkingBudget > 0) {
+      const budget = generationConfig.thinkingConfig.thinkingBudget;
+      if (generationConfig.maxOutputTokens <= budget) {
+        generationConfig.maxOutputTokens = Math.min(64000, budget + 2048);
+      }
     }
 
     const transformedRequest = {
@@ -348,8 +510,35 @@ export class AntigravityExecutor extends BaseExecutor {
     };
   }
 
+  needsRefresh(credentials) {
+    if (resolveAgyTransport(credentials) === "acp") return false;
+    return super.needsRefresh(credentials);
+  }
+
+  async execute(input) {
+    // The ACP transport is opt-in and off by default, so HTTP is unchanged for
+    // every connection that has not asked for it (see agyCliExecutor.js).
+    if (!isImageModel(input.model) && resolveAgyTransport(input.credentials) === "acp") {
+      const { response, url } = await executeViaAgyCli({
+        model: input.model,
+        body: input.body,
+        stream: input.stream,
+        credentials: input.credentials,
+        signal: input.signal,
+      });
+      return {
+        response,
+        url,
+        headers: {},
+        transformedBody: input.body,
+        transport: "agy-cli",
+      };
+    }
+    return super.execute(input);
+  }
+
   async refreshCredentials(credentials, log, proxyOptions = null) {
-    if (!credentials.refreshToken) return null;
+    if (resolveAgyTransport(credentials) === "acp" || !credentials?.refreshToken) return null;
 
     try {
       const response = await proxyAwareFetch(OAUTH_ENDPOINTS.google.token, {

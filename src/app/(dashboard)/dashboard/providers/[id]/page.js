@@ -115,6 +115,9 @@ export default function ProviderDetailPage() {
   const stopOneByOneRef = useRef(false);
   const [importingQoderModels, setImportingQoderModels] = useState(false);
   const [importingClineModels, setImportingClineModels] = useState(false);
+  const [importingProviderModels, setImportingProviderModels] = useState(false);
+  const [importingUpstreamModels, setImportingUpstreamModels] = useState(false);
+  const [importingConnectionId, setImportingConnectionId] = useState(null);
   const { copied, copy } = useCopyToClipboard();
 
   // The hammer on the OpenCode Free header flips the lane the executor uses.
@@ -809,6 +812,150 @@ export default function ProviderDetailPage() {
     useTaskStore.getState().finish(taskId);
   };
 
+  // Bulk import provider catalog / suggested models
+  const handleImportProviderModels = async () => {
+    if (importingProviderModels) return;
+    const taskId = `import-provider-models-${Date.now()}`;
+    setImportingProviderModels(true);
+    startImportTask(taskId, `Importing ${providerInfo?.name || providerId} catalog models`);
+
+    try {
+      const addedFullModels = new Set([
+        ...Object.values(modelAliases),
+        ...customModels
+          .filter((m) => m.providerAlias === providerStorageAlias)
+          .map((m) => `${providerStorageAlias}/${m.id}`),
+      ]);
+      const combined = [
+        ...suggestedModels,
+        ...models.map((m) => ({ id: m.id, name: m.name || m.id, isFree: m.isFree })),
+        ...kiloFreeModels.map((m) => ({ id: m.id, name: m.name || m.id, isFree: true })),
+      ];
+      const seen = new Set();
+      const uniqueToImport = [];
+      for (const m of combined) {
+        if (!m?.id || seen.has(m.id)) continue;
+        seen.add(m.id);
+        const cleanId = m.id.replace(new RegExp(`^${providerStorageAlias}/`), "");
+        if (addedFullModels.has(`${providerStorageAlias}/${cleanId}`) || addedFullModels.has(cleanId)) {
+          continue;
+        }
+        uniqueToImport.push({ ...m, cleanId });
+      }
+
+      if (uniqueToImport.length === 0) {
+        alert("All provider catalog models already imported.");
+        finishImportTask(taskId, "All provider catalog models already exist");
+        return;
+      }
+
+      useTaskStore.getState().update(taskId, {
+        message: `Importing ${uniqueToImport.length} models...`,
+        progress: 0,
+      });
+
+      let importedCount = 0;
+      for (let i = 0; i < uniqueToImport.length; i++) {
+        const item = uniqueToImport[i];
+        useTaskStore.getState().update(taskId, {
+          message: `Adding ${item.cleanId} (${i + 1}/${uniqueToImport.length})...`,
+          progress: Math.round(((i + 1) / uniqueToImport.length) * 100),
+        });
+        await handleAddCustomModel(item.cleanId, "llm", providerStorageAlias);
+        if (disabledModelIds.includes(item.cleanId)) {
+          await handleEnableModel(item.cleanId);
+        }
+        importedCount++;
+      }
+
+      finishImportTask(taskId, `Imported ${importedCount} provider models`);
+    } catch (err) {
+      console.log("Error importing provider models:", err);
+      finishImportTask(taskId, "Import failed");
+    } finally {
+      setImportingProviderModels(false);
+    }
+  };
+
+  // Bulk import upstream models discovered from active account connection
+  const handleImportUpstreamModels = async (targetConnId = null) => {
+    if (importingUpstreamModels) return;
+    const targetConnection = targetConnId
+      ? connections.find((c) => c.id === targetConnId)
+      : connections.find((conn) => conn.isActive !== false) || connections[0];
+
+    if (!targetConnection) {
+      alert("Please add an active connection first to import upstream models.");
+      return;
+    }
+
+    const taskId = `import-upstream-models-${Date.now()}`;
+    setImportingUpstreamModels(true);
+    if (targetConnId) setImportingConnectionId(targetConnId);
+    startImportTask(taskId, `Importing upstream models (${targetConnection.name || targetConnection.email || targetConnection.id})`);
+
+    try {
+      const res = await fetch(`/api/providers/${targetConnection.id}/models`);
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.error || "Failed to fetch upstream models";
+        alert(msg);
+        finishImportTask(taskId, msg);
+        return;
+      }
+
+      const rawModels = data.models || [];
+      if (rawModels.length === 0) {
+        alert("No upstream models returned from the account.");
+        finishImportTask(taskId, "No upstream models returned");
+        return;
+      }
+
+      useTaskStore.getState().update(taskId, {
+        message: `Discovered ${rawModels.length} models, checking...`,
+        progress: 0,
+      });
+
+      let importedCount = 0;
+      for (const [index, model] of rawModels.entries()) {
+        const rawModelId = model.id || model.name || model.model;
+        if (!rawModelId) continue;
+
+        useTaskStore.getState().update(taskId, {
+          message: `Checking ${rawModelId} (${index + 1}/${rawModels.length})...`,
+          progress: Math.round(((index + 1) / rawModels.length) * 100),
+        });
+
+        const cleanModelId = rawModelId
+          .replace(new RegExp(`^(${providerStorageAlias}|${providerId}|qoder-cn|qoder)/`), "");
+
+        const alreadyExists = customModels.some(
+          (entry) => entry.providerAlias === providerStorageAlias && entry.id === cleanModelId && (entry.kind || entry.type || "llm") === "llm"
+        ) || Object.values(modelAliases).includes(`${providerStorageAlias}/${cleanModelId}`);
+
+        if (alreadyExists) continue;
+
+        await handleAddCustomModel(cleanModelId, "llm", providerStorageAlias);
+        if (disabledModelIds.includes(cleanModelId)) {
+          await handleEnableModel(cleanModelId);
+        }
+        importedCount += 1;
+      }
+
+      if (importedCount === 0) {
+        finishImportTask(taskId, "All upstream models already exist");
+      } else {
+        finishImportTask(taskId, `Imported ${importedCount} upstream models`);
+      }
+    } catch (error) {
+      console.log("Error importing upstream models:", error);
+      finishImportTask(taskId, "Fetch failed");
+    } finally {
+      setImportingUpstreamModels(false);
+      setImportingConnectionId(null);
+    }
+  };
+
   // Fetch Qoder model list and automatically add to available models
   const handleImportQoderModels = async () => {
     if (importingQoderModels) return;
@@ -1344,6 +1491,7 @@ export default function ProviderDetailPage() {
                 }}
                 onDelete={() => handleDelete(conn.id)}
                 oneByOneStatus={oneByOneResults[conn.id] || null}
+
               />
             </div>
           </div>
@@ -1530,33 +1678,6 @@ export default function ProviderDetailPage() {
           Add Model
         </button>
 
-        {/* Import Qoder models button - only show for qoder/qoder-cn provider */}
-        {(providerId === "qoder" || providerId === "qoder-cn") && connections.some((conn) => conn.isActive !== false) && (
-          <button
-            onClick={handleImportQoderModels}
-            disabled={importingQoderModels}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-blue-500/40 px-3 py-2 text-xs text-blue-600 dark:text-blue-400 transition-colors hover:border-blue-500 hover:bg-blue-500/5 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <span className="material-symbols-outlined text-sm" style={importingQoderModels ? { animation: "spin 1s linear infinite" } : undefined}>
-              {importingQoderModels ? "progress_activity" : "download"}
-            </span>
-            {importingQoderModels ? translate("Fetching...") : translate("Fetch Qoder Models")}
-          </button>
-        )}
-
-        {/* Import Cline /models catalog button - only show for cline and clinepass providers */}
-        {(providerId === "cline" || providerId === "clinepass") && connections.some((conn) => conn.isActive !== false) && (
-          <button
-            onClick={handleImportClineModels}
-            disabled={importingClineModels}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-blue-500/40 px-3 py-2 text-xs text-blue-600 dark:text-blue-400 transition-colors hover:border-blue-500 hover:bg-blue-500/5 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <span className="material-symbols-outlined text-sm" style={importingClineModels ? { animation: "spin 1s linear infinite" } : undefined}>
-              {importingClineModels ? "progress_activity" : "download"}
-            </span>
-            {importingClineModels ? translate("Fetching...") : translate("Import from /models")}
-          </button>
-        )}
 
         {/* Suggested models from provider API or built-in catalog - show only models not yet added. */}
         {(() => {
@@ -2295,7 +2416,31 @@ export default function ProviderDetailPage() {
               </select>
             )}
           </div>
-          {!isCompatible && !isOpenCode && (() => {
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={importingProviderModels ? "progress_activity" : "cloud_download"}
+              onClick={handleImportProviderModels}
+              disabled={importingProviderModels}
+              className="w-full sm:w-auto"
+              title="Import all built-in catalog models for this provider"
+            >
+              {importingProviderModels ? "Importing All Provider Models..." : "Import All Provider Models"}
+            </Button>
+            {connections.length > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={importingUpstreamModels ? "progress_activity" : "sync"}
+                onClick={() => handleImportUpstreamModels()}
+                disabled={importingUpstreamModels}
+                className="w-full sm:w-auto"
+                title="Import models available on the active account (matches the account plan tier)"
+              >
+                {importingUpstreamModels ? "Importing Upstream Models..." : "Import Upstream Models"}
+              </Button>
+            )}          {!isCompatible && !isOpenCode && (() => {
             const allIds = [
               ...models,
               ...kiloFreeModels.filter((fm) => !models.some((m) => m.id === fm.id)),
@@ -2316,6 +2461,7 @@ export default function ProviderDetailPage() {
               </div>
             );
           })()}
+          </div>
         </div>
         {!!modelsTestError && (
           <div className="mb-3">
