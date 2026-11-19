@@ -44,7 +44,7 @@ jobs:
         with:
           node-version: 22
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           # The Go module lives in a temp clone of the upstream repo, so there is
