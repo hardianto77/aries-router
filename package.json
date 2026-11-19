@@ -71,7 +71,7 @@
     "@types/better-sqlite3": "^7.6.11",
     "@types/diff": "^7.0.1",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.9.0",
+    "@types/node": "^26.6.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.7",
     "@types/react-syntax-highlighter": "^15.2.3",
