@@ -7,7 +7,7 @@
  */
 
 export const SHORT_COOLDOWN_MS = 15 * 1000;
-export const FULL_QUOTA_COOLDOWN_MS = 5 * 60 * 60 * 1000;
+export const FULL_QUOTA_COOLDOWN_MS = 60 * 1000;
 export const CAPACITY_COOLDOWN_MS = 30 * 1000;
 
 function parseResetAfterMs(message) {

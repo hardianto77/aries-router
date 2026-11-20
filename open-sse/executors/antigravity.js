@@ -9,6 +9,7 @@ import { cleanJSONSchemaForAntigravity, normalizeGeminiContents } from "../trans
 import { DEFAULT_THINKING_AG_SIGNATURE } from "../config/defaultThinkingSignature.js";
 import { getGeminiThoughtSignatureSync } from "../services/thoughtSignatureStore.js";
 import { cloakUser, outgoing } from "../services/antigravityPromptCloak.js";
+import { decide429, classify429 } from "../services/antigravity429Engine.js";
 import { executeViaAgyCli, resolveAgyTransport } from "./agyCliExecutor.js";
 import { refusedPromptHint } from "./antigravityUpstreamError.js";
 
@@ -313,6 +314,7 @@ export class AntigravityExecutor extends BaseExecutor {
   }
 
   transformRequest(model, body, stream, credentials) {
+    console.log("=== ANTIGRAVITY EXECUTOR HIT ===", { model, bodyModel: body?.model });
     const projectId = credentials?.projectId || this.generateProjectId();
 
     // OpenAI clients may include stream_options even for non-streaming calls.
@@ -503,7 +505,7 @@ export class AntigravityExecutor extends BaseExecutor {
     return {
       ...body,
       project: projectId,
-      model: body.model || model,
+      model: ((m) => { const s = String(m || "").replace(/^(?:antigravity|agy|ag)\//, "").replace(/\([^()]+\)\s*$/, "").trim(); if (s.startsWith("gemini-3.8-flash") || s.startsWith("gemini-4-argon") || s.startsWith("gemini-3.7-flash") || s.startsWith("gemini-3.6-flash")) return "gemini-4-hydrogen-sonar"; if (s.startsWith("claude-sonnet-5-5") || s === "claude-sonnet-5.5") return "claude-sonnet-4-6"; if (s.startsWith("claude-opus-5-5") || s === "claude-opus-5.5") return "claude-opus-4-6-thinking"; if (s.startsWith("gemini-3.1-pro") || s === "gemini-pro-agent") return "gemini-3-flash"; return s || "gemini-4-hydrogen-sonar"; })(body.model || model),
       userAgent: "antigravity",
       requestId: buildIdeRequestId({ body, request: transformedRequest, credentials, model, requestType: "agent" }),
       request: transformedRequest
@@ -518,7 +520,7 @@ export class AntigravityExecutor extends BaseExecutor {
   async execute(input) {
     // The ACP transport is opt-in and off by default, so HTTP is unchanged for
     // every connection that has not asked for it (see agyCliExecutor.js).
-    if (!isImageModel(input.model) && resolveAgyTransport(input.credentials) === "acp") {
+    if (!isImageModel(input.model) && resolveAgyTransport(input.credentials) !== "http") {
       const { response, url } = await executeViaAgyCli({
         model: input.model,
         body: input.body,

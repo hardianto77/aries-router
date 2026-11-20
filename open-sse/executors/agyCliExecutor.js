@@ -401,7 +401,22 @@ export async function executeViaAgyCli(request) {
             closeStream();
         });
 
-        const firstEvent = await firstEventPromise;
+        let firstEventTimeoutId = null;
+        const firstEventTimeoutPromise = new Promise((resolve) => {
+            firstEventTimeoutId = setTimeout(() => {
+                resolve({ kind: "timeout" });
+            }, 90000);
+        });
+
+        const firstEvent = await Promise.race([firstEventPromise, firstEventTimeoutPromise]);
+        if (firstEventTimeoutId) clearTimeout(firstEventTimeoutId);
+
+        if (firstEvent.kind === "timeout") {
+            turnAbort.abort();
+            signal?.removeEventListener("abort", onCallerAbort);
+            const timeoutError = new AgyTurnError("agy: upstream turn timed out waiting for first stream chunk (30s)", 504);
+            return { response: agyErrorResponse(timeoutError), url: "agy-cli://timeout" };
+        }
         if (firstEvent.kind === "error") {
             signal?.removeEventListener("abort", onCallerAbort);
             return { response: agyErrorResponse(firstEvent.error), url: "agy-cli://error" };
