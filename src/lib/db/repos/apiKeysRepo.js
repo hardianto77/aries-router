@@ -52,10 +52,17 @@ export async function createApiKey(name, machineId) {
     createdAt: new Date().toISOString(),
     access: { restricted: false, allow: [] },
   };
-  const cols = keyAccessToColumns(KEY_ACCESS_UNRESTRICTED);
+  // Sync BOTH model columns at creation: when a whitelist is supplied, write it
+  // into accessRestricted/accessAllow too, otherwise /v1/models leaks every
+  // model because endpoints read the access columns, not allowedModels.
+  const allowedStr = String(apiKey.allowedModels || "*").trim();
+  const cols = allowedStr && allowedStr !== "*"
+    ? keyAccessToColumns({ restricted: true, allow: allowedStr.split(",").map((m) => m.trim()).filter(Boolean) })
+    : keyAccessToColumns(KEY_ACCESS_UNRESTRICTED);
+  const allowedModelsColumn = allowedStr || "*";
   db.run(
-    `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, accessRestricted, accessAllow) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-    [apiKey.id, apiKey.key, apiKey.name, apiKey.machineId, 1, apiKey.createdAt, cols.accessRestricted, cols.accessAllow]
+    `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, accessRestricted, accessAllow, allowedModels) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [apiKey.id, apiKey.key, apiKey.name, apiKey.machineId, 1, apiKey.createdAt, cols.accessRestricted, cols.accessAllow, allowedModelsColumn]
   );
   return apiKey;
 }
