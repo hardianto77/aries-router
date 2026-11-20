@@ -231,9 +231,6 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         <Button size="sm" icon="add" onClick={handleAdd} disabled={!newModel.trim() || adding}>
           {adding ? "Adding..." : "Add"}
         </Button>
-        <Button size="sm" variant="secondary" icon="download" onClick={handleImport} disabled={!canImport || importing}>
-          Import from /models
-        </Button>
       </div>
 
       {!canImport && (
