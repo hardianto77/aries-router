@@ -1,12 +1,14 @@
 <div align="center">
 
-<img src="images/9router.png" alt="Aries Router dashboard" width="100%" />
+<img src="images/logo.png" alt="Aries Router logo" width="180" />
 
-<h1>Aries Router</h1>
+# Aries Router
 
-<img src="https://readme-typing-svg.demolab.com?font=Inter&weight=600&size=20&duration=3500&pause=1200&color=3B82F6&center=true&vCenter=true&width=680&height=50&lines=One+gateway%2C+any+model;OpenAI%E2%80%91compatible+endpoint;Speaks+Claude%2C+Gemini+and+more;Multi%E2%80%91account+rotation+with+quota+engine" alt="One gateway, any model" />
+<img src="images/banner.png" alt="Aries Router — Providers dashboard" width="100%" />
 
-[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE) [![Release](https://img.shields.io/badge/release-v0.5.420-orange)](./CHANGELOG.md) [![Platform](https://img.shields.io/badge/platform-Node.js%2022%2B-3B82F6)](https://nodejs.org)
+<img src="https://readme-typing-svg.demolab.com?font=Inter&weight=600&size=20&duration=3500&pause=1200&color=F97316&center=true&vCenter=true&width=680&height=50&lines=One+gateway%2C+any+model;OpenAI%E2%80%91compatible+endpoint;Speaks+Claude%2C+Gemini+and+more;Multi%E2%80%91account+rotation+with+quota+engine" alt="One gateway, any model" />
+
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE) [![Release](https://img.shields.io/badge/release-v0.5.420-orange)](./CHANGELOG.md) [![Platform](https://img.shields.io/badge/platform-Node.js%2022%2B-F97316)](https://nodejs.org)
 
 **Aries Router** is a unified AI gateway: a single OpenAI-compatible endpoint that routes to Claude, GPT, Gemini, Kimi, Qwen, GLM, DeepSeek, Grok, Antigravity and 40+ more upstream providers — using OAuth accounts, direct API keys, web sessions, or your own self-hosted engines.
 
@@ -15,18 +17,6 @@ One base URL, one API key, any model.
 </div>
 
 ---
-
-## Screenshots
-
-<div align="center">
-
-<img src="images/9router.png" alt="Endpoint & API keys dashboard" width="100%" />
-<p><sub>Endpoint &amp; key management — tunnel modes, default keys, unlimited usage</sub></p>
-
-<img src="images/fusion-combo-ui.png" alt="Combos UI" width="100%" />
-<p><sub>Combos — Fusion (panel + judge) and Fallback (try in order) strategies over any models</sub></p>
-
-</div>
 
 ## What Is Aries Router?
 
