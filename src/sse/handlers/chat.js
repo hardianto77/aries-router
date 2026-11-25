@@ -714,6 +714,23 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       // FreePI strictly prohibits account rotation mid-conversation.
       // Do not fall back to another account if this is an existing conversation thread.
       const isFreepi = provider === "freepi" || provider === "fp";
+      const ownershipMismatch = isFreepi && String(result.error || "").includes("belongs to another free-pi account");
+      if (ownershipMismatch) {
+        // Upstream says this conversation is owned by a different account.
+        // Recover: forget the stale affinity and rotate — the first account that
+        // accepts becomes the new conversation owner (re-bound by setAffinityConnection).
+        log.warn("FREEPI", `Ownership mismatch on ${credentials.connectionName || credentials.connectionId?.slice(0, 8)} — rotating to recover conversation owner`);
+        excludeConnectionIds.add(credentials.connectionId);
+        clearAffinity(provider, conversationKey);
+        lastError = result.error;
+        lastStatus = result.status;
+        lastHeaders = upstreamResponseHeaders(result.response?.headers);
+        if (Date.now() >= fallbackDeadlineMs) {
+          log.warn("FALLBACK", `⏱ fallback budget spent for ${provider}/${model} after ${excludeConnectionIds.size} accounts — returning last error`);
+          return result.response;
+        }
+        continue;
+      }
       if (isFreepi && conversationKey && !result.emptyStream) {
         log.warn("FREEPI", `Prevented account rotation mid-conversation for ${credentials.connectionName || credentials.connectionId?.slice(0, 8)}`);
         return result.response;
