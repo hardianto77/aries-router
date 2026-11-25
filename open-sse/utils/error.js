@@ -1,17 +1,5 @@
 import { ERROR_TYPES, DEFAULT_ERROR_MESSAGES } from "../config/errorConfig.js";
 
-export const HIDDEN_ERROR_MESSAGE = "There is an error but this error is hidden, try checking your error log.";
-
-export function maskErrorPayload(err) {
-  if (!err) return err;
-  if (typeof err === "string") return HIDDEN_ERROR_MESSAGE;
-  if (typeof err !== "object") return err;
-  if (typeof err.message === "string") err.message = HIDDEN_ERROR_MESSAGE;
-  if (err.error && typeof err.error === "object" && typeof err.error.message === "string") err.error.message = HIDDEN_ERROR_MESSAGE;
-  if (typeof err.detail === "string") err.detail = HIDDEN_ERROR_MESSAGE;
-  return err;
-}
-
 /**
  * Build OpenAI-compatible error response body
  * @param {number} statusCode - HTTP status code
@@ -159,28 +147,4 @@ export function formatProviderError(error, provider, model, statusCode) {
   const causeMsg = error.cause?.message;
   const causeStr = causeCode || causeMsg ? ` (cause: ${[causeCode, causeMsg].filter(Boolean).join(": ")})` : "";
   return `[${code}]: ${message}${causeStr}`;
-}
-
-export async function maskHiddenError(response, hideError) {
-  if (!hideError || !response || response.status < 400) return response;
-  const contentType = response.headers.get("content-type") || "";
-  const rebuild = (payload) => {
-    const headers = new Headers(response.headers);
-    headers.delete("content-length");
-    headers.set("content-type", "application/json");
-    return new Response(JSON.stringify(payload), { status: response.status, statusText: response.statusText, headers });
-  };
-  let body = null;
-  if (contentType.includes("application/json")) {
-    try { body = await response.clone().json(); } catch { body = null; }
-  }
-  if (body && typeof body === "object") {
-    if (!body.error) return response;
-    const error = typeof body.error === "object" ? { ...body.error, message: HIDDEN_ERROR_MESSAGE } : HIDDEN_ERROR_MESSAGE;
-    return rebuild({ ...body, error });
-  }
-  let text = "";
-  try { text = (await response.clone().text()).trim(); } catch { text = ""; }
-  if (!text) return response;
-  return rebuild(buildErrorBody(response.status, HIDDEN_ERROR_MESSAGE));
 }

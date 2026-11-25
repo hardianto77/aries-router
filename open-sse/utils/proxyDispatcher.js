@@ -58,5 +58,5 @@ export async function createProxyDispatcher(options) {
     }
   }
   url.searchParams.delete("dns");
-  return new LocalDnsSocksProxyAgent(url, agentOptions);
+  return new LocalDnsSocksProxyAgent(url, options);
 }
