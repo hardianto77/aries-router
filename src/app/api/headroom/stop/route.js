@@ -11,7 +11,7 @@ export async function POST() {
     const url = settings.headroomUrl || DEFAULT_HEADROOM_URL;
     if (!isLoopbackHeadroomUrl(url)) {
       return NextResponse.json(
-        { error: "External Headroom proxies must be stopped outside 9Router", code: "EXTERNAL_PROXY" },
+        { error: "External Headroom proxies must be stopped outside Aries", code: "EXTERNAL_PROXY" },
         { status: 400 },
       );
     }

@@ -39,7 +39,7 @@ const isZeroPrice = (value) =>
   value !== null && value !== undefined && Number(value) === 0;
 
 /**
- * Normalize the OpenAI-style Nous catalogue for 9router model selectors.
+ * Normalize the OpenAI-style Nous catalogue for aries model selectors.
  * The live endpoint also returns embedding and image-only entries, which are
  * not valid chat models and must not be offered by the LLM route.
  */

@@ -13,7 +13,7 @@ export async function GET() {
     const machineSalt = process.env.MACHINE_ID_SALT || "";
     const apiKeySecret = process.env.API_KEY_SECRET || "";
     const port = process.env.PORT || "20128";
-    const dataDir = process.env.DATA_DIR || "/var/lib/xrouter";
+    const dataDir = process.env.DATA_DIR || "/var/lib/aries";
     const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
 
     return NextResponse.json({

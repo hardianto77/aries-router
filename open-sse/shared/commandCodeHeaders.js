@@ -4,7 +4,7 @@
  * registry; this module adds the per-process / per-session ones:
  *
  *  - x-project-slug: the CLI sends slugify(process.cwd()) (@sindresorhus/slugify).
- *    9router has no client workspace, so it reports its own working dir — the
+ *    aries has no client workspace, so it reports its own working dir — the
  *    same value the request body carries as config.workingDir.
  *  - x-session-id: conversation-stable id, shared with the body's threadId.
  */

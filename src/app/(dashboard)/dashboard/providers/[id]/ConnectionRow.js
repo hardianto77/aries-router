@@ -53,8 +53,19 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   const noProxyText = boundProxyPool?.noProxy || connection.providerSpecificData?.connectionNoProxy || "";
 
   let proxyBadgeVariant = "default";
+  let proxyBadgeLabel = "Proxy";
+  const directResiUrl = hasLegacyProxy ? String(connection.providerSpecificData?.connectionProxyUrl || "") : "";
+  const isFreshResidential = hasLegacyProxy && !boundProxyPoolId && (
+    directResiUrl.includes("127.0.0.1:20188") ||
+    // Any authenticated direct endpoint is a dedicated fresh residential egress
+    // injected by the Residential Fresh Proxy manager (proxyPoolId always NULL).
+    /^[a-z]+:\/\/[^@\s]+@/.test(directResiUrl)
+  );
   if (boundProxyPool?.isActive === true) {
     proxyBadgeVariant = "success";
+  } else if (isFreshResidential) {
+    proxyBadgeVariant = "success";
+    proxyBadgeLabel = "Resi-Fresh";
   } else if (boundProxyPoolId || hasLegacyProxy) {
     proxyBadgeVariant = "error";
   }
@@ -219,7 +230,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             </Badge>
             {hasAnyProxy && (
               <Badge variant={proxyBadgeVariant} size="sm">
-                Proxy
+                {proxyBadgeLabel}
               </Badge>
             )}
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
@@ -259,8 +270,8 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
       </div>
       <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
         <div className="grid flex-1 grid-cols-3 gap-1 sm:flex sm:flex-none">
-          {/* Proxy button with inline dropdown */}
-          {(proxyPools || []).length > 0 && (
+          {/* Proxy button with inline dropdown — always visible so it never disappears */}
+          {true && (
             <div>
               <button
                 ref={proxyBtnRef}

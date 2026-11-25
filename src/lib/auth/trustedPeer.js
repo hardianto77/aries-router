@@ -1,9 +1,9 @@
-// x-9r-real-ip is only trustworthy when custom-server.js stamped it from the TCP socket.
+// x-aries-real-ip is only trustworthy when custom-server.js stamped it from the TCP socket.
 // It proves that by echoing the per-process secret it generated at boot, which a client
 // cannot guess. Without the proof the header is just attacker-supplied input.
 export function hasTrustedPeerHeaders(request) {
-  const token = process.env.NINEROUTER_PEER_TOKEN;
-  return Boolean(token) && request.headers.get("x-9r-peer-token") === token;
+  const token = process.env.ARIES_PEER_TOKEN;
+  return Boolean(token) && request.headers.get("x-aries-peer-token") === token;
 }
 
 // Addresses that mean "this reached us over a network the operator owns":
@@ -44,7 +44,7 @@ export function isPrivateAddress(value) {
  */
 export function isTrustedNetworkRequest(request) {
   if (hasTrustedPeerHeaders(request)) {
-    if (!isPrivateAddress(request.headers.get("x-9r-real-ip"))) return false;
+    if (!isPrivateAddress(request.headers.get("x-aries-real-ip"))) return false;
   } else if (process.env.NODE_ENV !== "development" || !isPrivateAddress(hostOf(request.headers.get("host")))) {
     return false;
   }

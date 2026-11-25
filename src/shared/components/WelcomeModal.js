@@ -35,15 +35,15 @@ export default function WelcomeModal() {
   const [version, setVersion] = useState(null);
 
   useEffect(() => {
-    if (localStorage.getItem("9router:welcomeNeverShow") === "true") {
-      localStorage.removeItem("9router:welcomeNeverShow");
+    if (localStorage.getItem("aries:welcomeNeverShow") === "true") {
+      localStorage.removeItem("aries:welcomeNeverShow");
     }
-    const justLoggedIn = sessionStorage.getItem("9router:justLoggedIn") === "true";
+    const justLoggedIn = sessionStorage.getItem("aries:justLoggedIn") === "true";
 
     if (!justLoggedIn) {
       setIsOpen(false);
     } else {
-      sessionStorage.removeItem("9router:justLoggedIn");
+      sessionStorage.removeItem("aries:justLoggedIn");
       setIsOpen(true);
     }
   }, []);
@@ -99,7 +99,7 @@ export default function WelcomeModal() {
           />
           <div>
             <p className="flex items-center gap-2 text-lg font-bold tracking-tight leading-tight text-primary">
-              9Router
+              Aries
               {version && (
                 <span className="rounded-md border border-border bg-bg-subtle px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-normal text-text-muted">
                   v{version}

@@ -174,7 +174,7 @@ function killDaemonProcess(p, signal = "SIGKILL") {
   try { p.kill(signal); } catch {}
 }
 
-// Ensure all child daemon processes terminate when 9Router server exits
+// Ensure all child daemon processes terminate when Aries server exits
 if (typeof process !== "undefined" && !globalThis._opencodeCleanupRegistered) {
   globalThis._opencodeCleanupRegistered = true;
   const cleanupAllDaemons = () => {
@@ -459,12 +459,12 @@ export function isBridgeOnlyOrchestratorInput(input, relayName) {
   if (!code) return true;
   const executableCode = stripCodeStringLiterals(code);
   if (BRIDGE_FORBIDDEN_CODE_PATTERNS.some((pattern) => pattern.test(executableCode))) return false;
-  // Model may call current relay name or previous turn's relay name (e.g. tools["ninerouter_..."] or tools.xxx)
-  // as history accumulates across multiple turns. Accept any ninerouter MCP relay namespace or generic tools access.
+  // Model may call current relay name or previous turn's relay name (e.g. tools["aries_..."] or tools.xxx)
+  // as history accumulates across multiple turns. Accept any aries MCP relay namespace or generic tools access.
   const hasRelayCall = !relayName
     || code.includes(relayName)
-    || /\btools\[["']ninerouter_[a-zA-Z0-9_-]+["']\]/i.test(code)
-    || /\btools\.ninerouter_/i.test(code);
+    || /\btools\[["']aries_[a-zA-Z0-9_-]+["']\]/i.test(code)
+    || /\btools\.aries_/i.test(code);
   return code.includes("tools") && hasRelayCall;
 }
 
@@ -473,7 +473,7 @@ function serviceRelayName(cacheKey, directory = "") {
   // but keep the relay name stable across turns and session recyclings within the same workspace!
   const conn = String(cacheKey || "").split(":")[0] || "default";
   const dirKey = directory || (String(cacheKey || "").match(/:dir:([a-zA-Z0-9_-]+)/) || [])[1] || "default";
-  return `ninerouter_${crypto.createHash("sha256").update(`${conn}:${dirKey}`).digest("hex").slice(0, 16)}`;
+  return `aries_${crypto.createHash("sha256").update(`${conn}:${dirKey}`).digest("hex").slice(0, 16)}`;
 }
 
 function serializeToolResult(content) {
@@ -731,7 +731,7 @@ class OpenCodeClientMcpRelay {
         result: {
           protocolVersion: message.params?.protocolVersion || MCP_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: true } },
-          serverInfo: { name: "9router-mcp-relay", version: "1.0.0" },
+          serverInfo: { name: "aries-mcp-relay", version: "1.0.0" },
         },
       });
       return;

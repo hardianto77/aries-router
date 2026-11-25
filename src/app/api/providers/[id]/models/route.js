@@ -100,7 +100,7 @@ const parseLlmtrModels = (data) => parseOpenAIStyleModels(data).map(routeLlmtrMo
 const normalizeRoutedNousModels = (data) => normalizeNousModels(data).map((model) => ({
   ...model,
   // Live upstream IDs include a vendor namespace (for example,
-  // stepfun/step-5-preview:free). Prefix the owning 9router provider so Basic
+  // stepfun/step-5-preview:free). Prefix the owning aries provider so Basic
   // Chat does not parse that namespace as the provider itself.
   id: `nous/${model.id}`,
   upstreamModelId: model.id,
@@ -632,7 +632,7 @@ export async function GET(request, { params }) {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "User-Agent": "9router/0.5 (models-discovery)",
+            "User-Agent": "aries/0.5 (models-discovery)",
             ...(connection.apiKey ? { "Authorization": `Bearer ${connection.apiKey}` } : {}),
           },
         }),
@@ -686,7 +686,7 @@ export async function GET(request, { params }) {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "User-Agent": "9router/0.5 (models-discovery)",
+            "User-Agent": "aries/0.5 (models-discovery)",
             "anthropic-version": "2023-06-01",
             ...(connection.apiKey ? {
               "x-api-key": connection.apiKey,

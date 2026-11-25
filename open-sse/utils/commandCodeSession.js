@@ -108,20 +108,20 @@ export function commandCodeThreadId(body) {
     const client = normalizeClientSession(body?.[field]);
     if (!client) continue;
     if (isCommandCodeThreadId(client)) return client.toLowerCase();
-    return toV4Uuid(crypto.createHash("sha256").update(`9router:commandcode:client\0${client}`).digest());
+    return toV4Uuid(crypto.createHash("sha256").update(`aries:commandcode:client\0${client}`).digest());
   }
 
   const claude = claudeCodeSession(body);
   if (claude) {
     if (isCommandCodeThreadId(claude)) return claude.toLowerCase();
-    return toV4Uuid(crypto.createHash("sha256").update(`9router:commandcode:claude\0${claude}`).digest());
+    return toV4Uuid(crypto.createHash("sha256").update(`aries:commandcode:claude\0${claude}`).digest());
   }
 
   const prefix = conversationPrefix(body);
   if (prefix == null) return crypto.randomUUID();
 
   return toV4Uuid(
-    crypto.createHash("sha256").update("9router:commandcode:prefix\0").update(prefix).digest(),
+    crypto.createHash("sha256").update("aries:commandcode:prefix\0").update(prefix).digest(),
   );
 }
 

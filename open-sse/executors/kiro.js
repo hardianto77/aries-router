@@ -381,7 +381,7 @@ export class KiroExecutor extends BaseExecutor {
    * classify the status, and trigger account fallback/cooldown.
    */
   async execute(args) {
-    const crMode = (process.env.NINEROUTER_KIRO_CREATE_RESPONSE || process.env.KIRO_CREATE_RESPONSE || "auto").toLowerCase();
+    const crMode = (process.env.ARIES_KIRO_CREATE_RESPONSE || process.env.KIRO_CREATE_RESPONSE || "auto").toLowerCase();
 
     // Direct mode: if configured to always use CreateResponse, skip legacy generateAssistantResponse
     if (crMode === "always" && args?.body?.conversationState) {

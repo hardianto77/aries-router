@@ -36,12 +36,12 @@ export default function JcodeToolCard({
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const hasInitializedModel = useRef(false);
 
-  const currentBaseUrl = jcodeStatus?.config?.providers?.["xrouter"]?.base_url || "";
+  const currentBaseUrl = jcodeStatus?.config?.providers?.["aries"]?.base_url || "";
 
   const getConfigStatus = () => {
     if (!jcodeStatus?.installed) return null;
     if (!jcodeStatus?.hasAries) return "not_configured";
-    const currentProvider = jcodeStatus.config?.providers?.["xrouter"];
+    const currentProvider = jcodeStatus.config?.providers?.["aries"];
     if (!currentProvider) return "not_configured";
     return matchKnownEndpoint(currentProvider.base_url, { tunnelPublicUrl, tailscaleUrl }) ? "configured" : "other";
   };
@@ -78,7 +78,7 @@ export default function JcodeToolCard({
   useEffect(() => {
     if (jcodeStatus?.installed && !hasInitializedModel.current) {
       hasInitializedModel.current = true;
-      const provider = jcodeStatus.config?.providers?.["xrouter"];
+      const provider = jcodeStatus.config?.providers?.["aries"];
       if (provider) {
         if (provider.default_model) {
           setSelectedModel(provider.default_model);
@@ -130,7 +130,7 @@ export default function JcodeToolCard({
     try {
       const keyToUse = selectedApiKey?.trim()
         || (apiKeys?.length > 0 ? apiKeys[0].key : null)
-        || (!cloudEnabled ? "sk_xrouter" : null);
+        || (!cloudEnabled ? "sk_aries" : null);
 
       const res = await fetch("/api/cli-tools/jcode-settings", {
         method: "POST",
@@ -186,21 +186,21 @@ export default function JcodeToolCard({
   const getManualConfigs = () => {
     const keyToUse = (selectedApiKey && selectedApiKey.trim())
       ? selectedApiKey
-      : (!cloudEnabled ? "sk_xrouter" : "<API_KEY_FROM_DASHBOARD>");
+      : (!cloudEnabled ? "sk_aries" : "<API_KEY_FROM_DASHBOARD>");
 
-    const configToml = `[providers.xrouter]
+    const configToml = `[providers.aries]
 type = "openai-compatible"
 base_url = "${getEffectiveBaseUrl()}"
 auth = "bearer"
-api_key_env = "JCODE_9ROUTER_API_KEY"
-env_file = "provider-xrouter.env"
+api_key_env = "JCODE_ARIES_API_KEY"
+env_file = "provider-aries.env"
 default_model = "${selectedModel || "cc/claude-opus-4-7"}"
 requires_api_key = true
 
-[[providers.xrouter.models]]
+[[providers.aries.models]]
 id = "${selectedModel || "cc/claude-opus-4-7"}"`;
 
-    const envContent = `JCODE_9ROUTER_API_KEY="${keyToUse}"`;
+    const envContent = `JCODE_ARIES_API_KEY="${keyToUse}"`;
 
     return [
       {
@@ -208,7 +208,7 @@ id = "${selectedModel || "cc/claude-opus-4-7"}"`;
         content: configToml,
       },
       {
-        filename: "~/.config/jcode/provider-xrouter.env",
+        filename: "~/.config/jcode/provider-aries.env",
         content: envContent,
       },
     ];
@@ -305,12 +305,12 @@ id = "${selectedModel || "cc/claude-opus-4-7"}"`;
                 </div>
 
                 {/* Current configured */}
-                {jcodeStatus?.config?.providers?.["xrouter"]?.base_url && (
+                {jcodeStatus?.config?.providers?.["aries"]?.base_url && (
                   <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                     <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Current</span>
                     <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                     <span className="min-w-0 truncate rounded bg-surface/40 px-2 py-2 text-xs text-text-muted sm:py-1.5">
-                      {jcodeStatus.config.providers["xrouter"].base_url}
+                      {jcodeStatus.config.providers["aries"].base_url}
                     </span>
                   </div>
                 )}
@@ -336,8 +336,8 @@ id = "${selectedModel || "cc/claude-opus-4-7"}"`;
                 {/* Usage hint */}
                 <div className="flex flex-col gap-1 p-3 bg-info-bg border border-info-border rounded-lg">
                   <p className="text-xs font-medium text-info">Usage:</p>
-                  <code className="text-xs font-mono text-text-muted">jcode --provider-profile xrouter</code>
-                  <code className="text-xs font-mono text-text-muted">jcode --provider-profile xrouter --model {selectedModel || "cc/claude-opus-4-7"}</code>
+                  <code className="text-xs font-mono text-text-muted">jcode --provider-profile aries</code>
+                  <code className="text-xs font-mono text-text-muted">jcode --provider-profile aries --model {selectedModel || "cc/claude-opus-4-7"}</code>
                 </div>
               </div>
 

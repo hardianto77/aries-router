@@ -12,7 +12,7 @@
 // rather than in a new subsystem.
 //
 // Process-local on purpose, same as importJobs: progress is polled by the same
-// server that accepted the POST, and a 9router restart legitimately abandons
+// server that accepted the POST, and a aries restart legitimately abandons
 // an in-flight import. Records are kept for RESULT_TTL_MS after completion so
 // the dashboard can show the outcome of a run the operator stopped watching.
 import { randomUUID } from "node:crypto";

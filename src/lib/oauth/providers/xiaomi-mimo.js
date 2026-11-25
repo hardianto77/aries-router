@@ -119,5 +119,5 @@ export function getKeyName() {
     .update(`${process.platform}-${process.env.COMPUTERNAME || process.env.HOSTNAME || "unknown"}`)
     .digest("hex")
     .slice(0, 8);
-  return `9router-xmd-${machineId}`;
+  return `aries-xmd-${machineId}`;
 }

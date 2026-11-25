@@ -649,8 +649,8 @@ export async function clearAccountError(connectionId, currentConnection, model =
   await updateProviderConnection(connectionId, clearObj);
 }
 
-const INTERNAL_PROBE_KEY = "__9r-internal-probe__";
-const CLI_TOKEN_HEADER = "x-9r-cli-token";
+const INTERNAL_PROBE_KEY = "__aries-internal-probe__";
+const CLI_TOKEN_HEADER = "x-aries-cli-token";
 const CLI_TOKEN_SALT = "9r-cli-auth";
 
 /**

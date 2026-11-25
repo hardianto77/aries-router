@@ -2263,7 +2263,7 @@ const scopedModelPatterns =
                   Cloudflare Tunnel
                 </p>
                 <p className="text-sm text-text-muted">
-                  Expose your local 9Router to the internet without port forwarding or a static IP, then use the URL in Cursor, Cline, and other tools from anywhere.
+                  Expose your local Aries to the internet without port forwarding or a static IP, then use the URL in Cursor, Cline, and other tools from anywhere.
                 </p>
               </div>
             </div>

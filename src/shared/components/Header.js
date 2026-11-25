@@ -107,7 +107,7 @@ const getPageInfo = (pathname) => {
   if (pathname.includes("/mitm"))
     return {
       title: "MITM Proxy",
-      description: "Intercept CLI tool traffic and route through 9Router",
+      description: "Intercept CLI tool traffic and route through Aries",
       icon: "security",
       breadcrumbs: [],
     };
@@ -132,6 +132,13 @@ const getPageInfo = (pathname) => {
       icon: "lan",
       breadcrumbs: [],
     };
+  if (pathname.includes("/residential-fresh") || pathname.includes("/residential-proxy"))
+    return {
+      title: "Residential Fresh Proxy",
+      description: "Pure ISP/residential egress with anti-datacenter ASN filtering, zero-timeout hedging, and dead-proxy auto-injection",
+      icon: "home_work",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/skills"))
     return {
       title: "Agent Skills",
@@ -149,7 +156,7 @@ const getPageInfo = (pathname) => {
   if (pathname.includes("/profile"))
     return {
       title: "Settings",
-      description: "9Router configuration and preferences",
+      description: "Aries configuration and preferences",
       icon: "settings",
       breadcrumbs: [],
     };
@@ -327,7 +334,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
         )}
         <HeaderSearch />
         <a
-          href="https://github.com/serenhope/9router"
+          href="https://github.com/serenhope/aries"
           target="_blank"
           rel="noopener noreferrer"
           className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-[10px] text-xs font-medium text-text-muted hover:text-text-main hover:bg-surface-2 transition-all border border-border-subtle"

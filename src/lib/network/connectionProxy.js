@@ -6,8 +6,21 @@ function normalizeString(value) {
   return String(value).trim();
 }
 
-// ─── Proxy pool rotation state (in-memory) ─────────────────────────
-const rotateState = new Map(); // providerId → { index }
+function isForbiddenNonResidential(proxyUrl) {
+  const s = normalizeString(proxyUrl);
+  if (!s) return false;
+  if (s.startsWith("residential://")) return false;
+  return (
+    s.includes("127.0.0.1:8118") ||
+    s.includes("127.0.0.1:40000") ||
+    s.includes("4.144.146.21") ||
+    s.includes("34.43.46.91") ||
+    s.includes("103.237.102.191")
+  );
+}
+
+// Proxy pool rotation state (in-memory)
+const rotateState = new Map(); // providerId -> { index }
 
 // In-memory quarantine for proxies failing upstream checks
 const quarantinedProxies = new Map(); // poolId -> unquarantineTimestamp
@@ -51,7 +64,7 @@ export function pickProxyPoolId(poolIds, strategy, providerId) {
     return activeList[Math.floor(Math.random() * activeList.length)];
   }
 
-  return activeList[0]; // "none" or unknown
+  return activeList[0];
 }
 
 /**
@@ -80,8 +93,8 @@ function normalizeLegacyProxy(providerSpecificData = {}) {
  * Resolve final proxy configuration.
  *
  * Priority:
- * 1. Proxy Pool
- * 2. Legacy Proxy
+ * 1. Proxy Pool (auto-heals dead/quarantined/WARP/datacenter pools into Fresh Residential)
+ * 2. Legacy Proxy (auto-heals WARP/datacenter URLs into Fresh Residential)
  * 3. No Proxy
  */
 export async function resolveConnectionProxyConfig(
@@ -105,74 +118,72 @@ export async function resolveConnectionProxyConfig(
      */
     if (proxyPoolId) {
       const proxyPool = await getProxyPoolById(proxyPoolId);
-
       const proxyUrl = normalizeString(proxyPool?.proxyUrl);
       const noProxy = normalizeString(proxyPool?.noProxy);
 
-      // Rotating residential proxies (e.g. res-*-sid-XXXXX):
-      // Each connection request randomizes the session ID so the proxy gateway
-      // assigns a fresh residential exit IP with its own clean rate limit window.
+      // Rotating residential proxies (e.g. res-*-sid-XXXXX)
       let effectiveProxyUrl = proxyUrl;
       if (/-sid-\d+/i.test(proxyUrl)) {
         const randSid = Math.floor(100000000 + Math.random() * 900000000);
         effectiveProxyUrl = proxyUrl.replace(/-sid-\d+/i, `-sid-${randSid}`);
       }
 
-      const isValidPool =
-        proxyPool &&
-        proxyPool.isActive === true &&
-        effectiveProxyUrl;
+      const poolDeadOrBlocked =
+        !proxyPool ||
+        proxyPool.isActive !== true ||
+        !effectiveProxyUrl ||
+        isProxyQuarantined(proxyPoolId) ||
+        proxyPool.testStatus === "datacenter_blocked" ||
+        proxyPool.testStatus === "error" ||
+        isForbiddenNonResidential(effectiveProxyUrl);
 
-      if (isValidPool) {
-        /**
-         * Vercel/Cloudflare/Deno/Netlify relay proxies use base URL rewriting
-         * instead of HTTP_PROXY environment variables.
-         */
-        if (proxyPool.type === "residential" || effectiveProxyUrl.startsWith("residential://")) {
-          return {
-            source: "residential",
-            proxyPoolId,
-            proxyPool,
-            type: "residential",
-            connectionProxyEnabled: true,
-            connectionProxyUrl: effectiveProxyUrl,
-            connectionNoProxy: noProxy,
-            strictProxy: proxyPool.strictProxy === true,
-          };
-        }
-        if (proxyPool.type === "vercel" || proxyPool.type === "cloudflare" || proxyPool.type === "deno" || proxyPool.type === "netlify") {
-          return {
-            source: proxyPool.type,
-
-            proxyPoolId,
-            proxyPool,
-
-            connectionProxyEnabled: false,
-            connectionProxyUrl: "",
-            connectionNoProxy: noProxy,
-
-            strictProxy: proxyPool.strictProxy === true,
-
-            vercelRelayUrl: effectiveProxyUrl, // Still mapped to vercelRelayUrl in the unified payload since they use the exact same header spec
-          };
-        }
-
-        /**
-         * Standard proxy pool
-         */
+      if (poolDeadOrBlocked) {
+        // Dead, quarantined, WARP, or datacenter pool -> auto-inject Fresh Residential gateway
         return {
-          source: "pool",
+          source: "legacy",
+          proxyPoolId: null,
+          proxyPool: null,
+          connectionProxyEnabled: true,
+          connectionProxyUrl: process.env.RESI_GATEWAY_URL || "http://127.0.0.1:20188",
+          connectionNoProxy: noProxy || legacy.connectionNoProxy || "127.0.0.1,localhost,",
+          strictProxy: true,
+        };
+      }
 
+      if (proxyPool.type === "residential" || effectiveProxyUrl.startsWith("residential://")) {
+        return {
+          source: "residential",
           proxyPoolId,
           proxyPool,
-
+          type: "residential",
           connectionProxyEnabled: true,
           connectionProxyUrl: effectiveProxyUrl,
           connectionNoProxy: noProxy,
-
           strictProxy: proxyPool.strictProxy === true,
         };
       }
+      if (proxyPool.type === "vercel" || proxyPool.type === "cloudflare" || proxyPool.type === "deno" || proxyPool.type === "netlify") {
+        return {
+          source: proxyPool.type,
+          proxyPoolId,
+          proxyPool,
+          connectionProxyEnabled: false,
+          connectionProxyUrl: "",
+          connectionNoProxy: noProxy,
+          strictProxy: proxyPool.strictProxy === true,
+          vercelRelayUrl: effectiveProxyUrl,
+        };
+      }
+
+      return {
+        source: "pool",
+        proxyPoolId,
+        proxyPool,
+        connectionProxyEnabled: true,
+        connectionProxyUrl: effectiveProxyUrl,
+        connectionNoProxy: noProxy,
+        strictProxy: proxyPool.strictProxy === true,
+      };
     }
 
     /**
@@ -180,16 +191,22 @@ export async function resolveConnectionProxyConfig(
      * Legacy Proxy Fallback
      * -----------------------------
      */
-    if (
-      legacy.connectionProxyEnabled &&
-      legacy.connectionProxyUrl
-    ) {
+    if (legacy.connectionProxyEnabled && legacy.connectionProxyUrl) {
+      if (isForbiddenNonResidential(legacy.connectionProxyUrl) || legacy.connectionProxyUrl.startsWith("residential://")) {
+        return {
+          source: "legacy",
+          proxyPoolId: null,
+          proxyPool: null,
+          connectionProxyEnabled: true,
+          connectionProxyUrl: process.env.RESI_GATEWAY_URL || "http://127.0.0.1:20188",
+          connectionNoProxy: legacy.connectionNoProxy || "127.0.0.1,localhost,",
+          strictProxy: true,
+        };
+      }
       return {
         source: "legacy",
-
         proxyPoolId: proxyPoolId || null,
         proxyPool: null,
-
         ...legacy,
       };
     }
@@ -201,10 +218,8 @@ export async function resolveConnectionProxyConfig(
      */
     return {
       source: "none",
-
       proxyPoolId: proxyPoolId || null,
       proxyPool: null,
-
       ...legacy,
     };
   } catch (error) {
@@ -215,14 +230,11 @@ export async function resolveConnectionProxyConfig(
 
     return {
       source: "error",
-
       proxyPoolId: null,
       proxyPool: null,
-
       connectionProxyEnabled: false,
       connectionProxyUrl: "",
       connectionNoProxy: "",
-
       strictProxy: false,
     };
   }

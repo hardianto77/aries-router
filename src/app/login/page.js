@@ -182,7 +182,7 @@ export default function LoginPage() {
           return;
         }
         if (typeof window !== "undefined") {
-          sessionStorage.setItem("xrouter:justLoggedIn", "true");
+          sessionStorage.setItem("aries:justLoggedIn", "true");
         }
         if (data.role === "apikey" && !data.homePath) {
           setNoAccess(true);
@@ -216,7 +216,7 @@ export default function LoginPage() {
       });
       if (res.ok) {
         if (typeof window !== "undefined") {
-          sessionStorage.setItem("xrouter:justLoggedIn", "true");
+          sessionStorage.setItem("aries:justLoggedIn", "true");
         }
         window.location.assign("/dashboard");
       } else {
@@ -386,12 +386,12 @@ export default function LoginPage() {
                     {loginMethod === "password" ? (
                       <div className="flex flex-col gap-3">
                         <div className="flex flex-col gap-1.5">
-                          <label htmlFor="xrouter-password" className="text-sm font-medium text-text-main">
+                          <label htmlFor="aries-password" className="text-sm font-medium text-text-main">
                             Password
                           </label>
                           <div className="relative">
                             <input
-                              id="xrouter-password"
+                              id="aries-password"
                               type={showPassword ? "text" : "password"}
                               placeholder="Enter password"
                               value={password}
@@ -455,7 +455,7 @@ export default function LoginPage() {
                         <Input
                           label="API Key"
                           type="password"
-                          placeholder="sk-9r-..."
+                          placeholder="sk-aries-..."
                           value={apiKey}
                           onChange={(e) => setApiKey(e.target.value)}
                           autoFocus

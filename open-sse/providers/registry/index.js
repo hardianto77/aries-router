@@ -1,4 +1,4 @@
-// Auto-generated: static imports for all registry entries (xrouter + aries)
+// Auto-generated: static imports for all registry entries (aries + aries)
 import p0 from "./adcode.js";
 import p1 from "./agnes.js";
 import p2 from "./alicode-intl.js";

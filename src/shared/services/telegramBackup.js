@@ -22,7 +22,7 @@ const g = (global.__telegramBackup ??= {
 
 const HOUR_MS = 3600000;
 const GITHUB_API = "https://api.github.com";
-const BACKUP_FOLDER = "9router-backups";
+const BACKUP_FOLDER = "aries-backups";
 
 function formatStamp(date) {
   return date.toISOString().replace(/[:.]/g, "-");
@@ -70,8 +70,8 @@ async function buildBackupBuffer() {
 async function sendViaTelegram({ tgBotToken, tgChatId }, buf, stamp) {
   const form = new FormData();
   form.append("chat_id", tgChatId);
-  form.append("document", new Blob([buf], { type: "application/json" }), `9router-backup-${stamp}.json`);
-  form.append("caption", `9Router auto backup v${getAppVersion()}. ${formatMb(buf.length)} MB`);
+  form.append("document", new Blob([buf], { type: "application/json" }), `aries-backup-${stamp}.json`);
+  form.append("caption", `Aries auto backup v${getAppVersion()}. ${formatMb(buf.length)} MB`);
 
   // Respects the outbound-proxy env applied by applyOutboundProxyEnv().
   const res = await proxyAwareFetch(`https://api.telegram.org/bot${tgBotToken}/sendDocument`, {
@@ -104,7 +104,7 @@ async function ghApi(token, path, init = {}) {
   return data;
 }
 
-// Commits the backup to owner/repo under 9router-backups/, also updating
+// Commits the backup to owner/repo under aries-backups/, also updating
 // latest.json so restores always know the newest file. Auto-creates the repo's
 // default branch ref when the repository is still empty.
 async function sendViaGitHub({ ghToken, ghRepo }, buf, stamp) {
@@ -125,14 +125,14 @@ async function sendViaGitHub({ ghToken, ghRepo }, buf, stamp) {
     body: JSON.stringify({ content: buf.toString("base64") }),
   });
   const tree = [
-    { path: `${BACKUP_FOLDER}/9router-backup-${stamp}.json`, mode: "100644", type: "blob", sha: blob.sha },
+    { path: `${BACKUP_FOLDER}/aries-backup-${stamp}.json`, mode: "100644", type: "blob", sha: blob.sha },
     { path: `${BACKUP_FOLDER}/latest.json`, mode: "100644", type: "blob", sha: blob.sha },
   ];
   const newTree = await ghApi(ghToken, `/repos/${repo}/git/trees`, {
     method: "POST",
     body: JSON.stringify({ base_tree: baseSha || undefined, tree }),
   });
-  const commitMsg = `chore(backup): 9router auto backup ${stamp} (${formatMb(buf.length)} MB)`;
+  const commitMsg = `chore(backup): aries auto backup ${stamp} (${formatMb(buf.length)} MB)`;
   const commit = await ghApi(ghToken, `/repos/${repo}/git/commits`, {
     method: "POST",
     body: JSON.stringify({ message: commitMsg, tree: newTree.sha, parents: baseSha ? [baseSha] : [] }),

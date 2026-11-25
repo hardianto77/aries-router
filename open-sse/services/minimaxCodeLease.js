@@ -10,7 +10,7 @@
 // app; it owns token refresh. We never read or write credential files — only
 // the broker-published capability file and the pipe itself.
 //
-// Lease mode lets a 9router connection ride the desktop app's sign-in instead
+// Lease mode lets a aries connection ride the desktop app's sign-in instead
 // of holding its own refresh token — MiniMax refresh tokens are single-use, so
 // borrowing (rather than owning) means the router and the official CLI/desktop
 // app can share an account without invalidating each other.
@@ -214,7 +214,7 @@ export async function requestStatus(dataDir, timeoutMs = 5000) {
     endpoint,
     {
       version: AUTH_LEASE_PROTOCOL_VERSION,
-      requestId: `9r-status-${Date.now().toString(36)}`,
+      requestId: `aries-status-${Date.now().toString(36)}`,
       capability,
       method: "status",
     },
@@ -232,7 +232,7 @@ export async function requestLease(dataDir, minValidityMs = AUTH_LEASE_MAX_MIN_V
     endpoint,
     {
       version: AUTH_LEASE_PROTOCOL_VERSION,
-      requestId: `9r-lease-${Date.now().toString(36)}`,
+      requestId: `aries-lease-${Date.now().toString(36)}`,
       capability,
       method: "lease",
       minValidityMs: clamped,

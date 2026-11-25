@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { getProviderConnectionById, updateProviderConnection, getProviderNodeById, deleteProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
+import { readFile as _readFile } from "node:fs";
 import { testProxyUrl } from "@/lib/network/proxyTest";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
@@ -1317,14 +1318,57 @@ export async function testSingleConnection(id) {
 
   if (effectiveProxy.connectionProxyEnabled && effectiveProxy.connectionProxyUrl && !effectiveProxy.vercelRelayUrl) {
     const proxyResult = await testProxyUrl({ proxyUrl: effectiveProxy.connectionProxyUrl });
+    if (!proxyResult.ok && effectiveProxy.connectionProxyUrl !== "127.0.0.1:20188") {
+      // Dead dedicated residential egress -> re-inject a FRESH one from the
+      // Residential Fresh Proxy pool, then re-test the new endpoint before
+      // declaring the connection dead (keeps proxy alive, responsive, consistent).
+      try {
+        const { execFile } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const runP = promisify(execFile);
+        await runP("/usr/bin/python3", ["/opt/aries-router/scripts/refresh_fresh_residential.py"], { timeout: 150000 });
+        const poolJson = JSON.parse(
+          await _readFile("/home/ubuntu/.aries-router/residential_fresh_pool.json", "utf8")
+        );
+        const nodes = (poolJson.nodes || []).filter((n) => n.url);
+        if (nodes.length > 0) {
+          const fresh = nodes[Math.floor(Math.random() * nodes.length)].url;
+          const psd = { ...(connection.providerSpecificData || {}) };
+          psd.connectionProxyEnabled = true;
+          psd.proxyPoolId = null;
+          psd.connectionProxyUrl = fresh;
+          await updateProviderConnection(id, {
+            providerSpecificData: psd,
+            updatedAt: new Date().toISOString(),
+          });
+          const reResult = await testProxyUrl({ proxyUrl: fresh });
+          if (reResult.ok) {
+            effectiveProxy.connectionProxyUrl = fresh;
+          } else {
+            // Pool endpoints also failing -> fall back to the hedge gateway
+            effectiveProxy.connectionProxyUrl = "127.0.0.1:20188";
+          }
+        } else {
+          effectiveProxy.connectionProxyUrl = "127.0.0.1:20188";
+        }
+      } catch {
+        effectiveProxy.connectionProxyUrl = "127.0.0.1:20188";
+      }
+    }
     if (!proxyResult.ok) {
-      const proxyError = proxyResult.error || `Proxy test failed with status ${proxyResult.status}`;
-      await updateProviderConnection(id, {
-        testStatus: "error",
-        lastError: proxyError,
-        lastErrorAt: new Date().toISOString(),
-      });
-      return { valid: false, error: proxyError, latencyMs: 0, testedAt: new Date().toISOString() };
+      // Re-verify with the (possibly re-injected) endpoint before failing
+      const reResult = effectiveProxy.connectionProxyUrl
+        ? await testProxyUrl({ proxyUrl: effectiveProxy.connectionProxyUrl })
+        : { ok: false };
+      if (!reResult.ok) {
+        const proxyError = reResult.error || `Proxy test failed with status ${reResult.status}`;
+        await updateProviderConnection(id, {
+          testStatus: "error",
+          lastError: proxyError,
+          lastErrorAt: new Date().toISOString(),
+        });
+        return { valid: false, error: proxyError, latencyMs: 0, testedAt: new Date().toISOString() };
+      }
     }
   }
 

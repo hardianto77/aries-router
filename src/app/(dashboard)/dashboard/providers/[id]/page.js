@@ -1525,17 +1525,24 @@ export default function ProviderDetailPage() {
             <span className="material-symbols-outlined text-text-muted text-[18px]">link_off</span>
             <span className="text-sm text-text-main">None (unbind all)</span>
           </button>
-          {proxyPools.map((pool) => (
+          {proxyPools.filter((pool) => pool.isActive === true).map((pool) => (
             <button
               key={pool.id}
               onClick={() => handleApplySinglePool(pool.id)}
-              disabled={bulkUpdatingProxy || pool.isActive !== true}
+              disabled={bulkUpdatingProxy}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-text-muted text-[18px]">lan</span>
+              {pool.resiManager ? (
+                <span className="material-symbols-outlined text-emerald-500 text-[18px]">shield</span>
+              ) : (
+                <span className="material-symbols-outlined text-text-muted text-[18px]">lan</span>
+              )}
               <span className="truncate text-sm text-text-main">{pool.name}</span>
-              {pool.isActive !== true && (
-                <span className="text-[10px] text-text-muted">(inactive)</span>
+              {pool.resiManager && (
+                <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">Resi</span>
+              )}
+              {pool.latencyMs != null && (
+                <span className="shrink-0 text-[10px] text-text-muted">{pool.latencyMs}ms</span>
               )}
             </button>
           ))}

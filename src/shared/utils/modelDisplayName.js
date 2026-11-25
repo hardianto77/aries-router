@@ -1,7 +1,7 @@
 /**
  * Human-readable display names for routed models.
  *
- * Model ids 9router routes are slugs ("claude-opus-5-5", "oc/space-bunny-free").
+ * Model ids aries routes are slugs ("claude-opus-5-5", "oc/space-bunny-free").
  * Provider registry entries (open-sse/providers/registry/*.js) publish a
  * human-readable `name` for many of them, but every surface that had to show a
  * name for an id without one — the `/v1/models` payload and each client config

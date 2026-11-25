@@ -19,12 +19,12 @@ import {
   removeDelegationBlock,
   removeAuxRole,
   upsertEnvVar,
-  has9RouterConfig,
+  hasAriesConfig,
   isCustomBlock,
   parseSttBlock,
-  is9RouterStt,
-  upsertStt9Router,
-  removeStt9Router,
+  isAriesStt,
+  upsertSttAries,
+  removeSttAries,
 } from "./hermesYaml.js";
 import { resolveHermesHome, listProfiles, dirExists } from "./hermesProfiles.js";
 
@@ -32,7 +32,7 @@ export const dynamic = "force-dynamic";
 
 const execAsync = promisify(exec);
 
-const PROVIDER_NAME = "9router";
+const PROVIDER_NAME = "aries";
 const API_KEY_ENV = "OPENAI_API_KEY";
 
 // Profile comes from ?profile= on GET (all-statuses calls GET() with no argument at all,
@@ -126,8 +126,8 @@ export async function GET(request) {
       installed: true,
       profile: { name: home.name, dir: home.dir, isDefault: home.isDefault },
       settings: { model, delegation, auxiliary, stt },
-      has9Router: has9RouterConfig(model) || has9RouterConfig(delegation) || Object.values(auxiliary).some(has9RouterConfig),
-      has9RouterStt: is9RouterStt(stt),
+      hasAries: hasAriesConfig(model) || hasAriesConfig(delegation) || Object.values(auxiliary).some(hasAriesConfig),
+      hasAriesStt: isAriesStt(stt),
       configPath: home.configPath,
     });
   } catch (error) {
@@ -136,7 +136,7 @@ export async function GET(request) {
   }
 }
 
-// Endpoint + API key across every profile: refresh the 9router blocks each profile already
+// Endpoint + API key across every profile: refresh the aries blocks each profile already
 // has (models stay per-profile), and wire up profiles that have no main model yet using the
 // model chosen in this request. Profiles on another provider are reported, never rewritten.
 const applyToAllProfiles = async ({ normalizedBaseUrl, apiKey, model }) => {
@@ -205,9 +205,9 @@ export async function POST(request) {
       return NextResponse.json({ error: "baseUrl and model are required" }, { status: 400 });
     }
 
-    // audio: { enabled, model } — wire Hermes speech-to-text through 9router's
+    // audio: { enabled, model } — wire Hermes speech-to-text through aries's
     // /v1/audio/transcriptions. Absent = leave the stt section untouched (legacy CLI
-    // callers). enabled:true needs a provider-qualified STT model (9router routes on it);
+    // callers). enabled:true needs a provider-qualified STT model (aries routes on it);
     // enabled:false removes exactly the wiring this endpoint writes.
     const audioEnabled = audio ? truthy(audio.enabled) : false;
     const audioModel = typeof audio?.model === "string" ? audio.model.trim() : "";
@@ -243,11 +243,11 @@ export async function POST(request) {
     }
     if (audio) {
       if (audioEnabled) {
-        newYaml = upsertStt9Router(newYaml, audioModel, normalizedBaseUrl);
-      } else if (is9RouterStt(parseSttBlock(newYaml))) {
+        newYaml = upsertSttAries(newYaml, audioModel, normalizedBaseUrl);
+      } else if (isAriesStt(parseSttBlock(newYaml))) {
         // Never remove stt wiring this endpoint did not write — a user's own STT
         // provider choice survives an audio-disabled Apply.
-        newYaml = removeStt9Router(newYaml);
+        newYaml = removeSttAries(newYaml);
       }
     }
     await writeHomeConfig(home, newYaml);
@@ -259,7 +259,7 @@ export async function POST(request) {
       success: true,
       message: home.isDefault ? "Hermes settings applied successfully!" : `Hermes settings applied to profile "${home.name}"!`,
       profile: { name: home.name, dir: home.dir, isDefault: home.isDefault },
-      stt9Router: is9RouterStt(parseSttBlock(newYaml)),
+      sttAries: isAriesStt(parseSttBlock(newYaml)),
       configPath: home.configPath,
     });
   } catch (error) {
@@ -295,7 +295,7 @@ export async function DELETE(request) {
       throw readError;
     }
 
-    // Only drop blocks 9router wrote (custom provider) — a model/delegation/aux block owned
+    // Only drop blocks aries wrote (custom provider) — a model/delegation/aux block owned
     // by another provider is this profile's own configuration and must survive a reset.
     const removed = { model: false, delegation: false, auxiliary: [], stt: false };
     const kept = [];
@@ -324,8 +324,8 @@ export async function DELETE(request) {
     }
 
     const sttCfg = parseSttBlock(yaml);
-    if (sttCfg && is9RouterStt(sttCfg)) {
-      yaml = removeStt9Router(yaml);
+    if (sttCfg && isAriesStt(sttCfg)) {
+      yaml = removeSttAries(yaml);
       removed.stt = true;
       // User settings living inside the block (language, local, ...) survive the key
       // removal — report the remainder as kept, like any other preserved section.

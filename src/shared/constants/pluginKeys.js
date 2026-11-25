@@ -1,4 +1,4 @@
-// The custom plugins in 9Router:
+// The custom plugins in Aries:
 // 1. adaptiveThinking: Multi-Framework Cognitive Architecture (Depth Protocol, Superpowers, Adversaria, First Principles)
 // 2. imageVision: Intelligent OCR Auto Image-to-Text Extractor
 // 3. openaiToolBridge: Tool calling for upstreams that have no function calling at all

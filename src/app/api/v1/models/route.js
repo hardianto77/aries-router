@@ -166,8 +166,8 @@ const parseOpenAIStyleModels = (data) => {
 };
 
 // Header sent by fetchCompatibleModelIds to detect cross-instance /models fetches
-// and break recursive loops between 9router instances connected to each other.
-const INTERNAL_MODELS_FETCH_HEADER = "x-9r-internal-models-fetch";
+// and break recursive loops between aries instances connected to each other.
+const INTERNAL_MODELS_FETCH_HEADER = "x-aries-internal-models-fetch";
 
 // LLM kind sentinel - combos/models with no explicit kind default to LLM
 const LLM_KIND = "llm";
@@ -266,7 +266,7 @@ function providerMatchesKinds(providerId, kindFilter) {
   return kindFilter.some((k) => kinds.includes(k));
 }
 
-// Providers that need no credential are callable the moment 9Router runs, so they
+// Providers that need no credential are callable the moment Aries runs, so they
 // never own a connection row. Without this pass they only appeared while the whole
 // provider table was empty, and any client that reads /v1/models (Hermes, Cline,
 // SDK model pickers) could not see a single one of their models.
@@ -318,7 +318,7 @@ export async function buildModelsList(kindFilter, options = {}) {
  // listing can never promise a model the request gate would refuse.
  const callerPatterns = await getAllowedModelsOfKey(readCallerApiKey(options.request));
  // When this header is present, the /v1/models request came from another
- // 9router instance's fetchCompatibleModelIds - skip dynamic fetch to break
+ // aries instance's fetchCompatibleModelIds - skip dynamic fetch to break
  // cross-instance recursive loops.
  const skipDynamicFetch = options.skipDynamicFetch === true;
   let connections = [];
@@ -797,7 +797,7 @@ export async function GET(request) {
 
     // Require an API key or dashboard auth so people cannot anonymously curl the model list
     if (!apiKey && !isInternal) {
-      const cliToken = request?.headers?.get("x-9r-cli-token");
+      const cliToken = request?.headers?.get("x-aries-cli-token");
       const cookie = request?.headers?.get("cookie") || "";
       const isDashboardUser = Boolean(cliToken) || cookie.includes("auth_token=");
       if (!isDashboardUser) {
@@ -831,7 +831,7 @@ export async function GET(request) {
       }
     }
 
-    // Detect cross-instance recursive /models fetch (another 9router fetching our /models)
+    // Detect cross-instance recursive /models fetch (another aries fetching our /models)
     const skipDynamicFetch = isInternal;
     const data = await buildModelsList([LLM_KIND], { skipDynamicFetch, request });
     return Response.json({ object: "list", data }, {

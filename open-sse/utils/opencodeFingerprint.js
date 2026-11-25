@@ -23,13 +23,13 @@ import path from "node:path";
 /** Names required by the upstream free-tier gate: edit, glob, grep, read, shell */
 export const OPENCODE_FINGERPRINT_TOOLS = ["edit", "glob", "grep", "read", "shell"];
 
-// (decolua/9router#5319). Only `tools[]` is inspected — history and system
+// (decolua/aries#5319). Only `tools[]` is inspected — history and system
 // prompt are not — so the declaration travels under an alias and the caller's
 // name is restored on the way back, like a fingerprint-name collision.
 //
 // A third gate fires on the *pair* `ReportFindings` + (`ScheduleWakeup` |
 // `DeferredToolPlaceholder`) — 429 FreeUsageLimitError in <350 ms, single
-// members pass (decolua/9router#5690). Claude Code ships both on every
+// members pass (decolua/aries#5690). Claude Code ships both on every
 // request, so concealing the common member (`ReportFindings`) through the
 // same alias path clears both pairs without touching the other names.
 //

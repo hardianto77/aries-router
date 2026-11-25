@@ -4,7 +4,7 @@
 import React from "react";
 
 // Aries mark: ram-horn routing topology (matches public/favicon.svg). The old
-// 4-arrow "X" mark read as the Xrouter brand at small sizes, so it was replaced.
+// 4-arrow "X" mark read as the Aries brand at small sizes, so it was replaced.
 export default function LogoMark({ className = "size-full" }) {
   return (
     <span className={`relative inline-flex items-center justify-center ${className}`.trim()}>

@@ -223,12 +223,12 @@ async function _handleChat(request, clientRawRequest = null) {
             "Content-Type": "text/event-stream; charset=utf-8",
             "Cache-Control": "no-cache",
             Connection: "keep-alive",
-            "X-9Router-Cache": "HIT",
+            "X-Aries-Cache": "HIT",
           },
         });
       }
       return new Response(JSON.stringify(cachedOut), {
-        headers: { "Content-Type": "application/json", "X-9Router-Cache": "HIT" },
+        headers: { "Content-Type": "application/json", "X-Aries-Cache": "HIT" },
       });
     }
   }
@@ -524,12 +524,12 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
             "Content-Type": "text/event-stream; charset=utf-8",
             "Cache-Control": "no-cache",
             Connection: "keep-alive",
-            "X-9Router-Cache": "HIT",
+            "X-Aries-Cache": "HIT",
           },
         });
       }
       return new Response(JSON.stringify(cachedOut), {
-        headers: { "Content-Type": "application/json", "X-9Router-Cache": "HIT" },
+        headers: { "Content-Type": "application/json", "X-Aries-Cache": "HIT" },
       });
     }
   }

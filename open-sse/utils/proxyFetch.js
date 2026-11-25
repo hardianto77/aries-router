@@ -310,6 +310,10 @@ function normalizeProxyUrl(proxyUrl) {
   const normalizedInput = normalizeString(proxyUrl);
   if (!normalizedInput) return null;
 
+  if (normalizedInput.startsWith("residential://")) {
+    return process.env.RESI_GATEWAY_URL || "http://127.0.0.1:20188";
+  }
+
   try {
 
     new URL(normalizedInput);
@@ -516,45 +520,6 @@ async function replayFreeTierRejectionDirect(url, options, proxied, proxyOptions
 export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
 
-  // Fresh Residential Zero-Timeout Dual-Hedge Routing
-  if (
-    proxyOptions?.source === "residential" ||
-    proxyOptions?.type === "residential" ||
-    proxyOptions?.proxyPool?.type === "residential" ||
-    normalizeString(proxyOptions?.connectionProxyUrl).startsWith("residential://")
-  ) {
-    try {
-      const [{ globalResidentialPool }, { getProxyPools }, { getSettings }] = await Promise.all([
-        import("@/lib/network/residentialProxyEngine.js"),
-        import("@/models"),
-        import("@/lib/localDb"),
-      ]);
-      const [pools, settings] = await Promise.all([
-        getProxyPools({ isActive: true }).catch(() => []),
-        getSettings().catch(() => ({})),
-      ]);
-      if (settings?.residentialProxyConfig) {
-        globalResidentialPool.setConfig(settings.residentialProxyConfig);
-      }
-      const resiPools = pools.filter(
-        (pool) => pool?.type === "residential" || (pool?.ipType === "residential" && pool?.isResidential === true)
-      );
-      if (resiPools.length > 0) {
-        globalResidentialPool.syncNodes(resiPools);
-      }
-      if (globalResidentialPool.getEligibleNodes({ includeUnverified: false }).length > 0) {
-        return await globalResidentialPool.hedgeFetch(targetUrl, options, {
-          sessionKey: proxyOptions?.proxyPoolId || proxyOptions?.connectionProxyPoolId || null,
-        });
-      }
-    } catch (resiErr) {
-      if (proxyOptions?.strictProxy === true) {
-        throw new Error(`[ResidentialProxy] Failed (strictProxy=true): ${resiErr.message}`);
-      }
-      console.warn(`[ResidentialProxy] Hedge routing failed, falling back to single proxy/direct: ${resiErr.message}`);
-    }
-  }
-
   // Vercel relay: forward request via relay headers
   const vercelRelayUrl = normalizeString(proxyOptions?.vercelRelayUrl);
   if (vercelRelayUrl) {
@@ -643,27 +608,32 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       if (proxyOptions?.strictProxy === true) {
         throw new Error(`[ProxyFetch] Proxy required but failed: ${proxyError.message}`);
       }
-      // DEAD-PROXY AUTO-INJECT: dead egress -> fresh rotating residential/WARP gateway
-      // (127.0.0.1:20188 serves a FRESH residential or WARP IP per request; never direct,
-      // never the same dead IP twice).
+      // DEAD-PROXY AUTO-INJECT: dead egress -> verified Fresh Residential IP (NO Datacenter, NO WARP)
+      // First tries globalResidentialPool.hedgeFetch (verified ISP nodes), then falls back to
+      // Pure-Residential Rotating Gateway (127.0.0.1:20188).
       const RESI_GATEWAY = process.env.RESI_GATEWAY_URL || "http://127.0.0.1:20188";
       if (proxyUrl && !proxyUrl.includes("127.0.0.1:20188")) {
         try {
-          console.warn(`[ProxyFetch] Proxy ${proxyUrl} failed, auto-injecting fresh residential egress: ${proxyError.message}`);
-          // singleton dispatcher: a per-request ProxyAgent costs ~150ms and leaks sockets
+          console.warn(`[ProxyFetch] Proxy ${proxyUrl} failed, auto-injecting fresh residential IP: ${proxyError.message}`);
+          try {
+            const { globalResidentialPool } = await import("@/lib/network/residentialProxyEngine.js");
+            if (globalResidentialPool.getEligibleNodes({ includeUnverified: false }).length > 0) {
+              return await globalResidentialPool.hedgeFetch(targetUrl, options, { sessionKey: poolId || null });
+            }
+          } catch {}
           if (!globalThis.__resiAgent) {
             const { ProxyAgent } = await import("undici");
             globalThis.__resiAgent = new ProxyAgent({
               uri: RESI_GATEWAY,
-              connect: { timeout: 4000 },
-              headersTimeout: 25000,
+              connect: { timeout: 3000 },
+              headersTimeout: 20000,
               bodyTimeout: 60000,
             });
           }
           const res = await originalFetch(url, { ...options, dispatcher: globalThis.__resiAgent });
           return res;
         } catch (resiError) {
-          console.warn(`[ProxyFetch] Fresh residential inject failed too, falling back to direct: ${resiError.message}`);
+          console.warn(`[ProxyFetch] Fresh residential inject failed: ${resiError.message}`);
         }
       }
       return originalFetch(url, options);

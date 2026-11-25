@@ -11,7 +11,7 @@ export default {
     icon: "terminal",
     color: "#1A2B79",
     textIcon: "RC",
-    website: "https://www.runcrate.ai/inference/free?utm_source=9router&utm_medium=directory&utm_campaign=gpu_pricing",
+    website: "https://www.runcrate.ai/inference/free?utm_source=aries&utm_medium=directory&utm_campaign=gpu_pricing",
     notice: {
       apiKeyUrl: "https://www.runcrate.ai/dashboard/api-keys",
     },

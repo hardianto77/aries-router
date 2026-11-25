@@ -12,8 +12,8 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
     const provider = String(body?.provider || "").trim();
-    const action = String(body?.action || "bind"); // "bind" | "unbind"
-    const distribution = String(body?.distribution || "auto-hedge"); // "auto-hedge" | "one-to-one"
+    const action = String(body?.action || "bind");
+    const distribution = String(body?.distribution || "auto-hedge");
 
     if (!provider) {
       return NextResponse.json({ error: "Target provider is required" }, { status: 400 });
@@ -51,33 +51,39 @@ export async function POST(request) {
     const state = await loadSyncedResidentialState();
     const healthyNodes = state.nodes.filter((n) => n.isActive && n.alive && n.isResidential && n.ipType === "residential");
 
-    if (healthyNodes.length === 0) {
+    const gatewayAlive = state.gateway?.alive || 0;
+    if (healthyNodes.length === 0 && gatewayAlive === 0) {
       return NextResponse.json(
         { error: "No verified Fresh Residential proxy nodes available. Import or scan residential proxies first." },
         { status: 400 }
       );
     }
+    if (distribution === "one-to-one" && healthyNodes.length === 0) {
+      return NextResponse.json(
+        { error: "1-on-1 rotation requires verified residential nodes in inventory. Scan host sources first." },
+        { status: 400 }
+      );
+    }
 
-    await ensureResidentialGatewayPool(healthyNodes.length);
+    await ensureResidentialGatewayPool(Math.max(healthyNodes.length, gatewayAlive));
 
     let updatedCount = 0;
     for (let i = 0; i < connections.length; i++) {
       const conn = connections[i];
       const psd = conn.providerSpecificData || {};
-      const node = healthyNodes[i % healthyNodes.length];
-      const poolId = distribution === "one-to-one" ? node.id : RESIDENTIAL_GATEWAY_ID;
+      const node = healthyNodes.length > 0 ? healthyNodes[i % healthyNodes.length] : null;
+      const poolId = distribution === "one-to-one" && node ? node.id : RESIDENTIAL_GATEWAY_ID;
 
       const patch = {
         providerSpecificData: {
           ...psd,
-          proxyPoolId: poolId,
+          proxyPoolId: null,
           connectionProxyEnabled: true,
-          connectionProxyUrl: distribution === "one-to-one" ? (psd.connectionProxyUrl || "") : "residential://auto",
+          connectionProxyUrl: "http://127.0.0.1:20188",
         },
       };
 
-      // Clear prior 502/proxy transport failure lock if requested so provider recovers immediately
-      if (body?.resetProxyErrors && typeof conn.lastError === "string" && /502|proxy|timeout|tunnel/i.test(conn.lastError)) {
+      if (body?.resetProxyErrors && typeof conn.lastError === "string" && /502|504|524|407|proxy|timeout|tunnel/i.test(conn.lastError)) {
         patch.testStatus = "active";
         patch.lastError = null;
       }

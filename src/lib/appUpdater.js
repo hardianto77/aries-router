@@ -12,8 +12,8 @@ function killMitmByPidFile() {
   try {
     const mitmPidFile = path.join(
       process.platform === "win32"
-        ? path.join(process.env.APPDATA || "", "xrouter")
-        : path.join(os.homedir(), ".xrouter"),
+        ? path.join(process.env.APPDATA || "", "aries")
+        : path.join(os.homedir(), ".aries"),
       "mitm",
       ".mitm.pid"
     );
@@ -50,7 +50,7 @@ function collectAppPids() {
       lines.forEach(line => {
         const lower = line.toLowerCase();
         // Match anything running from Aries install dir or wrapper cli.js
-        const isAppProcess = lower.includes("xrouter") ||
+        const isAppProcess = lower.includes("aries") ||
           lower.includes("next-server") ||
           lower.includes("\\bin\\app\\") ||
           lower.includes("/bin/app/") ||
@@ -77,7 +77,7 @@ function collectAppPids() {
     try {
       const output = execSync("ps aux 2>/dev/null", { encoding: "utf8", timeout: KILL_TIMEOUT_MS });
       output.split("\n").forEach(line => {
-        const isAppProcess = line.includes("xrouter") ||
+        const isAppProcess = line.includes("aries") ||
           line.includes("next-server") ||
           line.includes("cloudflared") ||
           line.includes("/bin/app/") ||
@@ -99,9 +99,9 @@ function collectAppPids() {
 function getDataDir() {
   if (process.env.DATA_DIR) return process.env.DATA_DIR;
   if (process.platform === "win32") {
-    return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "xrouter");
+    return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "aries");
   }
-  return path.join(os.homedir(), ".xrouter");
+  return path.join(os.homedir(), ".aries");
 }
 
 function resolveBundledUpdaterPath() {
@@ -159,7 +159,7 @@ export async function killAppProcesses() {
 // Resolve Aries CLI binary to relaunch after update (cross-platform)
 function resolveRelaunchCommand() {
   const isWin = process.platform === "win32";
-  // Prefer `npx xrouter` — works regardless of global bin path changes after npm i -g
+  // Prefer `npx aries` — works regardless of global bin path changes after npm i -g
   const npx = isWin ? "npx.cmd" : "npx";
   return { cmd: npx, args: [UPDATER_CONFIG.npmPackageName] };
 }

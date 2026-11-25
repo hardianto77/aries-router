@@ -1,8 +1,8 @@
 /**
- * Hermes Agent Persona Sync for XRouter
+ * Hermes Agent Persona Sync for Aries
  * Inspired by OhMyRouter OmopV2 (src/persona/hermes-sync.ts)
  * 
- * Synchronizes persona / system prompts from XRouter Model Bypass (Prompt Injections)
+ * Synchronizes persona / system prompts from Aries Model Bypass (Prompt Injections)
  * into $HERMES_HOME/SOUL.md or $SYNAPSE_HOME/SOUL.md with automatic timestamped backup.
  */
 

@@ -1,32 +1,98 @@
 import fs from "node:fs";
-import { getProxyPools, createProxyPool, updateProxyPool, deleteProxyPools, getProviderConnections } from "@/models";
+import { fetch as undiciFetch } from "undici";
+import {
+  getProxyPools,
+  createProxyPool,
+  updateProxyPool,
+  deleteProxyPools,
+  getProviderConnections,
+  updateProviderConnection,
+} from "@/models";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import {
   globalResidentialPool,
   sanitizeResidentialConfig,
   maskProxyUrl,
+  normalizeProxyInput,
+  isForbiddenNonResidentialUrl,
+  PURE_RESIDENTIAL_STATUS_URL,
+  PURE_RESIDENTIAL_GATEWAY_URL,
 } from "./residentialProxyEngine.js";
 
 export const RESIDENTIAL_GATEWAY_ID = "residential-auto-hedge";
+export const RESI_ROTATING_POOL_ID = "8564ef81-7101-4e86-af4b-cd436fa5d50f";
+
 export const VPS_RESIDENTIAL_SOURCE_FILES = [
+  "/home/ubuntu/live_floppy_fresh.txt",
+  "/home/ubuntu/active_floppy_verified.txt",
+  "/home/ubuntu/floppy_alive_100.txt",
+  "/home/ubuntu/resi-fresh-alive.txt",
   "/home/ubuntu/resi-tested-alive.txt",
   "/home/ubuntu/live_residential_proxies.txt",
   "/home/ubuntu/residential_proxy_mafia.txt",
+  "/home/ubuntu/clean_residential.txt",
 ];
 
 export function isManagedResidentialRecord(pool) {
   if (!pool) return false;
-  if (pool.id === RESIDENTIAL_GATEWAY_ID) return true;
+  if (pool.id === RESIDENTIAL_GATEWAY_ID || pool.id === RESI_ROTATING_POOL_ID) return true;
   if (pool.type === "residential") return true;
   if (pool.ipType === "residential" || pool.ipType === "datacenter") return true;
   return false;
 }
 
+export async function fetchGatewayStatus(timeoutMs = 2500) {
+  try {
+    const res = await undiciFetch(PURE_RESIDENTIAL_STATUS_URL, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function reloadGatewayUpstreams() {
+  try {
+    const reloadUrl = PURE_RESIDENTIAL_STATUS_URL.replace(/\/status$/, "/reload");
+    const res = await undiciFetch(reloadUrl, {
+      method: "POST",
+      body: "{}",
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function deduplicateResidentialPools() {
+  const allPools = await getProxyPools().catch(() => []);
+  const seen = new Map();
+  const duplicateIds = [];
+  for (const p of allPools) {
+    if (p.id === RESIDENTIAL_GATEWAY_ID || p.id === RESI_ROTATING_POOL_ID) continue;
+    const u = String(p.proxyUrl || "").trim();
+    if (!u) continue;
+    if (seen.has(u)) {
+      duplicateIds.push(p.id);
+    } else {
+      seen.set(u, p.id);
+    }
+  }
+  if (duplicateIds.length > 0) {
+    await deleteProxyPools(duplicateIds);
+  }
+  return duplicateIds.length;
+}
+
 export async function loadSyncedResidentialState() {
-  const [settings, allPools, connections] = await Promise.all([
+  const [settings, allPools, connections, gatewayStatus] = await Promise.all([
     getSettings().catch(() => ({})),
     getProxyPools().catch(() => []),
     getProviderConnections().catch(() => []),
+    fetchGatewayStatus(2200),
   ]);
 
   const config = sanitizeResidentialConfig(settings?.residentialProxyConfig || {});
@@ -36,7 +102,8 @@ export async function loadSyncedResidentialState() {
   const providerSummaryMap = new Map();
 
   for (const conn of connections) {
-    const pid = conn?.providerSpecificData?.proxyPoolId;
+    const psd = conn?.providerSpecificData || {};
+    const pid = psd.proxyPoolId;
     if (pid) usageMap.set(pid, (usageMap.get(pid) || 0) + 1);
 
     const prov = conn.provider;
@@ -46,6 +113,8 @@ export async function loadSyncedResidentialState() {
         totalConnections: 0,
         activeConnections: 0,
         residentialBoundCount: 0,
+        directCount: 0,
+        nonResidentialOrDeadCount: 0,
       });
     }
     const entry = providerSummaryMap.get(prov);
@@ -53,15 +122,47 @@ export async function loadSyncedResidentialState() {
     if (conn.isActive !== false) entry.activeConnections++;
   }
 
-  const managedRecords = allPools.filter((p) => isManagedResidentialRecord(p) && p.id !== RESIDENTIAL_GATEWAY_ID);
-  const resiIds = new Set(managedRecords.map((p) => p.id));
+  const poolById = new Map(allPools.map((p) => [p.id, p]));
+  const managedRecords = allPools.filter(
+    (p) =>
+      isManagedResidentialRecord(p) &&
+      p.id !== RESIDENTIAL_GATEWAY_ID &&
+      p.id !== RESI_ROTATING_POOL_ID &&
+      !String(p.proxyUrl || "").includes("127.0.0.1:20188") &&
+      !String(p.proxyUrl || "").startsWith("residential://")
+  );
+  const resiIds = new Set(
+    managedRecords.filter((p) => p.isActive === true && p.isResidential === true && p.ipType === "residential").map((p) => p.id)
+  );
   resiIds.add(RESIDENTIAL_GATEWAY_ID);
+  resiIds.add(RESI_ROTATING_POOL_ID);
 
   for (const conn of connections) {
-    const pid = conn?.providerSpecificData?.proxyPoolId;
-    if (pid && resiIds.has(pid)) {
-      const entry = providerSummaryMap.get(conn.provider);
-      if (entry) entry.residentialBoundCount++;
+    if (conn.isActive === false) continue;
+    const psd = conn?.providerSpecificData || {};
+    const pid = psd.proxyPoolId;
+    const curl = String(psd.connectionProxyUrl || "");
+    const entry = providerSummaryMap.get(conn.provider);
+    if (!entry) continue;
+
+    const pool = pid ? poolById.get(pid) : null;
+    const isResiPool = pid && resiIds.has(pid);
+    const isResiUrl = curl === "residential://auto" || curl.includes("127.0.0.1:20188");
+    const isProxied = psd.connectionProxyEnabled === true || Boolean(pid);
+
+    if (!isProxied) {
+      entry.directCount++;
+    } else if (isResiPool || isResiUrl) {
+      entry.residentialBoundCount++;
+    } else if (
+      isForbiddenNonResidentialUrl(curl) ||
+      !pool ||
+      pool.isActive === false ||
+      pool.testStatus === "error" ||
+      pool.testStatus === "datacenter_blocked" ||
+      pool.testStatus === "retired"
+    ) {
+      entry.nonResidentialOrDeadCount++;
     }
   }
 
@@ -77,12 +178,28 @@ export async function loadSyncedResidentialState() {
     config,
     metrics,
     nodes: metrics.nodes,
+    gateway: gatewayStatus
+      ? {
+          ...gatewayStatus,
+          gatewayUrl: PURE_RESIDENTIAL_GATEWAY_URL,
+        }
+      : {
+          listening: false,
+          engine: "Aries Pure-Residential Fresh Gateway v4.2",
+          gatewayUrl: PURE_RESIDENTIAL_GATEWAY_URL,
+          upstreams: 0,
+          alive: 0,
+          quarantined: 0,
+          datacenterBlocked: 0,
+          nodes: [],
+        },
     gatewayPool: gatewayPool
       ? {
           id: gatewayPool.id,
           name: gatewayPool.name,
           isActive: gatewayPool.isActive,
-          boundConnectionCount: usageMap.get(gatewayPool.id) || 0,
+          boundConnectionCount:
+            (usageMap.get(gatewayPool.id) || 0) + (usageMap.get(RESI_ROTATING_POOL_ID) || 0),
         }
       : null,
     providers,
@@ -102,8 +219,10 @@ export async function persistResidentialProbeResult(probeResult, existingPool = 
   })();
 
   const isResi = probeResult.ok && probeResult.isResidential === true;
-  const isDc = probeResult.ok && probeResult.ipType === "datacenter";
-  const shouldActivate = probeResult.ok && (cfg.strictResidentialOnly ? isResi : !isDc);
+  const isDc =
+    isForbiddenNonResidentialUrl(probeResult.proxyUrl) ||
+    (probeResult.ok && probeResult.ipType === "datacenter");
+  const shouldActivate = probeResult.ok && !isDc && (cfg.strictResidentialOnly ? isResi : true);
   const geoTag = probeResult.countryCode && probeResult.countryCode !== "UN" ? `-${probeResult.countryCode}` : "";
   const defaultName = isResi
     ? `Resi${geoTag} ${probeResult.isp || hostLabel}`.slice(0, 64)
@@ -112,18 +231,18 @@ export async function persistResidentialProbeResult(probeResult, existingPool = 
       : `Resi-Node ${hostLabel}`.slice(0, 64);
 
   const payload = {
-    name: existingPool?.name || defaultName,
+    name: existingPool?.name && !String(existingPool.name).startsWith("Blocked-DC") ? existingPool.name : defaultName,
     proxyUrl: probeResult.proxyUrl,
     noProxy: existingPool?.noProxy || "127.0.0.1,localhost,",
     type: "residential",
     isActive: shouldActivate,
     strictProxy: true,
-    testStatus: !probeResult.ok ? "error" : isDc ? "datacenter_blocked" : isResi ? "active" : "unverified",
+    testStatus: isDc ? "datacenter_blocked" : !probeResult.ok ? "error" : isResi ? "active" : "unverified",
     lastTestedAt: now,
-    lastError: !probeResult.ok
-      ? probeResult.error || "Probe failed"
-      : isDc
-        ? probeResult.reason || "Blocked datacenter ASN"
+    lastError: isDc
+      ? probeResult.reason || "Blocked datacenter/WARP ASN"
+      : !probeResult.ok
+        ? probeResult.error || "Probe failed"
         : null,
     egressIp: probeResult.egressIp || existingPool?.egressIp || null,
     lastTestIp: probeResult.egressIp || existingPool?.lastTestIp || null,
@@ -133,7 +252,8 @@ export async function persistResidentialProbeResult(probeResult, existingPool = 
     isp: probeResult.isp || existingPool?.isp || null,
     org: probeResult.org || existingPool?.org || null,
     asn: probeResult.asn || existingPool?.asn || null,
-    ipType: probeResult.ipType || "unverified",
+    networkClass: isDc ? "datacenter" : probeResult.networkClass || existingPool?.networkClass || "unverified",
+    ipType: isDc ? "datacenter" : probeResult.ipType || "unverified",
     isResidential: isResi,
     latencyMs: probeResult.latencyMs || existingPool?.latencyMs || null,
     healthScore: shouldActivate ? 100 : isDc ? 10 : 20,
@@ -146,6 +266,9 @@ export async function persistResidentialProbeResult(probeResult, existingPool = 
 }
 
 export async function ensureResidentialGatewayPool(activeNodeCount = 0) {
+  const gwStatus = await fetchGatewayStatus(1500);
+  const gwAlive = gwStatus?.alive || 0;
+  const totalHealthy = Math.max(activeNodeCount, gwAlive);
   const existing = (await getProxyPools()).find((p) => p.id === RESIDENTIAL_GATEWAY_ID);
   const now = new Date().toISOString();
   const data = {
@@ -154,11 +277,11 @@ export async function ensureResidentialGatewayPool(activeNodeCount = 0) {
     proxyUrl: "residential://auto",
     noProxy: "127.0.0.1,localhost,",
     type: "residential",
-    isActive: activeNodeCount > 0,
+    isActive: totalHealthy > 0,
     strictProxy: true,
-    testStatus: activeNodeCount > 0 ? "active" : "disabled",
+    testStatus: totalHealthy > 0 ? "active" : "disabled",
     lastTestedAt: now,
-    lastError: activeNodeCount > 0 ? null : "No verified residential nodes online",
+    lastError: totalHealthy > 0 ? null : "No verified residential nodes online",
     isResidential: true,
     ipType: "residential",
   };
@@ -168,7 +291,78 @@ export async function ensureResidentialGatewayPool(activeNodeCount = 0) {
   return await createProxyPool(data);
 }
 
-export function collectVpsCandidateUrls(limit = 60) {
+export async function healDeadAndNonResidentialConnections({ provider = null, resetProxyErrors = true } = {}) {
+  const [allPools, connections, gwStatus] = await Promise.all([
+    getProxyPools(),
+    getProviderConnections(),
+    fetchGatewayStatus(1500),
+  ]);
+
+  const poolById = new Map(allPools.map((p) => [p.id, p]));
+  const healthyResiNodes = allPools.filter(
+    (p) =>
+      p.isActive === true &&
+      p.isResidential === true &&
+      p.ipType === "residential" &&
+      p.id !== RESIDENTIAL_GATEWAY_ID &&
+      !isForbiddenNonResidentialUrl(p.proxyUrl)
+  );
+
+  if (healthyResiNodes.length === 0 && !(gwStatus?.alive > 0)) {
+    throw new Error("No verified Fresh Residential nodes online to inject.");
+  }
+
+  await ensureResidentialGatewayPool(healthyResiNodes.length);
+
+  let healedCount = 0;
+  let checkedCount = 0;
+  for (const conn of connections) {
+    if (conn.isActive === false) continue;
+    if (provider && conn.provider !== provider) continue;
+
+    const psd = conn.providerSpecificData || {};
+    if (psd.connectionProxyEnabled !== true && !psd.proxyPoolId) continue;
+
+    checkedCount++;
+    const pid = psd.proxyPoolId;
+    const curl = String(psd.connectionProxyUrl || "");
+    const pool = pid ? poolById.get(pid) : null;
+
+    const isBadPool =
+      (pid && !pool) ||
+      (pool && (pool.isActive === false || pool.testStatus === "error" || pool.testStatus === "datacenter_blocked" || pool.testStatus === "retired")) ||
+      (pool && pool.id !== RESIDENTIAL_GATEWAY_ID && pool.id !== RESI_ROTATING_POOL_ID && isForbiddenNonResidentialUrl(pool.proxyUrl));
+    const isBadUrl = isForbiddenNonResidentialUrl(curl) && curl !== "residential://auto" && !curl.includes("127.0.0.1:20188");
+    const hasTransportErr = typeof conn.lastError === "string" && /502|504|524|407|proxy|timeout|tunnel|ECONNREFUSED|ETIMEDOUT/i.test(conn.lastError);
+
+    if (isBadPool || isBadUrl || (resetProxyErrors && hasTransportErr)) {
+      const patch = {
+        providerSpecificData: {
+          ...psd,
+          proxyPoolId: RESIDENTIAL_GATEWAY_ID,
+          connectionProxyEnabled: true,
+          connectionProxyUrl: "residential://auto",
+          connectionNoProxy: psd.connectionNoProxy || "127.0.0.1,localhost,",
+        },
+      };
+      if (resetProxyErrors && hasTransportErr) {
+        patch.testStatus = "active";
+        patch.lastError = null;
+      }
+      await updateProviderConnection(conn.id, patch);
+      healedCount++;
+    }
+  }
+
+  globalResidentialPool.recordEvent(
+    "auto_heal",
+    `Checked ${checkedCount} proxied connections; injected pure-residential egress into ${healedCount} dead/non-residential connection(s).`
+  );
+
+  return { checkedCount, healedCount };
+}
+
+export function collectVpsCandidateUrls(limit = 200) {
   const candidates = [];
   const seen = new Set();
   for (const filePath of VPS_RESIDENTIAL_SOURCE_FILES) {
@@ -178,10 +372,16 @@ export function collectVpsCandidateUrls(limit = 60) {
       for (const line of raw.split(/\r?\n/)) {
         const token = line.trim().split(/\s+/)[0];
         if (!token || token.startsWith("#")) continue;
-        if (!/^(https?|socks5):\/\//i.test(token)) continue;
-        if (!seen.has(token)) {
-          seen.add(token);
-          candidates.push(token);
+        let normalized = null;
+        try {
+          normalized = normalizeProxyInput(token);
+        } catch {
+          continue;
+        }
+        if (!normalized || isForbiddenNonResidentialUrl(normalized)) continue;
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          candidates.push(normalized);
           if (candidates.length >= limit) return candidates;
         }
       }

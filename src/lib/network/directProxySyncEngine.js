@@ -6,7 +6,7 @@
  * - Sinkronisasi otomatis ProxyVault (port 8022) + Residential IP Fresh + WARP Egress Rotation.
  * - Binding murni 1-on-1 direct proxy (`connectionProxyUrl`), TANPA group proxy pool (`proxyPoolId = null`).
  * - Monitoring & Auto-replace instan jika mendeteksi proxy/WARP yang mati/unreachable.
- * - Terintegrasi langsung dengan SQLite `providerConnections` dan database adapter 9Router.
+ * - Terintegrasi langsung dengan SQLite `providerConnections` dan database adapter Aries.
  */
 
 import { execFile } from "node:child_process";

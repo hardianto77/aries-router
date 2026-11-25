@@ -1,5 +1,5 @@
 import { getSettings } from "../localDb.js";
-export const PASSWORD_HEADER = "x-9r-password";
+export const PASSWORD_HEADER = "x-aries-password";
 export async function verifyPollToken(job, token) {
   if (!token || !job?.pollToken) return false;
   return String(token) === String(job.pollToken);

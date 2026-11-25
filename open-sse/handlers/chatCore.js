@@ -136,7 +136,7 @@ export async function handleChatCore({ body, stripRefusal = false, modelInfo, cr
               "Content-Type": "text/event-stream; charset=utf-8",
               "Cache-Control": "no-cache",
               Connection: "keep-alive",
-              "X-9Router-Cache": "HIT",
+              "X-Aries-Cache": "HIT",
             },
           }),
         };
@@ -145,7 +145,7 @@ export async function handleChatCore({ body, stripRefusal = false, modelInfo, cr
       return {
         success: true,
         response: new Response(JSON.stringify(cachedResponse), {
-          headers: { "Content-Type": "application/json", "X-9Router-Cache": "HIT" },
+          headers: { "Content-Type": "application/json", "X-Aries-Cache": "HIT" },
         }),
       };
     }

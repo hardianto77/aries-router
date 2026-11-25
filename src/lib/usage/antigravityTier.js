@@ -22,7 +22,7 @@ try {
   } catch {}
 }
 
-const DB_PATH = process.env.DATABASE_PATH || "/root/.xrouter/db/data.sqlite";
+const DB_PATH = process.env.DATABASE_PATH || "/root/.aries/db/data.sqlite";
 const AG_BASE = "https://daily-cloudcode-pa.googleapis.com/v1internal";
 const UA = "Antigravity/2.11.0 darwin/24.0.0";
 

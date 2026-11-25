@@ -66,7 +66,7 @@ export default function ExperimentsClient() {
             Experiment Features
           </h1>
           <p className="text-xs text-text-muted mt-1">
-            Experimental capabilities and advanced protection for 9Router.
+            Experimental capabilities and advanced protection for Aries.
           </p>
         </div>
 

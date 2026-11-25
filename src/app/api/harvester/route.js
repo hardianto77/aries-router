@@ -112,7 +112,7 @@ async function probeProxy(hostPort, timeoutMs = PROBE_TIMEOUT_MS) {
     const res = await undiciFetch("https://1.1.1.1/cdn-cgi/trace", {
       dispatcher,
       signal: controller.signal,
-      headers: { "User-Agent": "9Router" },
+      headers: { "User-Agent": "Aries" },
     });
     clearTimeout(timer);
     if (!res.ok) return { ok: false };

@@ -10,7 +10,7 @@ import { makeKv } from "../helpers/kvStore.js";
 const kv = makeKv("autoBackup");
 
 const ENCRYPT_ALGO = "aes-256-gcm";
-const ENCRYPT_SALT = "9router-backup-token-salt";
+const ENCRYPT_SALT = "xrouter-backup-token-salt";
 
 function deriveKey() {
   try {

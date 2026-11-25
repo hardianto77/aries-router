@@ -11,7 +11,7 @@ let cachedWreq = null;
 
 function getNativeRequire() {
   if (typeof globalThis !== "undefined") {
-    if (typeof globalThis.__xrouter_native_require__ === "function") return globalThis.__xrouter_native_require__;
+    if (typeof globalThis.__aries_native_require__ === "function") return globalThis.__aries_native_require__;
     if (typeof globalThis.__non_webpack_require__ === "function") return globalThis.__non_webpack_require__;
   }
   if (typeof __non_webpack_require__ === "function") return __non_webpack_require__;
@@ -44,8 +44,8 @@ async function getWreqModule() {
   if (cachedWreq) return cachedWreq;
 
   // 0. Global preloaded instance from custom-server.js / standalone server.js
-  if (typeof globalThis !== "undefined" && isValidWreq(globalThis.__xrouter_wreq__)) {
-    cachedWreq = normalizeWreq(globalThis.__xrouter_wreq__);
+  if (typeof globalThis !== "undefined" && isValidWreq(globalThis.__aries_wreq__)) {
+    cachedWreq = normalizeWreq(globalThis.__aries_wreq__);
     return cachedWreq;
   }
 
@@ -88,8 +88,8 @@ async function getWreqModule() {
     path.resolve(cwd, ".next", "standalone", "package.json"),
     path.resolve(cwd, "..", "package.json"),
     path.resolve(cwd, "..", "..", "package.json"),
-    "/root/xrouter/.next/standalone/package.json",
-    "/root/xrouter/package.json",
+    "/root/aries/.next/standalone/package.json",
+    "/root/aries/package.json",
   ];
 
   if (typeof createReq === "function") {
@@ -110,8 +110,8 @@ async function getWreqModule() {
       path.resolve(cwd, "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
       path.resolve(cwd, ".next", "standalone", "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
       path.resolve(cwd, "..", "..", "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
-      "/root/xrouter/.next/standalone/node_modules/wreq-js/dist/wreq-js.cjs",
-      "/root/xrouter/node_modules/wreq-js/dist/wreq-js.cjs",
+      "/root/aries/.next/standalone/node_modules/wreq-js/dist/wreq-js.cjs",
+      "/root/aries/node_modules/wreq-js/dist/wreq-js.cjs",
     ];
 
     for (const direct of directCandidates) {
@@ -147,8 +147,8 @@ async function getWreqModule() {
     const directCandidates = [
       path.resolve(cwd, "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
       path.resolve(cwd, ".next", "standalone", "node_modules", "wreq-js", "dist", "wreq-js.cjs"),
-      "/root/xrouter/.next/standalone/node_modules/wreq-js/dist/wreq-js.cjs",
-      "/root/xrouter/node_modules/wreq-js/dist/wreq-js.cjs",
+      "/root/aries/.next/standalone/node_modules/wreq-js/dist/wreq-js.cjs",
+      "/root/aries/node_modules/wreq-js/dist/wreq-js.cjs",
     ];
     const dynamicImport = new Function("specifier", "return import(specifier)");
     for (const file of directCandidates) {

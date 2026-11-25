@@ -256,7 +256,7 @@ export async function executeViaAgyCli(request) {
     const tools = bridgeTools(body);
     const modelId = agyModelId(model);
     const connectionId = credentials.connectionId || "default";
-    // Empty workDir keeps agy in its isolated temp workspace instead of scanning xrouter's server repo
+    // Empty workDir keeps agy in its isolated temp workspace instead of scanning aries's server repo
     const workDir = typeof inner.cwd === "string" && inner.cwd ? inner.cwd : "";
     const agyHome = isRecord(credentials?.providerSpecificData) ? homeOf(credentials.providerSpecificData.agyHome) : null;
     const url = `agy-cli://${modelId}`;

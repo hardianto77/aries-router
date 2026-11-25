@@ -41,7 +41,7 @@ const STARTUP_DELAY_MS = 1500;
 const ON_DEMAND_THROTTLE_MS = 15 * 1000;
 const COMPATIBLE_FETCH_TIMEOUT_MS = 8000;
 
-export const INTERNAL_MODELS_FETCH_HEADER = "x-9r-internal-models-fetch";
+export const INTERNAL_MODELS_FETCH_HEADER = "x-aries-internal-models-fetch";
 
 const catalogCache = new Map();
 let lastRefreshAt = 0;

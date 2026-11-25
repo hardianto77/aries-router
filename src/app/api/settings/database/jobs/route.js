@@ -4,7 +4,7 @@ import { verifyDashboardPassword } from "@/lib/auth/dashboardSession";
 export const dynamic = "force-dynamic";
 import { createImportJob } from "@/lib/db/importJobs";
 
-const CLI_TOKEN_HEADER = "x-9r-cli-token";
+const CLI_TOKEN_HEADER = "x-aries-cli-token";
 const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
 
 // CLI token requests are already trusted (local machine); skip password re-auth.

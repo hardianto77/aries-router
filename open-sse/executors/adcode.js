@@ -8,7 +8,7 @@ import os from "node:os";
 
 // Same resolution order as src/lib/dataDir.js, inlined so the executor also
 // loads outside the Next bundler (CLI smoke tests, worker processes).
-const DATA_DIR = process.env.DATA_DIR || path.join(os.homedir(), ".xrouter");
+const DATA_DIR = process.env.DATA_DIR || path.join(os.homedir(), ".aries");
 
 /**
  * ADCode / Tagflow executor — bring-your-own-account.

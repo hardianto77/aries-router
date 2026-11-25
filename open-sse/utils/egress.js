@@ -186,7 +186,7 @@ async function probeDirectIp() {
     try {
       req = lib.get(url, {
         headers: {
-          "user-agent": "9router-egress-probe",
+          "user-agent": "aries-egress-probe",
           accept: "application/json, text/plain;q=0.9, */*;q=0.8",
         },
       }, (res) => {

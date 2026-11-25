@@ -425,7 +425,7 @@ function buildOllamaSearchRequest(config, params) {
 function buildGlmSearchRequest(config, params) {
   const body = {
     jsonrpc: "2.0",
-    id: `9r-${Date.now()}`,
+    id: `aries-${Date.now()}`,
     method: "tools/call",
     params: {
       name: "web_search_prime",

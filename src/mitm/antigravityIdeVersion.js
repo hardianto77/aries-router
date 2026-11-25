@@ -3,7 +3,7 @@
 // Rewrite Antigravity IDE identity markers on generation requests bound for the
 // Antigravity backend so upstream AG 2.x accepts them.
 //
-// Matches decolua/9router behavior:
+// Matches decolua/aries behavior:
 // 1. Only generation endpoints (:generateContent / :streamGenerateContent) are rewritten.
 //    Non-chat onboarding/setup endpoints (:loadCodeAssist, :onboardUser, :fetchAvailableModels,
 //    :retrieveUserQuotaSummary) pass through cleanly without injecting unauthorized fields,
@@ -23,7 +23,7 @@ const ANTIGRAVITY_IDE_TYPE = 9;
 // The platform tail of a UA, e.g. "linux/x64" in "antigravity/hub/2.32.1 linux/x64".
 const UA_PLATFORM_RE = /\b(linux|darwin|win32|windows|freebsd|aarch64|arm64|x64|amd64)\b[^\s]*/i;
 
-// In decolua/9router, only chat generation endpoints are rewritten
+// In decolua/aries, only chat generation endpoints are rewritten
 const ANTIGRAVITY_IDENTITY_URL_PARTS = [
   ":generateContent",
   ":streamGenerateContent",
@@ -54,7 +54,7 @@ function shouldRewriteMetadata(metadata) {
 /**
  * Stamp canonical identity onto existing metadata.
  * Does NOT inject new metadata into payloads that do not have it,
- * matching decolua/9router to avoid Google Protobuf schema rejection.
+ * matching decolua/aries to avoid Google Protobuf schema rejection.
  */
 function stampAntigravityIdentity(parsed) {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;

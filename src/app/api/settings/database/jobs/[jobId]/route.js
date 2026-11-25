@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import { verifyPollToken, PASSWORD_HEADER } from "@/lib/db/importJobAuth.js";
 import { getImportJob } from "@/lib/db/importJobs";
 
-const CLI_TOKEN_HEADER = "x-9r-cli-token";
+const CLI_TOKEN_HEADER = "x-aries-cli-token";
 
 // CLI token requests are already trusted (local machine); skip password re-auth.
 function isCliRequest(request) {
@@ -29,7 +29,7 @@ export async function GET(request, context) {
     // before the token existed, but it must not be the primary path: the
     // import replaces the very settings row that stores the password hash, so
     // comparing against it mid-import 401s an already-authenticated poll.
-    const pollToken = request.headers.get("x-9r-poll-token") || "";
+    const pollToken = request.headers.get("x-aries-poll-token") || "";
     const authorized = isCliRequest(request)
       || verifyPollToken(job, pollToken)
       || (await verifyDashboardPassword(request.headers.get(PASSWORD_HEADER)));

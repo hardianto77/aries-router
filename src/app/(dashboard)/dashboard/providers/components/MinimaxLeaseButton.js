@@ -8,7 +8,7 @@ import { translate } from "@/i18n/runtime";
 // "Use Desktop App" for MiniMax Code: creates a lease connection that borrows
 // the signed-in MiniMax Code desktop app's credentials over its local
 // named-pipe broker. No browser login, no stored refresh token — the desktop
-// app keeps owning token refresh, so the official CLI and 9router can share
+// app keeps owning token refresh, so the official CLI and aries can share
 // the same subscription without their single-use refresh tokens fighting.
 export default function MinimaxLeaseButton({ providerId, onConnected, size = "sm" }) {
   const [busy, setBusy] = useState(false);

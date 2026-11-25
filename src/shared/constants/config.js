@@ -9,8 +9,8 @@ export const APP_CONFIG = {
 
 // GitHub configuration
 export const GITHUB_CONFIG = {
-  changelogUrl: "https://raw.githubusercontent.com/hardianto77/aries-router/refs/heads/merge-xrouter-theirs/CHANGELOG.md",
-  donateUrl: "https://9router.com/api/donate",
+  changelogUrl: "https://raw.githubusercontent.com/hardianto77/aries-router/refs/heads/merge-aries-theirs/CHANGELOG.md",
+  donateUrl: "https://aries.com/api/donate",
   repoUrl: "https://github.com/hardianto77/aries-router",
   apiRepo: "hardianto77/aries-router", // update checks compare the running checkout with this
   branch: "master",
@@ -18,16 +18,16 @@ export const GITHUB_CONFIG = {
 
 // Post-login thank-you dialog: shown once per login, skippable forever.
 export const WELCOME_CONFIG = {
-  shownKey: "9router:welcomeAfterLogin",
-  hideKey: "9router:welcomeNeverShow",
+  shownKey: "aries:welcomeAfterLogin",
+  hideKey: "aries:welcomeNeverShow",
 };
 
 // Updater configuration
 export const UPDATER_CONFIG = {
   // This install is a fork of the upstream npm package: pulling the published
-  // `9router` from npm would hand the operator a different codebase than the one
+  // `aries` from npm would hand the operator a different codebase than the one
   // reporting the update, so the command points at this repository instead.
-  npmPackageName: "9router",
+  npmPackageName: "aries",
   repoPackageSpec: "github:hardianto77/aries-router",
   installCmd: "npm install -g github:hardianto77/aries-router",
   installCmdLatest: "npm install -g github:hardianto77/aries-router@master",

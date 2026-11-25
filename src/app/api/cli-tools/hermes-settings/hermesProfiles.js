@@ -10,7 +10,7 @@
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { parseModelBlock, parseDelegationBlock, parseAuxRoles, has9RouterConfig } from "./hermesYaml.js";
+import { parseModelBlock, parseDelegationBlock, parseAuxRoles, hasAriesConfig } from "./hermesYaml.js";
 
 // Profile names become directory names and command aliases — keep them inert.
 export const PROFILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -101,7 +101,7 @@ const buildEntry = async (name, dir, isDefault) => {
     baseUrl: model?.base_url || null,
     // Local-endpoint detection only (same rule as the settings GET) — a tunnel endpoint
     // reports false here and shows up as "other" in the UI, exactly like the default profile.
-    has9Router: has9RouterConfig(model) || has9RouterConfig(delegation) || Object.values(auxiliary).some(has9RouterConfig),
+    hasAries: hasAriesConfig(model) || hasAriesConfig(delegation) || Object.values(auxiliary).some(hasAriesConfig),
   };
 };
 

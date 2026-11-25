@@ -8,8 +8,8 @@ import { SERENHOPE_SOURCE, DECOLUA_SOURCE, DEFAULT_CHANGELOG_SOURCE, availableCh
 
 marked.setOptions({ gfm: true, breaks: true });
 
-const DECOLUA_URL = "https://raw.githubusercontent.com/decolua/9router/refs/heads/master/CHANGELOG.md";
-const SERENHOPE_URL = "https://raw.githubusercontent.com/serenhope/9router/refs/heads/master/CHANGELOG.md";
+const DECOLUA_URL = "https://raw.githubusercontent.com/decolua/aries/refs/heads/master/CHANGELOG.md";
+const SERENHOPE_URL = "https://raw.githubusercontent.com/serenhope/aries/refs/heads/master/CHANGELOG.md";
 const CHANGELOG_API_URL = "/api/changelog";
 
 function asMarkdown(value) {
@@ -235,17 +235,17 @@ const CATEGORY_ALIAS = {
   "cli tools provider logos": "UI",
   "cli tools provider logos - uniform, larger, no background tint": "UI",
   "provider logos": "UI",
-  "provider logos - transparent backgrounds, uniform size, 9router + llmtr marks": "UI",
-  "9router sidebar logo": "UI",
-  "9router sidebar logo - replaced with the new brand mark": "UI",
+  "provider logos - transparent backgrounds, uniform size, aries + llmtr marks": "UI",
+  "aries sidebar logo": "UI",
+  "aries sidebar logo - replaced with the new brand mark": "UI",
   "runcrate": "UI",
   "runcrate - real logo instead of the rc text tile": "UI",
   "cli tools logo tiles": "UI",
   "cli tools logo tiles - transparent background, logo only": "UI",
   "upstream feature port": "Internal",
   "upstream port completion": "Internal",
-  "upstream feature port (decolua/9router v0.5.112)": "Internal",
-  "upstream port completion (decolua/9router v0.5.112)": "Internal",
+  "upstream feature port (decolua/aries v0.5.112)": "Internal",
+  "upstream port completion (decolua/aries v0.5.112)": "Internal",
   "opencode free lane divergence clean-up": "Internal",
   "opencode free lane divergence clean-up (post-v0.5.112 port)": "Internal",
 };

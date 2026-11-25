@@ -178,7 +178,7 @@ export default function LeftRail() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("xrouter_left_rail_pinned");
+      const saved = localStorage.getItem("aries_left_rail_pinned");
       if (saved !== null) {
         setPinned(saved === "true");
       }
@@ -206,7 +206,7 @@ export default function LeftRail() {
     setPinned((prev) => {
       const next = !prev;
       try {
-        localStorage.setItem("xrouter_left_rail_pinned", String(next));
+        localStorage.setItem("aries_left_rail_pinned", String(next));
       } catch {}
       return next;
     });

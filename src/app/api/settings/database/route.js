@@ -6,8 +6,8 @@ import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { verifyDashboardPassword } from "@/lib/auth/dashboardSession";
 import { configureTelegramBackup } from "@/shared/services/telegramBackup";
 
-const CLI_TOKEN_HEADER = "x-9r-cli-token";
-const PASSWORD_HEADER = "x-9r-password";
+const CLI_TOKEN_HEADER = "x-aries-cli-token";
+const PASSWORD_HEADER = "x-aries-password";
 
 // CLI token requests are already trusted (local machine); skip password re-auth.
 function isCliRequest(request) {

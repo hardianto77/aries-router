@@ -528,7 +528,7 @@ export function isDaemonAlive() {
  * Start tailscaled.
  * - With sudoPassword: TUN mode (root) → Funnel TLS works
  * - Without: userspace-networking fallback (no sudo, but Funnel TLS unstable)
- * State always lives in ~/.xrouter/tailscale/ via --statedir.
+ * State always lives in ~/.aries/tailscale/ via --statedir.
  */
 export async function startDaemonWithPassword(sudoPassword) {
   if (IS_WINDOWS) {

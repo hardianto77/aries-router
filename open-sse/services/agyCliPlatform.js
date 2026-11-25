@@ -25,14 +25,14 @@ function resolveDataDir(env = process.env) {
     const configured = env.DATA_DIR || process.env.DATA_DIR;
     if (configured) {
         if (process.platform === "win32" && /^\//.test(configured)) {
-            return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "xrouter");
+            return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "aries");
         }
         return configured;
     }
     if (process.platform === "win32") {
-        return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "xrouter");
+        return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "aries");
     }
-    return path.join(os.homedir(), ".xrouter");
+    return path.join(os.homedir(), ".aries");
 }
 const accountScope = new AsyncLocalStorage();
 const HOME_ID = /^[a-z0-9]{8,32}$/;

@@ -22,7 +22,7 @@ function formatVersion(version) {
 // Ten minutes between checks: fast enough that a release shows up while the tab is
 // open, slow enough that GitHub is not polled on every navigation.
 const POLL_MS = 600000;
-const DISMISSED_KEY = "9router:dismissedUpdate";
+const DISMISSED_KEY = "aries:dismissedUpdate";
 
 function readDismissed() {
   try {
@@ -267,8 +267,8 @@ export default function UpdateBanner({ pollMs = POLL_MS }) {
           setShowConfirm(false);
           setIsUpdating(true);
         }}
-        title="Update 9Router"
-        message={`Update 9Router to ${formatVersion(info.latestVersion)}? The install command is copied and the server shuts down so you can run it in a terminal.`}
+        title="Update Aries"
+        message={`Update Aries to ${formatVersion(info.latestVersion)}? The install command is copied and the server shuts down so you can run it in a terminal.`}
         confirmText="Update"
         cancelText="Cancel"
         variant="primary"

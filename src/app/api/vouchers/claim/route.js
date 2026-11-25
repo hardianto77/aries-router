@@ -243,7 +243,7 @@ export async function POST(request) {
     recordSuccess(ip);
 
     // Determine Base URL
-    const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "xrouter.consoleapi.qzz.io";
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "aries.consoleapi.qzz.io";
     const proto = request.headers.get("x-forwarded-proto") || (host.includes("localhost") || host.includes("127.0.0.1") ? "http" : "https");
     const baseUrl = `${proto}://${host}/v1`;
 

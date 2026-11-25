@@ -399,7 +399,7 @@ const CURSOR_EMPTY_TURN_RETRY_DELAY_MS = (() => {
 export function tailOnlyCursorMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return messages || [];
   const systemMessages = messages.filter(
-    (message) => message?.role === ROLE.SYSTEM && !String(message?.content || "").includes("[xrouter]"),
+    (message) => message?.role === ROLE.SYSTEM && !String(message?.content || "").includes("[aries]"),
   );
   const chatMessages = messages.filter((message) => message?.role !== ROLE.SYSTEM);
   let anchor = chatMessages.length - 1;
@@ -413,7 +413,7 @@ export function tailOnlyCursorMessages(messages) {
   const tail = chatMessages.slice(Math.max(0, tailStart));
   const note = {
     role: ROLE.SYSTEM,
-    content: `[xrouter] Long session: ${messages.length} messages trimmed to the latest turn. Answer the current request; re-read files if needed.`,
+    content: `[aries] Long session: ${messages.length} messages trimmed to the latest turn. Answer the current request; re-read files if needed.`,
   };
   return [...systemMessages, note, ...tail];
 }

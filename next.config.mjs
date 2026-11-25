@@ -202,6 +202,14 @@ const nextConfig = {
       type: "javascript/auto",
       resolve: { fullySpecified: false },
     });
+    // Force agy-mcp-server.mjs to be bundled as JS, not emitted as a
+    // static/media asset (Terser minifies assets as scripts and chokes on
+    // import/export -> build EXIT:1 "cannot be used outside of module code").
+    config.module.rules.unshift({
+      test: /agy-mcp-server\.mjs$/,
+      type: "javascript/auto",
+      resolve: { fullySpecified: false },
+    });
     // Ignore fs/path modules in browser bundle
     if (!isServer) {
       config.resolve.fallback = {

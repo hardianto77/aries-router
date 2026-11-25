@@ -34,13 +34,13 @@ try {
   console.warn("[custom-server] eager auth hooks register:", e && e.message ? e.message : e);
 }
 
-// Per-process secret proving x-9r-real-ip was stamped below rather than sent by the client.
+// Per-process secret proving x-aries-real-ip was stamped below rather than sent by the client.
 // A bare `next start` / `next dev` never loads this file, so it cannot produce a matching
-// header even though the env var is inherited by child processes. Named like x-9r-cli-token
+// header even though the env var is inherited by child processes. Named like x-aries-cli-token
 // so the request-detail header sanitizer redacts it too.
 const PEER_TOKEN = crypto.randomBytes(24).toString("hex");
-process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
-try { globalThis.__xrouter_wreq__ = require("wreq-js"); globalThis.__xrouter_native_require__ = require; } catch(e) { console.warn("[custom-server] wreq preload:", e.message); }
+process.env.ARIES_PEER_TOKEN = PEER_TOKEN;
+try { globalThis.__aries_wreq__ = require("wreq-js"); globalThis.__aries_native_require__ = require; } catch(e) { console.warn("[custom-server] wreq preload:", e.message); }
 
 let backgroundRefreshStarted = false;
 
@@ -262,7 +262,7 @@ function onRequestFinished(req, res, ms) {
     const status = res.statusCode || 0;
     const method = (req.method || "GET").toUpperCase();
     const ip =
-      (req.headers && (req.headers["x-9r-real-ip"] || req.headers["x-real-ip"])) ||
+      (req.headers && (req.headers["x-aries-real-ip"] || req.headers["x-real-ip"])) ||
       (req.socket && req.socket.remoteAddress) ||
       "";
 
@@ -429,13 +429,13 @@ http.createServer = (...args) => {
     // Direct/public sockets remain keyed by the unspoofable peer address.
     const proxyIp = xRealIp || (xff ? String(xff).split(",")[0].trim() : "");
     const ip = isLoopbackProxy && proxyIp ? proxyIp : socketIp;
-    delete req.headers["x-9r-real-ip"];
+    delete req.headers["x-aries-real-ip"];
     delete req.headers["x-forwarded-for"];
-    delete req.headers["x-9r-via-proxy"];
-    delete req.headers["x-9r-peer-token"];
-    req.headers["x-9r-real-ip"] = ip;
-    req.headers["x-9r-peer-token"] = PEER_TOKEN;
-    if (viaProxy) req.headers["x-9r-via-proxy"] = "1";
+    delete req.headers["x-aries-via-proxy"];
+    delete req.headers["x-aries-peer-token"];
+    req.headers["x-aries-real-ip"] = ip;
+    req.headers["x-aries-peer-token"] = PEER_TOKEN;
+    if (viaProxy) req.headers["x-aries-via-proxy"] = "1";
     // Rendered HTML names the chunk hashes of the build that produced it. Next
     // marks prerendered pages `s-maxage=31536000, stale-while-revalidate`, which
     // leaves the browser free to heuristically cache that HTML from Last-Modified.

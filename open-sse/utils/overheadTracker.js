@@ -1,5 +1,5 @@
 /**
- * Microsecond Latency Profiler for XRouter Gateway
+ * Microsecond Latency Profiler for Aries Gateway
  * Inspired by OhMyRouter OmopV2 (src/runtime/overhead.ts)
  * 
  * Tracks latency overhead across request phases (ingress, auth, bypass, plan, upstream, stream)
