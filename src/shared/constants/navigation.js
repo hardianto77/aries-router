@@ -41,6 +41,7 @@ export const DEBUG_ITEMS = [
 
 export const SYSTEM_ITEMS = [
   { href: "/dashboard/profile", label: "Settings", icon: "settings" },
+  { href: "/dashboard/residential-fresh", label: "Residential Fresh Proxy", icon: "wifi_proxy" },
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
   { href: "/dashboard/residential-proxy", label: "Residential Proxy", icon: "home_work" },
 { href: "/dashboard/vouchers", label: "Vouchers", icon: "confirmation_number" },

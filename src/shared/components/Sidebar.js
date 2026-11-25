@@ -43,6 +43,7 @@ const debugItems = [
 ];
 
 const systemItems = [
+  { href: "/dashboard/residential-fresh", label: "Residential Fresh Proxy", icon: "wifi_proxy" },
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
 { href: "/dashboard/vouchers", label: "Vouchers", icon: "confirmation_number" },
 { href: "/dashboard/prd-builder", label: "PRD Builder", icon: "description" },
