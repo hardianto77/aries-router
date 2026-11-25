@@ -148,3 +148,13 @@ export function formatProviderError(error, provider, model, statusCode) {
   const causeStr = causeCode || causeMsg ? ` (cause: ${[causeCode, causeMsg].filter(Boolean).join(": ")})` : "";
   return `[${code}]: ${message}${causeStr}`;
 }
+
+/**
+ * Public error mask: re-wraps an error response so the raw upstream message is
+ * hidden behind a generic 502 when hideError is enabled. Callers in
+ * src/sse/handlers/* route every non-2xx response through this.
+ */
+export function maskHiddenError(response, hideError = false) {
+  if (!hideError || !response || response.status < 400) return response;
+  return errorResponse(502, "Upstream provider error (details hidden)", response.headers);
+}
