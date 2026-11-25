@@ -1,4 +1,4 @@
-import { cpSync, existsSync, rmSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, rmSync, readFileSync, lstatSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -51,7 +51,15 @@ export function copyStandaloneAssets({ projectRoot = process.cwd(), distDir = pr
     const dirSource = resolve(projectRoot, dir);
     const dirDestination = resolve(standaloneDir, dir);
     if (!existsSync(dirSource)) continue;
-    rmSync(dirDestination, { recursive: true, force: true });
+    // SAFETY: if destination is a symlink into the live source tree, rmSync on the
+    // resolved target would wipe the actual source. Unlink the symlink only.
+    try {
+      const st = lstatSync(dirDestination);
+      if (st.isSymbolicLink()) unlinkSync(dirDestination);
+      else rmSync(dirDestination, { recursive: true, force: true });
+    } catch {
+      // destination missing - nothing to clean
+    }
     cpSync(dirSource, dirDestination, { recursive: true, force: true });
     console.log(`[standalone-assets] Copied ${dir}/ to ${dirDestination}`);
   }
