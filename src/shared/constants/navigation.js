@@ -17,7 +17,6 @@ export const COMBINED_WEB_ITEM = {
 export const NAV_ITEMS = [
   { href: "/dashboard/endpoint", label: "Endpoint", icon: "api" },
   { href: "/dashboard/providers", label: "Providers", icon: "dns" },
-  { href: "/dashboard/residential-fresh", label: "Residential Fresh Proxy", icon: "wifi_proxy" },
   { href: "/dashboard/combos", label: "Combos", icon: "layers" },
   { href: "/dashboard/usage", label: "Usage", icon: "bar_chart" },
   { href: "/dashboard/quota", label: "Quota", icon: "data_usage" },
