@@ -115,3 +115,4 @@ start-dev-silent.cjs
 debug.log
 sync_direct_proxies_cron.log
 __pycache__/
+/.next.bak-*/
