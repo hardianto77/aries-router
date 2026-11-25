@@ -41,7 +41,9 @@ export function parseModel(modelStr) {
     const firstSlash = modelStr.indexOf("/");
     const providerOrAlias = modelStr.slice(0, firstSlash);
     const model = modelStr.slice(firstSlash + 1);
-    const provider = resolveProviderAlias(providerOrAlias);
+    let provider = resolveProviderAlias(providerOrAlias);
+    // ponytail: antigravity muse-spark → opencode (parity Go #15, one provider owns the model; add when more cross-provider aliases appear)
+    if ((provider === "antigravity" || providerOrAlias === "ag") && model.includes("muse-spark")) provider = "opencode";
     return { provider, model, isAlias: false, providerAlias: providerOrAlias };
   }
 
@@ -124,13 +126,9 @@ export async function getModelInfoCore(modelStr, aliasesOrGetter) {
 
 // Config-driven prefix → provider inference (first match wins, fallback "openai").
 const MODEL_PREFIX_PROVIDERS = [
-  // Codex CLI sends this bare virtual model for auto-review - keep it on OAuth Codex (#1398).
+  // Codex CLI sends this bare virtual model for auto-review — keep it on OAuth Codex (#1398).
   [/^codex-auto-review$/, "codex"],
   [/^claude-/, "anthropic"],
-  // Bedrock inference profile IDs: us.anthropic.*, global.anthropic.*, eu.anthropic.*, etc.
-  // Claude Code stores the Bedrock model ID directly (e.g. us.anthropic.claude-sonnet-4-6),
-  // so bare usage without a provider/ prefix must route to bedrock, not fall through to openai.
-  [/^(us|eu|ap|global)\.(anthropic|meta|amazon|mistral|xai)\./, "bedrock"],
   [/^gemini-/, "gemini"],
   [/^gpt-/, "openai"],
   [/^o[134]/, "openai"],

@@ -125,20 +125,23 @@ function openAIThinkingDisplay(body) {
   return undefined;
 }
 
-const NATIVE_ONLY_FORMATS = new Set(["gemini-level", "gemini-budget", "claude-budget", "claude-adaptive", "kiro"]);
+const NATIVE_ONLY_FORMATS = new Set(["gemini-level", "gemini-budget", "claude-budget", "claude-adaptive", "zai-anthropic", "kiro"]);
 
 function resolveFormat(targetFormat, model, provider) {
   if (targetFormat === "commandcode") return "commandcode";
+  // A multi-endpoint provider can declare, per transports[] entry, the thinking shape that
+  // endpoint accepts. It wins over the model's thinkingFormat, which describes the Chat wire:
+  // strict /responses upstreams (Meta, OpenCode Go) reject Chat-shaped reasoning_effort /
+  // thinking:{type} and need reasoning:{effort,summary} instead.
+  const transportFmt = provider
+    ? PROVIDERS[provider]?.transports?.find((t) => t.format === targetFormat)?.thinkingFormat
+    : null;
+  if (transportFmt) return transportFmt;
   const providerFmt = provider ? PROVIDERS[provider]?.thinkingFormat : null;
   if (providerFmt) return providerFmt;
   const caps = getCapabilitiesForModel(provider, model);
   const isOpenAIWire = targetFormat === "openai" || targetFormat === "openai-responses";
   if (caps.thinkingFormat && !(isOpenAIWire && NATIVE_ONLY_FORMATS.has(caps.thinkingFormat))) {
-    // Muse (Meta) strict Responses API rejects top-level reasoning_effort and
-    // requires nested reasoning: { effort, summary }. Other upstreams keep Chat-shaped effort.
-    if (provider === "muse" && targetFormat === "openai-responses") {
-      return "openai-responses";
-    }
     return caps.thinkingFormat;
   }
   return FORMAT_TO_NATIVE[targetFormat] || "openai";
@@ -364,7 +367,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display, model = "")
       }
       break;
     }
-    case "zai-anthropic": {
+        case "zai-anthropic": {
       const level = toLevel(eff);
       if (canDisable && (none || level === "none" || level === "minimal")) {
         body.thinking = { type: "disabled" };
@@ -386,13 +389,32 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display, model = "")
     }
     case "deepseek": {
       if (none && canDisable) { body.thinking = { type: "disabled" }; break; }
-      body.thinking = { type: "enabled" };
+      // Keep an explicit budget captured before translation/stripAll; strict
+      // DeepSeek-compatible hosts validate it when thinking is enabled.
+      body.thinking = cfg.mode === "budget" && Number.isFinite(cfg.budget) && cfg.budget > 0
+        ? { type: "enabled", budget_tokens: cfg.budget }
+        : { type: "enabled" };
       // DeepSeek: low/medium→high, xhigh/max→max. Some backends (mimo v2.5-pro/v2.6
       // on opencode-go, probed live) 400 on "max" - clamp to high when the declared
       // levels exclude it.
       const level = toLevel(eff);
       const want = level === "xhigh" || level === "max" ? "max" : "high";
       body.reasoning_effort = want === "max" && supportedLevels && !supportedLevels.includes("max") ? "high" : want;
+      break;
+    }
+    case "mistral": {
+      // Mistral's Chat schema is strict: `thinking` is not a field (422 extra_forbidden,
+      // even when the client only sent reasoning_effort — the DeepSeek-shaped block used
+      // to be injected for deepseek-* ids in Mistral's own catalog). reasoning_effort is
+      // understood but model-gated, so clamp to the level set the model advertises
+      // (deepseek-v4-1-flash-1017: none|low|high|xhigh, mistral-large: low|medium|high)
+      // and send nothing at all when it advertises none — the model default then applies.
+      if (!supportedLevels || !supportedLevels.length) break;
+      if (none && !supportedLevels.includes("none")) break;  // cannot disable
+      const requested = none ? "none" : eff.mode === "auto" ? "high" : toLevel(eff);
+      const level = mapEffortToSupportedLevel(requested, supportedLevels);
+      if (!level || (level === "none" && !supportedLevels.includes("none"))) break;
+      body.reasoning_effort = level;
       break;
     }
     case "kimi": {
@@ -428,13 +450,6 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display, model = "")
         enabled: true,
         ...(level ? { effort: level } : {}),
       };
-      break;
-    }
-    case "llmtr": {
-      // Chat Completions takes `reasoning` as a boolean. A Responses-style
-      // object ({effort,summary}) is rejected. Effort levels collapse to on/off.
-      if (none && canDisable) { body.reasoning = false; break; }
-      body.reasoning = true;
       break;
     }
     case "tokenrouter": {

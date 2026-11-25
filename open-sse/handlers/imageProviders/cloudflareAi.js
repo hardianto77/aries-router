@@ -9,6 +9,13 @@ const MULTIPART_MODELS = new Set([
   "@cf/black-forest-labs/flux-2-klein-9b",
 ]);
 
+function isMultipartModel(model) {
+  return typeof model === "string" && (
+    model.startsWith("@cf/black-forest-labs/flux-2-") ||
+    MULTIPART_MODELS.has(model)
+  );
+}
+
 const OPTIONAL_FIELDS = [
   "negative_prompt",
   "guidance",
@@ -156,7 +163,7 @@ export default {
   },
 
   buildBody: async (model, body) => (
-    MULTIPART_MODELS.has(model)
+    isMultipartModel(model)
       ? buildMultipartBody(body)
       : await buildJsonBody(body)
   ),

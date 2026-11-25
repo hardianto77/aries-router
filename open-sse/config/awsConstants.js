@@ -56,46 +56,26 @@ export const AWS_CREDENTIAL_PROVIDERS_MODULE = "@aws-sdk/credential-providers";
 export const BEDROCK = {
   service: "bedrock",
   defaultRegion: "us-east-1",
-  // Anthropic models on Bedrock take the Anthropic Messages body verbatim, minus `model`
-  // (which lives in the URL) and with this version pin in its place.
   anthropicVersion: "bedrock-2023-05-31",
   streamPath: "invoke-with-response-stream",
   invokePath: "invoke",
-  // Bedrock frames streaming responses as AWS EventStream; each chunk payload is
-  // {"bytes": "<base64 of one Anthropic streaming event>"}.
   chunkEventName: "chunk",
-  // The executor serves one model family per provider entry, because the wire format differs:
-  // Anthropic models on Bedrock take the Anthropic Messages body, while xAI's Grok speaks OpenAI
-  // Chat Completions (verified live — /invoke ignores anthropic_version and returns `choices`).
-  // passthroughModels is on so any inference profile in the family works regardless of region,
-  // but an id from the wrong family would sail through and then fail mid-stream, after the call
-  // was already paid for. Matching the family rejects those upfront instead.
   modelFamilyPatterns: {
     claude: /(^|[./])anthropic\./,
     openai: /(^|[./])xai\./,
   },
-  // Human-readable hint per family, used in the rejection message.
   modelFamilyHints: {
     claude: 'an Anthropic model, e.g. "us.anthropic.claude-sonnet-4-5-20250929-v1:0"',
     openai: 'an xAI model, e.g. "us.xai.grok-4.6"',
   },
-  // Anthropic closes a well-formed stream with this event. Tracking it is what lets us tell a
-  // finished answer from an upstream that hung up cleanly halfway through one.
   terminalEventType: "message_stop",
-  // Credential probe for the dashboard's validate and Test paths: ListFoundationModels on the
-  // control-plane host (bedrock.<region>, not bedrock-runtime.<region>), signed as "bedrock".
   probePath: "foundation-models",
   probeTimeoutMs: 8000,
-  // AWS names the failure in this response header, e.g. "AccessDeniedException:<namespace>".
   errorTypeHeader: "x-amzn-errortype",
-  // Signature accepted, action refused: the credentials are genuine but this identity may not
-  // list models, which says nothing about whether it may invoke them.
   accessDeniedErrorType: "AccessDeniedException",
 };
 
 // === AWS EventStream framing ===
-// Protocol-level bounds shared by every AWS EventStream consumer (Bedrock invoke-with-
-// response-stream and Kiro's CodeWhisperer stream), so the two cannot drift apart.
 export const AWS_EVENTSTREAM = {
   maxMessageBytes: 24 * 1024 * 1024,
   maxHeadersBytes: 128 * 1024,

@@ -1,9 +1,80 @@
 import { Readable } from "stream";
-import { MEMORY_CONFIG } from "../config/runtimeConfig.js";
+import {
+  MEMORY_CONFIG,
+  ALLOW_INSECURE_TLS_FALLBACK,
+  FRESH_RETRY_KEEPALIVE_TIMEOUT_MS,
+  STALE_SOCKET_ERROR_CODES,
+  NON_STALE_SOCKET_ERROR_CODES,
+  STALE_SOCKET_ERROR_SUBSTRINGS,
+  resolveKeepAliveTimeouts,
+  isFreshSocketReplayEnabled,
+} from "../config/runtimeConfig.js";
 import { dbg } from "./debugLog.js";
+import { createProxyDispatcher } from "./proxyDispatcher.js";
+import { TLS_ECDH_CURVE } from "../config/tlsConfig.js";
 
 const originalFetch = globalThis.fetch;
 const proxyDispatchers = new Map();
+const directDispatchers = new Map();
+
+// TLS cert errors must NOT be classified as stale-socket errors: treating
+// them as retryable caused proxy failures to re-loop instead of falling back.
+export function isTlsCertError(error) {
+  if (!error) return false;
+  const code = error?.cause?.code || error?.code || "";
+  return ["ERR_TLS_CERT_ALTNAME_INVALID", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+          "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT",
+          "SELF_SIGNED_CERT_IN_CHAIN", "ERR_INVALID_CERT", "ERR_SSL_WRONG_VERSION_NUMBER"]
+    .includes(code) || /certificate|self-signed|tls/i.test(`${error?.message || ""} ${error?.cause?.message || ""}`);
+}
+
+export function isStaleSocketError(error) {
+  if (!error || error.name === "AbortError" || isTlsCertError(error)) return false;
+  const code = error?.cause?.code || error?.code || "";
+  if (NON_STALE_SOCKET_ERROR_CODES.has(code)) return false;
+  if (STALE_SOCKET_ERROR_CODES.has(code)) return true;
+  const msg = `${error?.message || ""} ${error?.cause?.message || ""}`.toLowerCase();
+  return STALE_SOCKET_ERROR_SUBSTRINGS.some((sub) => msg.includes(sub));
+}
+
+async function getOrCreateDirectAgent(key, insecure, keepAliveTimeout, keepAliveMaxTimeout) {
+  const cached = directDispatchers.get(key);
+  if (cached) return cached;
+  const { Agent } = await import("undici");
+  if (directDispatchers.size >= (MEMORY_CONFIG.proxyDispatchersMaxSize || 50)) {
+    directDispatchers.delete(directDispatchers.keys().next().value);
+  }
+  const agent = new Agent({
+    maxHeaderSize: 64 * 1024,
+    connect: { ecdhCurve: TLS_ECDH_CURVE, ...(insecure ? { rejectUnauthorized: false } : {}) },
+    keepAliveTimeout,
+    keepAliveMaxTimeout,
+  });
+  directDispatchers.set(key, agent);
+  return agent;
+}
+
+export function getDirectDispatcher(insecure = false) {
+  const { keepAliveTimeout, keepAliveMaxTimeout } = resolveKeepAliveTimeouts();
+  const key = `direct::${insecure ? "insecure" : "secure"}::${keepAliveTimeout}::${keepAliveMaxTimeout}`;
+  return getOrCreateDirectAgent(key, insecure, keepAliveTimeout, keepAliveMaxTimeout);
+}
+
+export function getFreshRetryDispatcher(insecure = false) {
+  const key = `fresh::${insecure ? "insecure" : "secure"}`;
+  return getOrCreateDirectAgent(
+    key,
+    insecure,
+    FRESH_RETRY_KEEPALIVE_TIMEOUT_MS,
+    FRESH_RETRY_KEEPALIVE_TIMEOUT_MS
+  );
+}
+
+export function resetDirectDispatchersForTests() {
+  directDispatchers.clear();
+  proxyDispatchers.clear();
+}
+
 
 // ─── TLS fingerprinting via got-scraping (browser-like JA3) ───────────────
 // Disabled: not in use. Kept commented for future re-enable.
@@ -97,7 +168,7 @@ async function tryGotScrapingFetch(url, options) {
 }
 */
 
-// DNS cache - use Map to avoid prototype pollution via malformed hostnames
+// DNS cache — use Map to avoid prototype pollution via malformed hostnames
 const DNS_CACHE = new Map();
 const MITM_BYPASS_HOSTS = [
   "cloudcode-pa.googleapis.com",
@@ -106,6 +177,18 @@ const MITM_BYPASS_HOSTS = [
   "q.us-east-1.amazonaws.com",
   "codewhisperer.us-east-1.amazonaws.com",
   "api2.cursor.sh",
+  // kiro.dev was in TOOL_HOSTS but missing here — same loop class as below:
+  // with MITM DNS on, XR's own fetch to the Kiro runtime resolved to 127.0.0.1.
+  "runtime.us-east-1.kiro.dev",
+  // Google auth endpoints are never MITM targets, but a spoofed/stale hosts entry
+  // or DNS hijack pointing them at a local interceptor kills token exchange with
+  // Go's "x509: certificate signed by unknown authority" (Antigravity login) or an
+  // undici cert error. Resolve them via 8.8.8.8 like the other bypassed hosts so
+  // the OAuth flow always reaches real Google.
+  "oauth2.googleapis.com",
+  "accounts.google.com",
+  "www.googleapis.com",
+  "openidconnect.googleapis.com",
 ];
 const GOOGLE_DNS_SERVERS = ["8.8.8.8", "8.8.4.4"];
 const HTTPS_PORT = 443;
@@ -115,6 +198,43 @@ const HTTP_SUCCESS_MAX = 300;
 function normalizeString(value) {
   if (value === undefined || value === null) return "";
   return String(value).trim();
+}
+
+const OPENCODE_V6_CACHE = new Map();
+
+/**
+ * Resolve OpenCode real AAAA records via DoH (Cloudflare 1.1.1.1 / Google 8.8.8.8)
+ * to bypass IPv4 DNS hijacking and 403 FreeTierError (from Ashineqq/opencode2api).
+ */
+export async function resolveOpencodeIPv6(hostname) {
+  const cached = OPENCODE_V6_CACHE.get(hostname);
+  if (cached && Date.now() < cached.expiry) return cached.ips;
+
+  const endpoints = [
+    `https://1.1.1.1/dns-query?name=${encodeURIComponent(hostname)}&type=AAAA`,
+    `https://8.8.8.8/resolve?name=${encodeURIComponent(hostname)}&type=AAAA`,
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await originalFetch(ep, {
+        headers: { "accept": "application/dns-json" },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data?.Status === 0 && Array.isArray(data.Answer)) {
+        const ips = data.Answer.filter((a) => a.type === 28 && a.data).map((a) => a.data);
+        if (ips.length > 0) {
+          OPENCODE_V6_CACHE.set(hostname, { ips, expiry: Date.now() + 4 * 60 * 1000 });
+          return ips;
+        }
+      }
+    } catch {
+      // try next
+    }
+  }
+  return null;
 }
 
 /**
@@ -225,8 +345,8 @@ async function getDispatcher(proxyUrl) {
     if (proxyDispatchers.size >= MEMORY_CONFIG.proxyDispatchersMaxSize) {
       proxyDispatchers.delete(proxyDispatchers.keys().next().value);
     }
-    const { ProxyAgent } = await import("undici");
-    proxyDispatchers.set(normalized, new ProxyAgent({ uri: normalized }));
+    const dispatcher = await createProxyDispatcher({ uri: normalized });
+    proxyDispatchers.set(normalized, dispatcher);
   }
 
   return proxyDispatchers.get(normalized);
@@ -246,6 +366,36 @@ async function createBypassRequest(parsedUrl, realIP, options) {
     const socket = new net.Socket();
 
     socket.connect(HTTPS_PORT, realIP, () => {
+      // Normalize headers: callers may pass a web Headers instance, whose
+      // spread is empty ({...new Headers()} === {}) — that silently dropped
+      // Content-Type and every other header on bypassed requests.
+      const rawHeaders = options.headers instanceof Headers
+        ? Object.fromEntries(options.headers.entries())
+        : (options.headers ? { ...options.headers } : {});
+      // Serialize the body the way fetch() would. URLSearchParams was being
+      // JSON.stringify'd to "{}" — Google answered every bypassed token
+      // refresh with 400 unsupported_grant_type because the form body never
+      // made it onto the wire.
+      let bodyData = null;
+      if (options.body !== undefined && options.body !== null) {
+        if (typeof options.body === "string" || Buffer.isBuffer(options.body)) {
+          bodyData = options.body;
+        } else if (typeof URLSearchParams !== "undefined" && options.body instanceof URLSearchParams) {
+          bodyData = options.body.toString();
+        } else if (typeof options.body === "object" && typeof options.body.toString === "function" && options.body.toString !== Object.prototype.toString) {
+          // FormData-style / custom body types with a meaningful toString
+          bodyData = options.body.toString();
+        } else {
+          bodyData = JSON.stringify(options.body);
+        }
+      }
+      // fetch() sets Content-Length from the serialized body; a raw socket
+      // request must do the same or servers mis-frame the request.
+      const hasLength = Object.keys(rawHeaders).some((k) => k.toLowerCase() === "content-length");
+      if (bodyData !== null && !hasLength) {
+        rawHeaders["Content-Length"] = String(Buffer.byteLength(bodyData));
+      }
+
       const reqOptions = {
         socket,
         // SNI + cert hostname are validated against the hostname the caller
@@ -258,7 +408,7 @@ async function createBypassRequest(parsedUrl, realIP, options) {
         path: parsedUrl.pathname + parsedUrl.search,
         method: options.method || "POST",
         headers: {
-          ...options.headers,
+          ...rawHeaders,
           Host: parsedUrl.hostname,
         },
       };
@@ -268,7 +418,13 @@ async function createBypassRequest(parsedUrl, realIP, options) {
           ok: res.statusCode >= HTTP_SUCCESS_MIN && res.statusCode < HTTP_SUCCESS_MAX,
           status: res.statusCode,
           statusText: res.statusMessage,
-          headers: new Map(Object.entries(res.headers)),
+          // Case-insensitive lookup, matching the web Headers.get() contract
+          // callers rely on (e.g. headers.get("Content-Type") vs "content-type").
+          headers: new Map(Object.entries(res.headers).map(([k, v]) => [k.toLowerCase(), v])),
+          get: (name) => {
+            const v = Object.entries(res.headers).find(([k]) => k.toLowerCase() === String(name).toLowerCase());
+            return v ? v[1] : null;
+          },
           body: Readable.toWeb(res),
           text: async () => {
             const chunks = [];
@@ -281,8 +437,8 @@ async function createBypassRequest(parsedUrl, realIP, options) {
       });
 
       req.on("error", reject);
-      if (options.body) {
-        req.write(typeof options.body === "string" ? options.body : JSON.stringify(options.body));
+      if (bodyData !== null) {
+        req.write(bodyData);
       }
       req.end();
     });
@@ -297,7 +453,8 @@ async function createBypassRequest(parsedUrl, realIP, options) {
 // through the same flagged proxy. Live measurement (#4983): identical body and
 // headers in the same minute — flagged pool egress → 403 FreeTierError,
 // direct egress → 200.
-const FREE_TIER_ERROR_MARKERS = ["FreeTierError", "FreeUsageLimitError"];
+const FREE_TIER_ERROR_MARKER = "FreeTierError";
+
 /** Rebuild a response whose body we buffered while inspecting it. */
 function bufferedResponse(text, original) {
   const headers = new Headers(original.headers);
@@ -305,39 +462,6 @@ function bufferedResponse(text, original) {
   headers.delete("content-length");
   headers.delete("content-encoding");
   return new Response(text, { status: original.status, statusText: original.statusText, headers });
-}
-
-/**
- * After a proxied attempt, replay once on the direct egress when upstream
- * rejected the *proxy's IP* (403 FreeTierError). A body already consumed by
- * the first attempt cannot be resent, and strictProxy keeps its contract of
- * never leaving over another path — both return the rejection as-is.
- */
-async function replayFreeTierRejectionDirect(url, options, proxied, proxyUrl) {
-  if (proxied.status !== 403 && proxied.status !== 429) return proxied;
-  let text;
-  try {
-    text = await proxied.text();
-  } catch {
-    return proxied;
-  }
-  const isFreeTierRejection = FREE_TIER_ERROR_MARKERS.some((m) => text.includes(m));
-  if (!isFreeTierRejection) return bufferedResponse(text, proxied);
-  if (options?.body && typeof options.body.getReader === "function" && options.body.locked) {
-    return bufferedResponse(text, proxied);
-  }
-  if (proxyUrl) {
-    console.warn(`[ProxyFetch] Proxy egress rejected by OpenCode free-tier gate (403 FreeTierError); direct replay skipped to protect main IP: ${targetHost(url)}`);
-    return bufferedResponse(text, proxied);
-  }
-  console.warn(`[ProxyFetch] Proxy egress rejected by the OpenCode free-tier gate (403 FreeTierError); replaying direct: ${targetHost(url)}`);
-  try {
-    return await originalFetch(url, options);
-  } catch (directError) {
-    // The direct replay failed outright — surface the original rejection.
-    console.warn(`[ProxyFetch] Direct replay failed: ${directError.message}`);
-    return bufferedResponse(text, proxied);
-  }
 }
 
 function targetHost(url) {
@@ -348,8 +472,88 @@ function targetHost(url) {
   }
 }
 
+/**
+ * After a proxied attempt, replay once on the direct egress when upstream
+ * rejected the *proxy's IP* (403 FreeTierError). A body already consumed by
+ * the first attempt cannot be resent, and strictProxy keeps its contract of
+ * never leaving over another path — both return the rejection as-is.
+ */
+async function replayFreeTierRejectionDirect(url, options, proxied, proxyOptions) {
+  if (proxied.status !== 403) return proxied;
+  let text;
+  try {
+    text = await proxied.text();
+  } catch {
+    return proxied;
+  }
+  if (!text.includes(FREE_TIER_ERROR_MARKER)) return bufferedResponse(text, proxied);
+
+  const poolId = proxyOptions?.connectionProxyPoolId || proxyOptions?.proxyPoolId;
+  if (poolId) {
+    try {
+      const { quarantineProxy } = await import("@/lib/network/connectionProxy.js");
+      quarantineProxy(poolId, 30 * 60 * 1000);
+    } catch {}
+  }
+
+  const isOpencode = typeof url === "string" && url.includes("opencode.ai");
+  if (proxyOptions?.strictProxy === true || poolId || isOpencode) {
+    throw new Error(`[ProxyFetch] 403 FreeTierError: Proxy IP flagged by OpenCode free-tier gate`);
+  }
+
+  if (options?.body && typeof options.body.getReader === "function" && options.body.locked) {
+    return bufferedResponse(text, proxied);
+  }
+  console.warn(`[ProxyFetch] Proxy egress rejected by the OpenCode free-tier gate (403 FreeTierError); replaying direct: ${targetHost(url)}`);
+  try {
+    return await originalFetch(url, options);
+  } catch (directError) {
+    console.warn(`[ProxyFetch] Direct replay failed: ${directError.message}`);
+    return bufferedResponse(text, proxied);
+  }
+}
+
 export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
+
+  // Fresh Residential Zero-Timeout Dual-Hedge Routing
+  if (
+    proxyOptions?.source === "residential" ||
+    proxyOptions?.type === "residential" ||
+    proxyOptions?.proxyPool?.type === "residential" ||
+    normalizeString(proxyOptions?.connectionProxyUrl).startsWith("residential://")
+  ) {
+    try {
+      const [{ globalResidentialPool }, { getProxyPools }, { getSettings }] = await Promise.all([
+        import("@/lib/network/residentialProxyEngine.js"),
+        import("@/models"),
+        import("@/lib/localDb"),
+      ]);
+      const [pools, settings] = await Promise.all([
+        getProxyPools({ isActive: true }).catch(() => []),
+        getSettings().catch(() => ({})),
+      ]);
+      if (settings?.residentialProxyConfig) {
+        globalResidentialPool.setConfig(settings.residentialProxyConfig);
+      }
+      const resiPools = pools.filter(
+        (pool) => pool?.type === "residential" || (pool?.ipType === "residential" && pool?.isResidential === true)
+      );
+      if (resiPools.length > 0) {
+        globalResidentialPool.syncNodes(resiPools);
+      }
+      if (globalResidentialPool.getEligibleNodes({ includeUnverified: false }).length > 0) {
+        return await globalResidentialPool.hedgeFetch(targetUrl, options, {
+          sessionKey: proxyOptions?.proxyPoolId || proxyOptions?.connectionProxyPoolId || null,
+        });
+      }
+    } catch (resiErr) {
+      if (proxyOptions?.strictProxy === true) {
+        throw new Error(`[ResidentialProxy] Failed (strictProxy=true): ${resiErr.message}`);
+      }
+      console.warn(`[ResidentialProxy] Hedge routing failed, falling back to single proxy/direct: ${resiErr.message}`);
+    }
+  }
 
   // Vercel relay: forward request via relay headers
   const vercelRelayUrl = normalizeString(proxyOptions?.vercelRelayUrl);
@@ -363,21 +567,32 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       "x-relay-target": `${parsed.protocol}//${parsed.host}`,
       "x-relay-path": `${parsed.pathname}${parsed.search}`,
     };
-    const res = await originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders });
-    if (proxyOptions?.strictProxy === true) return res;
-    return await replayFreeTierRejectionDirect(url, options, res, null);
+    return originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders });
   }
+
   const connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
   const envProxyUrl = connectionProxyUrl ? null : normalizeProxyUrl(getEnvProxyUrl(targetUrl));
   const proxyUrl = connectionProxyUrl || envProxyUrl;
 
+  // PR #5297: Route free-tier TLS fetch through connection proxies via directFetchProxy
+  if (options.directFetch) {
+    if (!proxyUrl) return await options.directFetch(url, options);
+    if (options.directFetchProxy) {
+      return await options.directFetch(url, options, { proxyUrl });
+    }
+  }
+
   // MITM DNS bypass: for known MITM-intercepted hosts, resolve real IP to avoid DNS spoof
   if (shouldBypassMitmDns(targetUrl)) {
     if (proxyUrl) {
-      // Proxy resolves DNS externally (not affected by /etc/hosts) - use proxy directly
+      // Proxy resolves DNS externally (not affected by /etc/hosts) — use proxy directly
       try {
         const dispatcher = await getDispatcher(proxyUrl);
-        return await originalFetch(url, { ...options, dispatcher });
+        const res = await originalFetch(url, { ...options, dispatcher });
+        if (res.status === 407) {
+          throw new Error("HTTP 407 Proxy Authentication Required (credentials invalid or plan expired)");
+        }
+        return res;
       } catch (proxyError) {
         if (proxyOptions?.strictProxy === true) {
           throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
@@ -385,7 +600,7 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
         console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${proxyError.message}`);
       }
     }
-    // No proxy - manually resolve real IP to bypass DNS spoof
+    // No proxy — manually resolve real IP to bypass DNS spoof
     try {
       const parsedUrl = new URL(targetUrl);
       const realIP = await resolveRealIP(parsedUrl.hostname);
@@ -396,84 +611,87 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   }
 
   if (proxyUrl) {
+    const poolId = proxyOptions?.connectionProxyPoolId || proxyOptions?.proxyPoolId;
+    const isOpencode = targetUrl.includes("opencode.ai");
     try {
       const dispatcher = await getDispatcher(proxyUrl);
       const res = await originalFetch(url, { ...options, dispatcher });
       if (res.status === 407) {
         throw new Error("HTTP 407 Proxy Authentication Required (credentials invalid or plan expired)");
       }
-      // strictProxy never leaves the configured path — pass the rejection through.
-      if (proxyOptions?.strictProxy === true) return res;
-      return await replayFreeTierRejectionDirect(url, options, res, proxyUrl);
-    } catch (proxyError) {
-      // PV-FAILOVER: proxy mati -> coba spare proxy sehat dari pool file
-      // (ditulis pv_pool_sync). Tetap TIDAK pernah fallback ke direct (main IP aman).
-      try {
-        const fsMod = await import("node:fs");
-        const poolRaw = fsMod.readFileSync("/home/ubuntu/.aries-router/pv_pool.json", "utf8");
-        const spares = (JSON.parse(poolRaw).urls || []).filter(
-          (u) => u && u !== proxyUrl && u !== "http://127.0.0.1:8118"
-        );
-        let lastErr = proxyError;
-        for (let i = 0; i < Math.min(2, spares.length); i++) {
-          const spare = spares[Math.floor(Math.random() * spares.length)];
+      if (res.status === 524 || res.status === 502 || res.status === 504) {
+        if (poolId) {
           try {
-            const d2 = await getDispatcher(spare);
-            const res2 = await originalFetch(url, { ...options, dispatcher: d2 });
-            if (res2.status === 407) throw new Error("407 on spare");
-            console.warn(`[ProxyFetch] PV-FAILOVER: ${proxyUrl} -> ${spare} OK`);
-            return await replayFreeTierRejectionDirect(url, options, res2, spare);
-          } catch (e2) {
-            lastErr = e2;
-          }
+            const { quarantineProxy } = await import("@/lib/network/connectionProxy.js");
+            quarantineProxy(poolId, 15 * 60 * 1000);
+          } catch {}
         }
-        // spare terakhir: coba WARP
+        if (proxyOptions?.strictProxy === true || poolId || isOpencode) {
+          throw new Error(`[ProxyFetch] Proxy returned HTTP ${res.status} timeout/bad gateway`);
+        }
+      }
+      return await replayFreeTierRejectionDirect(url, options, res, proxyOptions);
+    } catch (proxyError) {
+      if (poolId) {
         try {
-          const d3 = await getDispatcher("http://127.0.0.1:8118");
-          const res3 = await originalFetch(url, { ...options, dispatcher: d3 });
-          console.warn(`[ProxyFetch] PV-FAILOVER: -> WARP OK`);
-          return res3;
-        } catch (e3) {
-          lastErr = e3;
+          const { quarantineProxy } = await import("@/lib/network/connectionProxy.js");
+          quarantineProxy(poolId, 15 * 60 * 1000);
+        } catch {}
+      }
+      // If strictProxy is enabled, fail hard so the caller can rotate!
+      // But for normal proxy pools, allow fallback to direct connection so requests aren't killed with 502.
+      if (proxyOptions?.strictProxy === true) {
+        throw new Error(`[ProxyFetch] Proxy required but failed: ${proxyError.message}`);
+      }
+      // DEAD-PROXY AUTO-INJECT: dead egress -> fresh rotating residential/WARP gateway
+      // (127.0.0.1:20188 serves a FRESH residential or WARP IP per request; never direct,
+      // never the same dead IP twice).
+      const RESI_GATEWAY = process.env.RESI_GATEWAY_URL || "http://127.0.0.1:20188";
+      if (proxyUrl && !proxyUrl.includes("127.0.0.1:20188")) {
+        try {
+          console.warn(`[ProxyFetch] Proxy ${proxyUrl} failed, auto-injecting fresh residential egress: ${proxyError.message}`);
+          // singleton dispatcher: a per-request ProxyAgent costs ~150ms and leaks sockets
+          if (!globalThis.__resiAgent) {
+            const { ProxyAgent } = await import("undici");
+            globalThis.__resiAgent = new ProxyAgent({
+              uri: RESI_GATEWAY,
+              connect: { timeout: 4000 },
+              headersTimeout: 25000,
+              bodyTimeout: 60000,
+            });
+          }
+          const res = await originalFetch(url, { ...options, dispatcher: globalThis.__resiAgent });
+          return res;
+        } catch (resiError) {
+          console.warn(`[ProxyFetch] Fresh residential inject failed too, falling back to direct: ${resiError.message}`);
         }
-        throw new Error(`[ProxyFetch] Proxy failed + failover exhausted (${lastErr.message}); direct fallback blocked.`);
-      } catch (finalErr) {
-        throw new Error(`[ProxyFetch] Proxy required but failed (${finalErr.message}); direct fallback blocked to protect main IP.`);
       }
+      return originalFetch(url, options);
     }
   }
 
-  if (typeof options.directFetch === "function" && options.directFetchProxy) {
-    return options.directFetch(url, options);
-  }
 
-  // PV-DEFAULT-EGRESS (bawaan wajib aries router):
-  // tanpa proxy per-connection -> pakai pool egress sehat (pv_pool.json, rotasi),
-  // gagal -> WARP. TIDAK PERNAH direct (main IP terlindungi dari block provider).
+  // got-scraping disabled — use native fetch with enlarged maxHeaderSize (64KB)
+  // to avoid UND_ERR_HEADERS_OVERFLOW from Google / Cloudflare responses with massive Set-Cookie headers.
+  const forceFreshSocket = proxyOptions?.forceFreshSocket === true || options?.forceFreshSocket === true;
+  const dispatcher = options.dispatcher || (await (forceFreshSocket ? getFreshRetryDispatcher() : getDirectDispatcher()).catch(() => null));
   try {
-    const fsMod = await import("node:fs");
-    const pool = JSON.parse(fsMod.readFileSync("/home/ubuntu/.aries-router/pv_pool.json", "utf8"));
-    const urls = (pool.urls || []).filter((u) => u && !u.includes("127.0.0.1"));
-    const candidates = ["http://127.0.0.1:8118"]; // WARP duluan (IP bersih, paling reliable)
-    if (urls.length) {
-      const pick = urls[Math.floor(Date.now() / 1000) % urls.length];
-      candidates.push(pick, ...urls.filter((u) => u !== pick).slice(0, 2));
+    return await originalFetch(url, dispatcher ? { ...options, dispatcher } : options);
+  } catch (err) {
+    if (
+      !proxyUrl
+      && !forceFreshSocket
+      && !options.signal?.aborted
+      && !(options?.body && typeof options.body.getReader === "function" && options.body.locked)
+      && isFreshSocketReplayEnabled()
+      && isStaleSocketError(err)
+    ) {
+      dbg("FETCH", `stale keep-alive socket (${err.cause?.code || err.code || err.message}), retrying on fresh socket: ${url}`);
+      const freshDispatcher = await getFreshRetryDispatcher().catch(() => null);
+      return await originalFetch(url, freshDispatcher ? { ...options, dispatcher: freshDispatcher } : options);
     }
-    let lastE = null;
-    for (const cand of candidates) {
-      try {
-        const dispatcher = await getDispatcher(cand);
-        return await originalFetch(url, { ...options, dispatcher });
-      } catch (e) {
-        lastE = e;
-      }
-    }
-    console.warn(`[ProxyFetch] PV-DEFAULT-EGRESS exhausted (${lastE?.message}); fallback direct (guaranteed work).`);
-  } catch (e) {
-    console.warn(`[ProxyFetch] PV-DEFAULT-EGRESS setup failed (${e?.message}); fallback direct.`);
+    throw err;
   }
-  // Guaranteed-work: direct sebagai pintu terakhir supaya OpenCode gak pernah mati.
-  return originalFetch(url, options);
 }
 
 /**
@@ -483,7 +701,7 @@ async function patchedFetch(url, options = {}) {
   return proxyAwareFetch(url, options, null);
 }
 
-// Idempotency guard - only patch once to avoid wrapping multiple times
+// Idempotency guard — only patch once to avoid wrapping multiple times
 if (globalThis.fetch !== patchedFetch) {
   globalThis.fetch = patchedFetch;
 }

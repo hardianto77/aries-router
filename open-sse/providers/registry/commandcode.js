@@ -22,14 +22,9 @@ export default {
     baseUrl: "https://api.commandcode.ai/alpha/generate",
     format: "commandcode",
     forceStream: true,
-    // Static identity headers of command-code@1.88.0 buildCommandAuthHeaders().
-    // x-project-slug and x-session-id are dynamic — see shared/commandCodeHeaders.js.
     headers: {
-      "User-Agent": "cli",
-      "x-command-code-version": "1.88.0",
-      "x-cli-environment": "production",
-      "x-cli-surface": "cli",
-      "x-taste-learning": "false",
+      "x-command-code-version": "0.25.7",
+      "x-cli-environment": "cli",
     },
   },
   models: [

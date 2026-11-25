@@ -94,6 +94,7 @@ const API_PERMISSION_RULES = [
   { prefix: "/api/translator", permissions: ["manageAdvanced"] },
   { prefix: "/api/error-logs", permissions: ["manageAdvanced"] },
   { prefix: "/api/proxy-pools", permissions: ["manageAdvanced"] },
+  { prefix: "/api/residential-proxy", permissions: ["manageAdvanced"] },
   { prefix: "/api/pxpipe", permissions: ["manageAdvanced"] },
   { prefix: "/api/plugins", permissions: ["managePlugins"] },
   { prefix: "/api/media-providers", permissions: ["manageMediaProviders"] },
@@ -143,6 +144,7 @@ const PAGE_PERMISSION_RULES = [
   // administrators; a key session never opens it.
   { prefix: "/dashboard/translator", permissions: ["manageAdvanced"] },
   { prefix: "/dashboard/proxy-pools", permissions: ["manageAdvanced"] },
+  { prefix: "/dashboard/residential-proxy", permissions: ["manageAdvanced"] },
   { prefix: "/dashboard/pxpipe", permissions: ["manageAdvanced"] },
   { prefix: "/dashboard/mitm", permissions: ["manageAdvanced"] },
   { prefix: "/dashboard/plugins", permissions: ["managePlugins"] },

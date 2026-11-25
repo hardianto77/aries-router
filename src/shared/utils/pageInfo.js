@@ -121,6 +121,13 @@ export function getPageInfo(pathname) {
       icon: "lan",
       breadcrumbs: [],
     };
+  if (pathname.includes("/residential-proxy"))
+    return {
+      title: "Fresh Residential Proxy",
+      description: "Verified ISP/residential egress with anti-datacenter ASN filtering and zero-timeout dual-hedge routing",
+      icon: "home_work",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/skills"))
     return {
       title: "Agent Skills",

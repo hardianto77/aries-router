@@ -377,13 +377,45 @@ export function applyToolCallingBridge(body, sourceFormat) {
  * ------------------------------------------------------------------ */
 
 export async function applyCustomPlugins(body, provider, model, sourceFormat, requestedModel) {
-  return {
+  const config = await getPluginConfig();
+  const keysToTest = modelKeysToTest(requestedModel, provider, model);
+  const checkMatch = (modelList) => keysToTest.some((key) => matchesModel(modelList, key));
+
+  let caps = null;
+  try {
+    caps = getCapabilitiesForModel(provider, model);
+  } catch {
+    caps = null;
+  }
+
+  const result = {
     isAdaptiveThinkingActive: false,
     isVisionActive: false,
     isThinkDeeperActive: false,
     isToolBridgeActive: false,
     isToolBridgeRewritten: false,
   };
+
+  if (config.imageVision?.enabled && checkMatch(config.imageVision.models)) {
+    result.isVisionActive = true;
+    await applyImageVision(body, caps);
+  }
+
+  if (config.adaptiveThinking?.enabled && checkMatch(config.adaptiveThinking.models)) {
+    result.isAdaptiveThinkingActive = true;
+    result.isThinkDeeperActive = true;
+    applyAdaptiveThinking(body, sourceFormat);
+  }
+
+  const bridgeGated = Array.isArray(config.openaiToolBridge?.models) && config.openaiToolBridge.models.length > 0;
+  if (config.openaiToolBridge?.enabled && (!bridgeGated || checkMatch(config.openaiToolBridge.models))) {
+    result.isToolBridgeActive = true;
+    if (caps?.tools === false || (await isWebSessionProvider(provider))) {
+      result.isToolBridgeRewritten = applyToolCallingBridge(body, sourceFormat);
+    }
+  }
+
+  return result;
 }
 
 export { getPluginConfig };

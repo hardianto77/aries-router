@@ -22,9 +22,12 @@ import { getZedUsage } from "./usage/zed.js";
 import { getXiaomiMimoUsage } from "./usage/xiaomi-mimo.js";
 import { getCursorUsage } from "./usage/cursor.js";
 import { resolveQoderCredentials } from "./qoderModels.js";
-import { getGlmUsage } from "./usage/glm.js";
+import { getZcodeUsage } from "./usage/zcode.js";
+import { getGlmUsage, getGlmResetCards, redeemGlmResetCard, getGlmClaimablePlans, claimGlmPlan, getGlmBalance, checkAndClaimZcodeStartPlan, ZCODE_START_PLAN_ID } from "./usage/glm.js";
 import { getCommandCodeUsage } from "./usage/commandcode.js";
-import { getCustomCreditsUsage, isCustomQuotaProvider } from "./usage/customCredits.js";
+import { getNousUsage } from "./usage/nous.js";
+import { getFreePiUsage } from "./usage/freepi.js";
+import { getAwsQuickUsage } from "./usage/aws-quick.js";
 import {
   getIflowUsage,
   getOllamaUsage,
@@ -50,8 +53,22 @@ const USAGE_HANDLERS = {
   iflow: (c) => getIflowUsage(c.accessToken),
   ollama: (c) => getOllamaUsage(c.apiKey, c.providerSpecificData, c.proxyOptions),
   // OAuth connections store the coding-plan key on accessToken (no apiKey)
-  glm: (c) => getGlmUsage(c.apiKey || c.accessToken, c.provider, c.proxyOptions),
-  "glm-cn": (c) => getGlmUsage(c.apiKey || c.accessToken, c.provider, c.proxyOptions),
+  glm: async (c) => {
+    if (c.providerSpecificData?.zcodeJwtToken) {
+      const zc = await getZcodeUsage({ id: c.connectionId, providerSpecificData: c.providerSpecificData }, c.proxyOptions);
+      if (zc && zc.quotas && Object.keys(zc.quotas).length > 0) return zc;
+    }
+    return getGlmUsage(c.apiKey || c.accessToken, c.provider, c.proxyOptions, c.providerSpecificData);
+  },
+  "glm-cn": async (c) => {
+    if (c.providerSpecificData?.zcodeJwtToken) {
+      const zc = await getZcodeUsage({ id: c.connectionId, providerSpecificData: c.providerSpecificData }, c.proxyOptions);
+      if (zc && zc.quotas && Object.keys(zc.quotas).length > 0) return zc;
+    }
+    return getGlmUsage(c.apiKey || c.accessToken, c.provider, c.proxyOptions, c.providerSpecificData);
+  },
+  // ZCode Start Plan: billing/balance via the zcode JWT stored on the connection.
+  zcode: (c) => getZcodeUsage({ id: c.connectionId, providerSpecificData: c.providerSpecificData }, c.proxyOptions),
   minimax: (c) => getMiniMaxUsage(c.apiKey, c.provider, c.proxyOptions),
   "minimax-cn": (c) => getMiniMaxUsage(c.apiKey, c.provider, c.proxyOptions),
   // MiniMax Code (mcode) credits lane — signed account API + plan windows
@@ -70,6 +87,10 @@ const USAGE_HANDLERS = {
   "xiaomi-mimo": (c) => getXiaomiMimoUsage(c.accessToken, c.providerSpecificData, c.proxyOptions),
   commandcode: (c) => getCommandCodeUsage(c.apiKey, c.proxyOptions),
   cursor: (c) => getCursorUsage(c.accessToken, c.providerSpecificData, c.proxyOptions),
+  nous: (c) => getNousUsage(c.accessToken || c.apiKey, c.proxyOptions, c),
+  freepi: (c) => getFreePiUsage(c.accessToken || c.apiKey, c.proxyOptions),
+  // accessToken is the Quick id_token; tenantUrl/wsHost/awsAccountId ride psd
+  "aws-quick": (c) => getAwsQuickUsage(c.accessToken, c.providerSpecificData, c.proxyOptions),
 };
 
 // Qoder intl/CN share one usage path: PATs must be exchanged to a job token
@@ -87,26 +108,21 @@ export async function getUsageForProvider(connection, proxyOptions = null, optio
     ...(projectId ? { projectId } : {}),
   };
 
-  // Compatible providers use the standard /credits endpoint configured on the node.
-  if (isCustomQuotaProvider(provider)) {
-    return await getCustomCreditsUsage({
-      provider,
-      apiKey,
-      providerSpecificData,
-      proxyOptions,
-      force: options.force === true,
-    });
-  }
-
   const handler = USAGE_HANDLERS[provider];
   if (!handler) return { message: `Usage API not implemented for ${provider}` };
   return await handler({
+    ...connection,
     provider,
+    connectionId: connection.id,
     accessToken,
     apiKey,
     providerSpecificData,
     providerDataWithProjectId,
     proxyOptions,
     force: options.force === true,
+    ...options,
   });
 }
+
+export { getGlmResetCards, redeemGlmResetCard, getGlmClaimablePlans, claimGlmPlan, getGlmBalance, checkAndClaimZcodeStartPlan, ZCODE_START_PLAN_ID };
+

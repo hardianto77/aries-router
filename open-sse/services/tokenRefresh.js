@@ -19,8 +19,11 @@ import {
   refreshWindsurfToken,
   refreshMiniMaxCodeToken,
   refreshNousToken,
+  refreshGlmToken,
+  refreshZcodeToken,
   classifyOAuthRefreshError,
 } from "./tokenRefresh/providers.js";
+import { refreshAwsQuickToken } from "./tokenRefresh/aws-quick.js";
 
 // Re-export all provider refresh functions (preserves public API for all consumers)
 export {
@@ -41,6 +44,9 @@ export {
   refreshWindsurfToken,
   refreshMiniMaxCodeToken,
   refreshNousToken,
+  refreshGlmToken,
+  refreshZcodeToken,
+  refreshAwsQuickToken,
   classifyOAuthRefreshError,
 };
 
@@ -164,6 +170,11 @@ const REFRESH_HANDLERS = {
   "minimax-code": (c, log) => refreshMiniMaxCodeToken("minimax-code", c.refreshToken, log),
   "minimax-code-global": (c, log) => refreshMiniMaxCodeToken("minimax-code-global", c.refreshToken, log),
   nous: (c, log) => refreshNousToken(c.refreshToken, log),
+  glm: (c, log) => refreshGlmToken(c.refreshToken, c, log),
+  zcode: (c, log) => refreshZcodeToken(c.refreshToken, c, log),
+  // Amazon Quick: AWS SSO OIDC with camelCase JSON body; RT rotates on every
+  // refresh (returned merged — chatCore persists it via onCredentialsRefreshed).
+  "aws-quick": (c, log) => refreshAwsQuickToken(c.refreshToken, c.providerSpecificData, log),
   vertex: vertexRefreshHandler,
   "vertex-partner": vertexRefreshHandler
 };

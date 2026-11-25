@@ -8,7 +8,6 @@
 // path+query, body and now, and `x-signature` md5(ts + secret [+ body]).
 
 import { createHash } from "node:crypto";
-import { getLeaseToken, isLeaseConnection } from "./minimaxCodeLease.js";
 
 const SIGN_SECRET = "I*7Cf%WZ#S&%1RlZJ&C2";
 
@@ -202,17 +201,7 @@ export function parsePlanWindows(body) {
  */
 export async function getMiniMaxCodeUsage(connection) {
   const site = SITES[connection.provider];
-  // Lease connections store no token — borrow one from the desktop broker;
-  // if the app isn't running, usage falls back to the plain "not implemented"
-  // message below instead of surfacing a broker error.
-  let access = connection.accessToken;
-  if (!access && isLeaseConnection(connection)) {
-    try {
-      access = (await getLeaseToken(connection)).accessToken;
-    } catch {
-      access = null;
-    }
-  }
+  const access = connection.accessToken;
   if (!site || !access) return { message: `Usage API not implemented for ${connection.provider}` };
 
   try {

@@ -28,7 +28,6 @@ export default {
   },
   models: [
     { id: "deepseek-ai/DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash" },
-    { id: "deepseek-ai/DeepSeek-V4.1-Flash-1017", name: "DeepSeek V4.1 Flash 1017" },
     { id: "zai-org/GLM-5.3-Flash", name: "GLM 5.3 Flash" },
     { id: "deepseek-ai/DeepSeek-V4-Flash-0731", name: "DeepSeek V4 Flash 0731" },
     { id: "nvidia/GLM-5.2-NVFP4", name: "GLM 5.2 NVFP4" },

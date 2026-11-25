@@ -14,7 +14,8 @@ const SESSION_HEADER = "x-opencode-session";
 const SESSION_FIELD = "_opencodeGoSession";
 const MAX_SESSION_LENGTH = 256;
 
-const RESPONSES_BASE_URL = "https://opencode.ai/zen/go/v1/responses";
+const RESPONSES_BASE_URL = "https://opencode.ai/inference/go/v1/responses";
+const GEMINI_BASE_URL = "https://opencode.ai/inference/go/v1/models";
 const MAX_TOOL_NAME_LEN = 128;
 
 function normalizeSession(value) {
@@ -42,9 +43,13 @@ function translatedSession(sessionId, clientTool) {
 }
 
 // Responses-only per the provider registry (grok-4.6, gpt-5.6-luna, muse-spark, …),
-// including the family-regex fallback for passthrough ids - never hardcode model ids here.
+// including the family-regex fallback for passthrough ids — never hardcode model ids here.
 function isResponsesModel(model) {
   return getModelTargetFormat("opencode-go", model) === FORMATS.OPENAI_RESPONSES;
+}
+
+function isGeminiModel(model) {
+  return getModelTargetFormat("opencode-go", model) === FORMATS.GEMINI;
 }
 
 // Flatten Chat Completions tool declarations into the Responses flat shape and
@@ -116,6 +121,10 @@ export class OpenCodeGoExecutor extends DefaultExecutor {
   }
 
   buildUrl(model, stream, urlIndex = 0, credentials = null) {
+    if (isGeminiModel(model)) {
+      const cleanModel = typeof model === "string" ? model.replace(/\([^()]+\)\s*$/, "").trim() : model;
+      return `${GEMINI_BASE_URL}/${cleanModel}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}`;
+    }
     // Muse Spark lives on /responses even when a stale runtimeTransport leaks in.
     if (isResponsesModel(model)) return RESPONSES_BASE_URL;
     return super.buildUrl(model, stream, urlIndex, credentials);

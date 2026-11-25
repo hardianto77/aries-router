@@ -20,12 +20,78 @@
 import os from "node:os";
 import path from "node:path";
 
-/** Names required by the upstream free-tier gate. */
-export const OPENCODE_FINGERPRINT_TOOLS = ["read", "shell"];
+/** Names required by the upstream free-tier gate: edit, glob, grep, read, shell */
+export const OPENCODE_FINGERPRINT_TOOLS = ["edit", "glob", "grep", "read", "shell"];
 
-// Verbatim from the OpenCode v2.0.26 CLI. Upstream compares description and
+// (decolua/9router#5319). Only `tools[]` is inspected — history and system
+// prompt are not — so the declaration travels under an alias and the caller's
+// name is restored on the way back, like a fingerprint-name collision.
+//
+// A third gate fires on the *pair* `ReportFindings` + (`ScheduleWakeup` |
+// `DeferredToolPlaceholder`) — 429 FreeUsageLimitError in <350 ms, single
+// members pass (decolua/9router#5690). Claude Code ships both on every
+// request, so concealing the common member (`ReportFindings`) through the
+// same alias path clears both pairs without touching the other names.
+//
+// A fifth gate is the same shape for Codex: the *pair* `exec_command` +
+// `write_stdin` 429s in <400 ms while each member alone passes. Codex ships
+// both on every request, so concealing `exec_command` clears it.
+export const GATED_TOOL_NAME_RE = /terminal|reportfindings|exec_command/i;
+const GATED_TOOL_ALIAS = "run_command";
+
+// Fourth gate: name+schema fingerprint. /^Read$/ is case-sensitive on purpose.
+const GATED_NAME_SCHEMA_RULES = [
+  { re: /^edit$/i, props: ["old_string", "new_string"], alias: "file_edit" },
+  { re: /^Read$/, props: ["file_path"], alias: "file_read" },
+];
+
+// Verbatim from the OpenCode v2.2.5+ CLI / Magpie specification. Upstream compares description and
 // parameters, so do not reword or reformat these.
-const FINGERPRINT_TOOL_DEFINITIONS = {
+export const FINGERPRINT_TOOL_DEFINITIONS = {
+  edit: {
+    description: "Edit the contents of a file by finding and replacing exact text. When editing text from Read output, preserve the exact indentation (tabs or spaces) and omit the line-number prefix, such as `1: `. Never include the prefix in oldString or newString. Write line breaks as \\n; the file's existing CRLF or LF line endings are matched and preserved. To change line endings themselves, make oldString and newString differ only in \\r; that edit applies to the exact bytes. If there is no exact match, the edit retries while ignoring typographic quote, dash, and space variants, then trailing whitespace on each line. The edit fails if oldString is not found. By default, oldString must identify a UNIQUE location. Multiple matches FAIL unless replaceAll is true. Add more surrounding context to disambiguate, or set replaceAll to true to replace every occurrence. Use replaceAll when the change should apply to every occurrence, such as renaming a variable.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File to edit" },
+        oldString: { type: "string", description: "Exact text to find and replace" },
+        newString: { type: "string", description: "Text to replace oldString with (must differ from oldString)" },
+        replaceAll: { type: "boolean", description: "Whether to replace every occurrence of oldString. When false, oldString must match exactly once. Defaults to false." }
+      },
+      required: ["path", "oldString", "newString"],
+      additionalProperties: false
+    }
+  },
+  glob: {
+    description: "Find files matching a glob pattern relative to a directory. Output is a list of file paths. Always use forward slashes (/) as path separators even on Windows. The pattern supports standard glob features: * matches characters within a directory, ** matches across directories, ? matches a single character, and [abc] matches a character set. Prefer specific patterns over broad ones.",
+    parameters: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Glob pattern to match files against" },
+        path: { type: "string", description: "Directory to search. Defaults to the current working directory." },
+        hidden: { type: "boolean", description: "Include hidden files and directories (default: false)." },
+        limit: { type: "integer", exclusiveMinimum: 0, description: "Maximum number of matching files to return (default: 100)" }
+      },
+      required: ["pattern"],
+      additionalProperties: false
+    }
+  },
+  grep: {
+    description: "Search for a regular expression pattern within files. Lines are returned with 1-based line numbers. By default, searches recursively from the working directory. Output is sorted by file path and line number.",
+    parameters: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", minLength: 1, description: "Regular expression or literal text to match in file contents." },
+        path: { type: "string", description: "File or directory to search. Defaults to the current working directory." },
+        include: { type: "string", description: "Glob pattern to filter files (for example, \"*.js\" or \"*.{ts,tsx}\")" },
+        literal: { type: "boolean", description: "Treat pattern as exact text instead of a regular expression (default: false)." },
+        caseSensitive: { type: "boolean", description: "Use case-sensitive matching (default: true)." },
+        limit: { type: "integer", exclusiveMinimum: 0, description: "Maximum number of matching lines to return (default: 100)" }
+      },
+      required: ["pattern"],
+      additionalProperties: false
+    }
+  },
   read: {
     description: "Read the contents of a file or directory. Supports text files, images, and PDFs. Images and PDFs are presented directly to the model. Each text line is prefixed by its 1-based line number as <line>: <content>. The prefix is for reference and is not part of the file content. Directory entries are returned one per line. Use offset and limit to read large files or directories in sections. Prefer one larger read over many small slices, and use grep to find specific content in large files.",
     parameters: {
@@ -58,6 +124,7 @@ const FINGERPRINT_TOOL_DEFINITIONS = {
 // Request body -> names renamed for that request. transformRequest() mutates the
 // same body object that chatCore passed into the executor, so a WeakMap keeps the
 // mapping request-local without putting transport metadata on the wire.
+export const OPENCODE_CANONICAL_TOOL_DEFINITIONS = FINGERPRINT_TOOL_DEFINITIONS;
 const renamedToolNames = new WeakMap();
 
 /** The fingerprint name when `name` is exactly one; "" otherwise. */
@@ -80,6 +147,25 @@ function toolNameOf(tool) {
 function chatFunctionOf(tool) {
   const fn = tool?.function;
   return fn && typeof fn === "object" && !Array.isArray(fn) ? fn : null;
+}
+
+/** Parameter property names declared by `tool`, flat or chat shape. */
+function declaredProps(tool) {
+  const fn = chatFunctionOf(tool);
+  const params = fn ? fn.parameters : tool?.parameters;
+  const props = params?.properties;
+  if (!props || typeof props !== "object" || Array.isArray(props)) return [];
+  return Object.keys(props);
+}
+
+/** Alias target when the tool matches a name+schema gate fingerprint; "" otherwise. */
+function gatedNameSchemaAlias(tool, name) {
+  const props = declaredProps(tool);
+  for (const rule of GATED_NAME_SCHEMA_RULES) {
+    if (!rule.re.test(name)) continue;
+    if (rule.props.some((prop) => props.includes(prop))) return rule.alias;
+  }
+  return "";
 }
 
 /** True when `tool` already carries OpenCode's exact definition for `key`. */
@@ -153,7 +239,27 @@ export function concealFingerprintToolNames(tools) {
       continue;
     }
 
-    const key = fingerprintToolKey(toolNameOf(tool));
+    const name = toolNameOf(tool);
+    if (GATED_TOOL_NAME_RE.test(name)) {
+      let alias = GATED_TOOL_ALIAS;
+      for (let i = 2; taken.has(alias); i++) alias = `${GATED_TOOL_ALIAS}${i}`;
+      taken.add(alias);
+      map.set(alias, name);
+      out.push(withToolName(tool, alias));
+      continue;
+    }
+
+    const gated = gatedNameSchemaAlias(tool, name);
+    if (gated) {
+      let alias = gated;
+      for (let i = 2; taken.has(alias); i++) alias = `${gated}${i}`;
+      taken.add(alias);
+      map.set(alias, name);
+      out.push(withToolName(tool, alias));
+      continue;
+    }
+
+    const key = fingerprintToolKey(name);
     if (!key) {
       out.push(tool);
       continue;
@@ -258,35 +364,10 @@ export function aliasHistoryToolCalls(body, map) {
   }
 }
 
-// Without the old "must not be used" descriptions the model does call the
-// appended tools (live probe: `read` on "what files are in /etc?"), so tell it
-// in the system prompt instead. Upstream does not gate on the prompt text.
-// Wording matters: "not available" made the model also refuse the caller's own
-// Read/Bash; "placeholders ... use the other tools" kept those working.
-function noteUnavailableTools(body, flat, names, claude = false) {
-  const list = names.map((name) => `\`${name}\``).join(" or ");
-  const note = names.length > 1
-    ? `Do not call the ${list} tools; they are placeholders that do nothing. Use the other tools you have been given instead.`
-    : `Do not call the ${list} tool; it is a placeholder that does nothing. Use the other tools you have been given instead.`;
-  if (flat) {
-    body.instructions = typeof body.instructions === "string" && body.instructions.trim()
-      ? `${body.instructions}\n\n${note}`
-      : note;
-    return;
-  }
-  // Claude-shaped bodies carry `system` instead; /messages rejects role:"system".
-  if (claude || body.system !== undefined) {
-    body.system = appendSystemText(body.system, note);
-    return;
-  }
-  if (!Array.isArray(body.messages)) return;
-  const first = body.messages[0];
-  if (first?.role === "system" && typeof first.content === "string") {
-    body.messages = [{ ...first, content: `${first.content}\n\n${note}` }, ...body.messages.slice(1)];
-  } else {
-    body.messages = [{ role: "system", content: note }, ...body.messages];
-  }
-}
+// Telltale prompt injection ("Do not call the read or shell tools...") is flagged
+// by upstream OpenCode filters as third-party relay and answered with 429 FreeUsageLimitError.
+// Keep this a no-op so the prompt remains pristine.
+function noteUnavailableTools() {}
 
 // The marker gate reads text only: a foreign system prompt plus this exact block
 // passes, so the marker is appended to the caller's own prompt rather than
@@ -400,6 +481,35 @@ export function applyFingerprintTools(body, flat, { claude = false } = {}) {
 
   // The `<env>` marker is required on every free-lane request, with or without tools.
   applyEnvFingerprint(body, flat, { claude });
+
+  // OpenCode Zen rejects tool_choice: "none" with 403 FreeTierError across all lanes.
+  if (body.tool_choice === "none" || (typeof body.tool_choice === "object" && body.tool_choice?.type === "none")) {
+    delete body.tool_choice;
+  }
+
+  // Normalization from opencode-cc: normalize legacy prompt_cache_retention to prompt_cache_options
+  if (body.prompt_cache_retention !== undefined) {
+    delete body.prompt_cache_retention;
+    if (!body.prompt_cache_options) body.prompt_cache_options = { mode: "implicit" };
+  }
+
+  // Tool surface guard from opencode-cc: free tier Cloudflare WAF rejects tool definitions exceeding 38K chars
+  const MAX_TOOL_CHARS = 38000;
+  if (Array.isArray(body.tools) && JSON.stringify(body.tools).length > MAX_TOOL_CHARS) {
+    const canonicalSet = new Set(["read", "shell", "edit", "glob", "grep"]);
+    const canonical = body.tools.filter((t) => canonicalSet.has(t?.function?.name || t?.name));
+    const extras = body.tools.filter((t) => !canonicalSet.has(t?.function?.name || t?.name));
+    let budget = MAX_TOOL_CHARS - JSON.stringify(canonical).length;
+    const kept = [];
+    for (const ex of extras) {
+      const sz = JSON.stringify(ex).length;
+      if (budget - sz > 0) {
+        kept.push(ex);
+        budget -= sz;
+      }
+    }
+    body.tools = [...canonical, ...kept];
+  }
 
   // Responses keeps its explicit auto default. Never default to "none": upstream
   // answers tool_choice "none" with 403 FreeTierError.

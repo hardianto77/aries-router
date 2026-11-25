@@ -7,12 +7,14 @@ import {
   deletePromptInjection,
   reorderPromptInjections,
   isRuleMatching,
-  interpolateVariables,
+  resolveRulePromptText,
+  normalizeTriggerWordsInBody,
+  sanitizeRefusalOutput,
   executeInjection,
   extractUserText,
 } from "@/lib/db/repos/promptInjectionRepo.js";
 
-// GET /api/prompt-injection - list all rules
+// GET /api/model-bypass - list all rules
 export async function GET() {
   try {
     const rules = await getPromptInjections();
@@ -23,31 +25,45 @@ export async function GET() {
   }
 }
 
-// POST /api/prompt-injection - create rule or test dry-run
+// POST /api/model-bypass - create rule or test dry-run
 export async function POST(request) {
   try {
     const body = await request.json();
 
-    // Dry-run simulation mode
+    // Dry-run simulation mode (supports both Input and Output verification)
     if (body.action === "test") {
-      const { rule, sampleBody, context } = body;
+      const { rule, sampleBody, sampleOutput, context } = body;
       const testBody = JSON.parse(JSON.stringify(sampleBody || {
-        messages: [{ role: "user", content: "Hello world" }]
+        messages: [{ role: "user", content: "Hello world" }],
       }));
       const testContext = context || { modelStr: "gpt-4o" };
       const userText = testContext.userText !== undefined ? testContext.userText : extractUserText(testBody);
 
       const matches = await isRuleMatching(rule, { ...testContext, userText });
       let promptText = "";
-      if (matches && rule?.content) {
-        promptText = interpolateVariables(rule.content, testContext);
-        executeInjection(testBody, rule.position, promptText);
+      let normalizedTriggers = false;
+      if (matches && rule) {
+        if (rule.normalizeTriggers === true) {
+          normalizedTriggers = normalizeTriggerWordsInBody(testBody);
+        }
+        promptText = await resolveRulePromptText(rule, testContext);
+        if (promptText) {
+          executeInjection(testBody, rule.position, promptText);
+        }
       }
+
+      const sanitizedOutput =
+        typeof sampleOutput === "string"
+          ? (matches && rule?.stripRefusal === true ? sanitizeRefusalOutput(sampleOutput) : sampleOutput)
+          : undefined;
 
       return NextResponse.json({
         matches,
         promptText,
+        normalizedTriggers,
+        stripRefusal: !!(matches && rule?.stripRefusal === true),
         resultBody: testBody,
+        ...(sanitizedOutput !== undefined ? { sanitizedOutput } : {}),
       });
     }
 
@@ -85,12 +101,11 @@ export async function POST(request) {
   }
 }
 
-// PUT /api/prompt-injection - update rule or reorder
+// PUT /api/model-bypass - update rule or reorder
 export async function PUT(request) {
   try {
     const body = await request.json();
 
-    // Reorder action
     if (body.action === "reorder" && Array.isArray(body.orderedIds)) {
       await reorderPromptInjections(body.orderedIds);
       const rules = await getPromptInjections();
@@ -123,7 +138,7 @@ export async function PUT(request) {
   }
 }
 
-// DELETE /api/prompt-injection - delete rule
+// DELETE /api/model-bypass - delete rule
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);

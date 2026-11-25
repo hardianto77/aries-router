@@ -9,9 +9,26 @@ import { cleanJSONSchemaForAntigravity, normalizeGeminiContents } from "../trans
 import { DEFAULT_THINKING_AG_SIGNATURE } from "../config/defaultThinkingSignature.js";
 import { getGeminiThoughtSignatureSync } from "../services/thoughtSignatureStore.js";
 import { cloakUser, outgoing } from "../services/antigravityPromptCloak.js";
-import { decide429, classify429 } from "../services/antigravity429Engine.js";
 import { executeViaAgyCli, resolveAgyTransport } from "./agyCliExecutor.js";
 import { refusedPromptHint } from "./antigravityUpstreamError.js";
+import { decide429, classify429 } from "../services/antigravity429Engine.js";
+import {
+  ANTIGRAVITY_PROMPT_REJECTED_MESSAGE,
+  isAntigravityPromptRejection,
+  moveSystemInstructionToContents,
+  readBodyOnce,
+} from "./antigravityPromptGuard.js";
+
+// Re-exported so tests and callers have one entry point for the whole guard.
+export {
+  ANTIGRAVITY_PROMPT_REJECTED_MESSAGE,
+  isAntigravityPromptRejection,
+  moveSystemInstructionToContents,
+  readBodyOnce,
+};
+import { ANTIGRAVITY_IDE_VERSION, ANTIGRAVITY_IDE_USER_AGENT } from "../providers/shared.js";
+import { antigravityTlsFetch } from "../services/antigravityTlsClient.js";
+import { isAntigravityQuotaDrained } from "../services/antigravityQuotaMonitor.js";
 
 function asRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -49,6 +66,18 @@ function readSystemPromptText(requestOrBody) {
   return text || undefined;
 }
 
+// Hermes Agent and competitor lines that trigger a fake 429 RESOURCE_EXHAUSTED from Google Antigravity (PR #5745)
+const HERMES_TRIGGER_REWRITES = [
+  { from: /^[ \t]*You are Hermes Agent, built by Nous Research\. Be direct:[^\n]*/gm, to: "You are an AI assistant." },
+  { from: /^[ \t]*<!-- End Hermes runtime environment -->[^\n]*(?:\r?\n)?/gm, to: "" },
+  { from: /^[ \t]*# Google model operational directives[^\n]*(?:\r?\n)?/gm, to: "" },
+  { from: /^[ \t]*If a tool, install, or network call fails and blocks the real path[^\n]*(?:\r?\n)?/gm, to: "" },
+  { from: /^[ \t]*When the user asks you to build, run, or verify something, the deliverable is a working artifact[^\n]*(?:\r?\n)?/gm, to: "" },
+  { from: /^[ \t]*For help with Hermes Agent itself[^\n]*(?:\r?\n)?/gm, to: "" },
+  { from: /^[ \t]*Mid-turn, the user can steer you: Hermes delivers their message[^\n]*(?:\r?\n)?/gm, to: "" },
+  { from: /You are a personal assistant running inside OpenClaw\./gi, to: "You are a personal assistant running inside Antigravity." },
+];
+
 /**
  * Full cloak.mjs parity over systemInstruction parts: strips legacy standalone
  * Claude Agent SDK sentence and rewords every TURNED_AWAY signature + REWORDED
@@ -82,6 +111,13 @@ export function normalizeAntigravitySystemInstruction(systemInstruction) {
     if (stripped !== text) {
       changed = true;
       text = stripped;
+    }
+    for (const { from, to } of HERMES_TRIGGER_REWRITES) {
+      const rewrote = typeof from === "string" ? text.replaceAll(from, to) : text.replace(from, to);
+      if (rewrote !== text) {
+        changed = true;
+        text = rewrote;
+      }
     }
     const cloaked = outgoing(text);
     if (cloaked !== text) {
@@ -231,16 +267,54 @@ export class AntigravityExecutor extends BaseExecutor {
     super("antigravity", PROVIDERS.antigravity);
   }
 
-  // Parse Antigravity quota error to extract precise resetsAtMs from ErrorInfo/RetryInfo
-  // 403 (e.g. Google UberProxy HTML block page) is account/edge-level and
-  // identical across all Antigravity mirror hosts - cycling the 3 sandbox
-  // mirrors only adds ~90s of pointless retries. Veto fallback on 403.
   shouldRetry(status, urlIndex) {
     if (status === 403) return false;
     return status === HTTP_STATUS.RATE_LIMITED && urlIndex + 1 < this.getFallbackCount();
   }
 
   parseError(response, bodyText) {
+    if (response.status === 403 && bodyText) {
+      if (/TOS_VIOLATION|Terms of Service|disabled in this account/i.test(bodyText)) {
+        return {
+          status: 403,
+          message: "Google account suspended for Terms of Service violation. Submit an appeal at https://forms.gle/hGzM9MEUv2azZsrb9 or connect a different account.",
+          code: "TOS_VIOLATION",
+        };
+      }
+      if (/RESOURCE_EXHAUSTED|quota|rate\s*limit|exceeded/i.test(bodyText)) {
+        return {
+          status: 403,
+          message: "Google Antigravity quota exceeded for this account. Cooling down.",
+          code: "QUOTA_EXHAUSTED",
+          resetsAtMs: Date.now() + 120000,
+        };
+      }
+      if (typeof bodyText === "string" && (bodyText.includes("UberProxy") || bodyText.includes("&Uuml;berProxy") || bodyText.includes("berProxy: Error 403"))) {
+        return {
+          status: 403,
+          message: "Google edge blocked this account/IP (UberProxy 403). Wait, switch egress IP/proxy, or re-auth the account.",
+          code: "UPSTREAM_BLOCKED",
+        };
+      }
+      if (/permission|caller does not have permission|not found|unsupported_client/i.test(bodyText)) {
+        return {
+          status: 403,
+          message: "Google Antigravity permission or project error (403). Project ID may need re-provisioning.",
+          code: "PERMISSION_DENIED",
+        };
+      }
+    }
+
+    // Request-scoped rejection (bare 429, no quota detail): report it as a client-visible 400 only
+    // if the request actually carried a system prompt that could be fingerprinted/refused.
+    // Requests without a system prompt (such as model test pings) represent real upstream rate limiting.
+    const hasSystemInstruction = this._hasSystemInstruction !== undefined
+      ? this._hasSystemInstruction
+      : Boolean(this._lastRawSystemPrompt);
+    if (isAntigravityPromptRejection(response.status, bodyText, hasSystemInstruction)) {
+      return { status: HTTP_STATUS.BAD_REQUEST, message: ANTIGRAVITY_PROMPT_REJECTED_MESSAGE };
+    }
+
     if ((response.status === 429 || response.status === 409) && bodyText) {
       try {
         const json = JSON.parse(bodyText);
@@ -277,6 +351,10 @@ export class AntigravityExecutor extends BaseExecutor {
         if (resetsAtMs) {
           return { status: response.status, message, resetsAtMs };
         }
+        const decision = decide429(classify429(rawMsg), null);
+        if (decision.retryAfterMs) {
+          return { status: response.status, message, resetsAtMs: Date.now() + decision.retryAfterMs };
+        }
         if (hintSuffix) {
           return { status: response.status, message };
         }
@@ -306,16 +384,48 @@ export class AntigravityExecutor extends BaseExecutor {
   // sessionId comes from transformRequest output; base.execute runs transformRequest before
   // buildHeaders, so we read it from instance state cached there (fallback: explicit arg).
   buildHeaders(credentials, stream = true, sessionId = null) {
-    return {
+    const isLegacyFakePid = typeof credentials?.projectId === "string" &&
+      (/^(useful|bright|swift|calm|bold)-(fuze|wave|spark|flow|core)-[a-f0-9]+$/i.test(credentials.projectId) ||
+       /^cloudaicompanion-proj-[a-f0-9]+$/i.test(credentials.projectId));
+    const projectId = (!isLegacyFakePid && credentials?.projectId) || "aicode-consumers";
+    // Only a real, user-owned GCP project may be billed through x-goog-user-project.
+    // "aicode-consumers" is Antigravity's internal consumer identifier (it still goes
+    // in the request body), NOT a Cloud project the caller can spend against — sending
+    // it as the quota project makes Google IAM reject the call with
+    // 403 USER_PROJECT_DENIED ("Caller does not have required permission to use
+    // project aicode-consumers"). Omitting the header lets the request bill against
+    // the project tied to the OAuth token instead.
+    const quotaProjectId = !isLegacyFakePid && typeof credentials?.projectId === "string"
+      ? credentials.projectId.trim()
+      : "";
+
+    const headers = {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${credentials.accessToken}`,
-      "User-Agent": this.config.headers?.["User-Agent"] || ANTIGRAVITY_HEADERS["User-Agent"],
+      "Accept": stream ? "text/event-stream" : "application/json",
+      "Authorization": `Bearer ${credentials?.accessToken || ""}`,
+      "User-Agent": this.config.headers?.["User-Agent"] || ANTIGRAVITY_HEADERS["User-Agent"] || ANTIGRAVITY_IDE_USER_AGENT,
+      "Client-Metadata": JSON.stringify({
+        ideType: "ANTIGRAVITY",
+        ideName: "antigravity",
+        platform: "PLATFORM_UNSPECIFIED",
+        pluginType: "GEMINI",
+        ideVersion: ANTIGRAVITY_IDE_VERSION,
+      }),
+      "x-request-source": "local",
     };
+
+    if (quotaProjectId && quotaProjectId !== "aicode-consumers") {
+      headers["x-goog-user-project"] = quotaProjectId;
+    }
+
+    return headers;
   }
 
   transformRequest(model, body, stream, credentials) {
-    console.log("=== ANTIGRAVITY EXECUTOR HIT ===", { model, bodyModel: body?.model });
-    const projectId = credentials?.projectId || this.generateProjectId();
+    const isLegacyFakePid = typeof credentials?.projectId === "string" &&
+      (/^(useful|bright|swift|calm|bold)-(fuze|wave|spark|flow|core)-[a-f0-9]+$/i.test(credentials.projectId) ||
+       /^cloudaicompanion-proj-[a-f0-9]+$/i.test(credentials.projectId));
+    const projectId = (!isLegacyFakePid && credentials?.projectId) || this.generateProjectId(credentials);
 
     // OpenAI clients may include stream_options even for non-streaming calls.
     // Google generateContent rejects that combination before processing the request.
@@ -358,6 +468,9 @@ export class AntigravityExecutor extends BaseExecutor {
         // No tools, no systemInstruction, no safetySettings for image gen
       };
 
+      this._lastRawSystemPrompt = undefined;
+      this._hasSystemInstruction = false;
+
       return {
         project: projectId,
         model: cleanModel,
@@ -371,12 +484,14 @@ export class AntigravityExecutor extends BaseExecutor {
     const rawSessionId = body.request?.sessionId || resolveSessionId({ headers: credentials?.rawHeaders, body, connectionId: credentials?.email || credentials?.connectionId, scope: "antigravity" });
     const sessionId = toNumericSessionId(rawSessionId) || rawSessionId;
 
+    const isClaude = String(model || "").toLowerCase().includes("claude");
+
     // ─── Standard (non-image) request ───
     // Fix contents for Claude models via Antigravity
     const rawContents = (body.request?.contents || []).map(c => {
       let role = c.role;
       // functionResponse must be role "user" for Claude models
-      if (c.parts?.some(p => p.functionResponse)) {
+      if (isClaude && c.parts?.some(p => p.functionResponse)) {
         role = "user";
       }
       // Strip thought-only parts, keep thoughtSignature on functionCall parts (Gemini 3+ requires it)
@@ -445,6 +560,7 @@ export class AntigravityExecutor extends BaseExecutor {
     // Cache pre-cloaked system prompt for bare-429 refused-prompt diagnostics,
     // then apply full cloak.mjs parity (`outgoing()`) without mutating input.
     this._lastRawSystemPrompt = readSystemPromptText(requestWithoutTools);
+    this._hasSystemInstruction = Boolean(this._lastRawSystemPrompt);
     if (requestWithoutTools.systemInstruction !== undefined) {
       const normalizedSystem = normalizeAntigravitySystemInstruction(requestWithoutTools.systemInstruction);
       if (normalizedSystem === undefined) {
@@ -454,7 +570,6 @@ export class AntigravityExecutor extends BaseExecutor {
       }
     }
 
-    const isClaude = String(model || "").toLowerCase().includes("claude");
     const generationConfig = { ...(requestWithoutTools.generationConfig || {}) };
     const maxTokensCap = isClaude ? 64000 : 65536;
     if (!generationConfig.maxOutputTokens || generationConfig.maxOutputTokens > maxTokensCap) {
@@ -467,7 +582,9 @@ export class AntigravityExecutor extends BaseExecutor {
       const budgetMap = { low: 1024, medium: 4096, high: 16384 };
       const budget = budgetMap[rawEffort.toLowerCase()] || 4096;
       generationConfig.thinkingConfig = {
-        thinkingBudget: budget
+        ...(generationConfig.thinkingConfig || {}),
+        thinkingBudget: budget,
+        includeThoughts: true
       };
     }
 
@@ -479,6 +596,10 @@ export class AntigravityExecutor extends BaseExecutor {
       }
     }
 
+    const effectiveToolConfig = _originalToolConfig || (tools?.length > 0 ? {
+      functionCallingConfig: { mode: isClaude ? "VALIDATED" : "AUTO" }
+    } : undefined);
+
     const transformedRequest = {
       ...requestWithoutTools,
       generationConfig,
@@ -486,7 +607,7 @@ export class AntigravityExecutor extends BaseExecutor {
       ...(tools && { tools }),
       sessionId,
       safetySettings: undefined,
-      ...(tools?.length > 0 && { toolConfig: { functionCallingConfig: { mode: "VALIDATED" } } })
+      ...(effectiveToolConfig && { toolConfig: effectiveToolConfig })
     };
 
     // Strip blacklisted thinking fields from top-level body (set by thinkingUnified.js at root, not body.request)
@@ -505,7 +626,7 @@ export class AntigravityExecutor extends BaseExecutor {
     return {
       ...body,
       project: projectId,
-      model: ((m) => { const s = String(m || "").replace(/^(?:antigravity|agy|ag)\//, "").replace(/\([^()]+\)\s*$/, "").trim(); if (s.startsWith("gemini-3.8-flash") || s.startsWith("gemini-4-argon") || s.startsWith("gemini-3.7-flash") || s.startsWith("gemini-3.6-flash")) return "gemini-4-hydrogen-sonar"; if (s.startsWith("claude-sonnet-5-5") || s === "claude-sonnet-5.5") return "claude-sonnet-4-6"; if (s.startsWith("claude-opus-5-5") || s === "claude-opus-5.5") return "claude-opus-4-6-thinking"; if (s.startsWith("gemini-3.1-pro") || s === "gemini-pro-agent") return "gemini-3-flash"; return s || "gemini-4-hydrogen-sonar"; })(body.model || model),
+      model: body.model || model,
       userAgent: "antigravity",
       requestId: buildIdeRequestId({ body, request: transformedRequest, credentials, model, requestType: "agent" }),
       request: transformedRequest
@@ -520,7 +641,7 @@ export class AntigravityExecutor extends BaseExecutor {
   async execute(input) {
     // The ACP transport is opt-in and off by default, so HTTP is unchanged for
     // every connection that has not asked for it (see agyCliExecutor.js).
-    if (!isImageModel(input.model) && resolveAgyTransport(input.credentials) !== "http") {
+    if (!isImageModel(input.model) && resolveAgyTransport(input.credentials) === "acp") {
       const { response, url } = await executeViaAgyCli({
         model: input.model,
         body: input.body,
@@ -536,7 +657,69 @@ export class AntigravityExecutor extends BaseExecutor {
         transport: "agy-cli",
       };
     }
-    return super.execute(input);
+
+    // Direct HTTP path — Safe Recipe: Proactive Quota Pre-check (skip depleted accounts before 429)
+    const connectionId = input.credentials?.connectionId || input.credentials?.email || "default";
+    if (input.credentials?.accessToken) {
+      try {
+        const { isDrained, resetTime } = await isAntigravityQuotaDrained(
+          input.credentials.accessToken,
+          input.model,
+          input.proxyOptions,
+          connectionId
+        );
+        if (isDrained) {
+          const cooldownMs = resetTime ? Math.max(30000, new Date(resetTime).getTime() - Date.now()) : 120000;
+          markConnectionQuotaExhausted(connectionId, cooldownMs, input.model);
+          const errBody = JSON.stringify({
+            error: {
+              message: `Google Antigravity quota depleted for model ${input.model} (remaining <= 2%). Skipping connection proactively to protect account.`,
+              code: "QUOTA_EXHAUSTED",
+              type: "rate_limit_error"
+            }
+          });
+          return {
+            response: new Response(errBody, {
+              status: 429,
+              headers: { "Content-Type": "application/json", "Retry-After": String(Math.ceil(cooldownMs / 1000)) }
+            }),
+            url: this.buildUrl(input.model, input.stream, 0, input.credentials),
+            headers: {},
+            transformedBody: input.body,
+          };
+        }
+      } catch (_) {
+        // Fail-open: proceed if quota check experiences transient network issue
+      }
+    }
+
+    // Direct HTTP path — Safe Recipe: BoringSSL TLS Impersonation via wreq-js
+    const dispatch = (payload) => super.execute({
+      ...payload,
+      directFetch: antigravityTlsFetch,
+      directFetchProxy: true,
+    });
+
+    let result = await dispatch(input);
+
+    // A prompt rejection means systemInstruction carries text Google fingerprints that
+    // ANTIGRAVITY_PROMPT_REWRITES does not cover yet. Antigravity only inspects
+    // systemInstruction, so retry once with that text moved into the first user turn: a new
+    // fingerprint then costs one extra round trip instead of failing every request. Image
+    // requests never send systemInstruction, so there is nothing to move for them.
+    if (result?.response?.status === HTTP_STATUS.RATE_LIMITED && !isImageModel(input.model)) {
+      const moved = moveSystemInstructionToContents(input.body);
+      if (moved && isAntigravityPromptRejection(result.response.status, await readBodyOnce(result.response))) {
+        (input.log?.warn || input.log?.info || (() => {})).call(
+          input.log,
+          "ANTIGRAVITY",
+          "System prompt rejected (fingerprinted third-party text not in ANTIGRAVITY_PROMPT_REWRITES); retrying with it in the first user turn"
+        );
+        result = await dispatch({ ...input, body: moved });
+      }
+    }
+
+    return result;
   }
 
   async refreshCredentials(credentials, log, proxyOptions = null) {
@@ -571,10 +754,8 @@ export class AntigravityExecutor extends BaseExecutor {
     }
   }
 
-  generateProjectId() {
-    const adj = ["useful", "bright", "swift", "calm", "bold"][Math.floor(Math.random() * 5)];
-    const noun = ["fuze", "wave", "spark", "flow", "core"][Math.floor(Math.random() * 5)];
-    return `${adj}-${noun}-${crypto.randomUUID().slice(0, 5)}`;
+  generateProjectId(credentials = null) {
+    return "aicode-consumers";
   }
 
   generateSessionId() {
@@ -664,6 +845,12 @@ export class AntigravityExecutor extends BaseExecutor {
       retryMs = this.parseRetryFromErrorMessage(errorMessage);
     }
     if (retryMs) return retryMs <= MAX_RETRY_AFTER_MS ? retryMs : false;
+
+    // The same body is refused the same way every time — retries only add backoff delay.
+    const hasSystemInstruction = this._hasSystemInstruction !== undefined
+      ? this._hasSystemInstruction
+      : Boolean(this._lastRawSystemPrompt);
+    if (isAntigravityPromptRejection(response.status, bodyText, hasSystemInstruction)) return false;
 
     if (!this.isTransientAntigravityError(response.status, errorMessage)) return false;
 

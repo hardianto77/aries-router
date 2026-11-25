@@ -52,15 +52,9 @@ export default {
       headers: { ...CLAUDE_API_HEADERS },
       auth: { combined: true, header: "x-api-key", scheme: "raw", hooks: ["kimiHeaders"] },
     },
-    // Kimi Code natively serves the OpenAI Responses API (Codex wire_api = "responses").
-    {
-      format: "openai-responses",
-      baseUrl: "https://api.kimi.com/coding/v1/responses",
-      auth: { combined: true, header: "Authorization", scheme: "bearer", hooks: ["kimiHeaders"] },
-    },
   ],
   models: [
-    // Flagship K3 - platform.kimi.ai id `kimi-k3`, Kimi Code OAuth id `k3` (up to 1M)
+    // Flagship K3 — platform.kimi.ai id `kimi-k3`, Kimi Code OAuth id `k3` (up to 1M)
     { id: "kimi-k3", name: "Kimi K3" },
     { id: "k3", name: "Kimi K3 (Code)" },
     // Kimi Code subscription stable ids (map to K2.7 Code backend)
@@ -91,7 +85,7 @@ export default {
   },
   features: {
     usage: true,
-    // API-key connections also hit /v1/usages (x-api-key) - need usageApikey
+    // API-key connections also hit /v1/usages (x-api-key) — need usageApikey
     // so isUsageEligible + /api/usage allow non-oauth authType.
     usageApikey: true,
   },

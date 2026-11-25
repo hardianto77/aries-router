@@ -1,17 +1,14 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
-
-export const dynamic = "force-dynamic";
 import {
   getProvider,
+  getProviderNames,
   generateAuthData,
   exchangeTokens,
   requestDeviceCode,
   pollForToken
 } from "@/lib/oauth/providers";
 import { createProviderConnection } from "@/models";
-import { getProviderConnections } from "@/lib/localDb";
-import { requestLease, requestStatus, resolveLeaseEndpoint, resolveMcodeDataDir, AuthLeaseError } from "open-sse/services/minimaxCodeLease.js";
 import { readDesktopPassToken } from "open-sse/shared/mimoAccount.js";
 import {
   startCodexProxy,
@@ -44,6 +41,14 @@ import {
   registerXiaomiMimoSession,
   getXiaomiMimoSessionStatus,
   clearXiaomiMimoSession,
+  startAwsQuickProxy,
+  stopAwsQuickProxy,
+  registerAwsQuickSession,
+  resolveAwsQuickAuthorizeUrl,
+  getAwsQuickSessionStatus,
+  getAwsQuickSessionResult,
+  clearAwsQuickSession,
+  pasteAwsQuickUrl,
 } from "@/lib/oauth/utils/server";
 import { detectIdeInstalled } from "@/lib/oauth/utils/ideDetect";
 import { ZED_HOSTED_CONFIG } from "@/lib/oauth/constants/oauth";
@@ -100,7 +105,42 @@ export async function GET(request, { params }) {
     const { searchParams } = new URL(request.url);
 
     if (action === "authorize") {
-      // Xiaomi Desktop: custom ECDH flow - generate keypair, start proxy, return authorize URL
+      // Amazon Quick: two-hop loopback flow — the "authorize URL" is the
+      // quick.aws.com/sn discovery page (nonce + callback port embedded);
+      // the local proxy handles both hops. redirect_uri is the proxy
+      // callback URL returned by start-proxy.
+      if (provider === "aws-quick") {
+        const state = searchParams.get("state") || crypto.randomUUID();
+        const stage = searchParams.get("stage") || "prod";
+        // (Re)start the loopback listener: a retry after the 10-minute idle
+        // timeout, a hop failure, or another tab's stop-proxy closes it, and a
+        // client registered against a dead port can never receive the callback.
+        const proxy = await startAwsQuickProxy();
+        if (!proxy?.success || !proxy.callbackUrl) {
+          return NextResponse.json(
+            { error: `Could not start the loopback callback server: ${proxy?.reason || "unknown"}` },
+            { status: 500 },
+          );
+        }
+        // The live listener's port wins over any redirect_uri the client sends
+        // (its value may come from an earlier attempt on a different port).
+        const redirectUri = proxy.callbackUrl;
+        // Validates + normalizes the loopback origin to http://<host>:<port>
+        // (AWS OIDC public clients reject redirect URIs with a path).
+        if (!registerAwsQuickSession({ state, redirectUri, stage })) {
+          return NextResponse.json(
+            {
+              error:
+                "redirect_uri must be a loopback URL with an explicit port: http://127.0.0.1:<port>, http://localhost:<port> or http://[::1]:<port>",
+            },
+            { status: 400 },
+          );
+        }
+        const authData = await resolveAwsQuickAuthorizeUrl({ state, redirectUri, stage });
+        return NextResponse.json(authData);
+      }
+
+      // Xiaomi Desktop: custom ECDH flow — generate keypair, start proxy, return authorize URL
       if (provider === "xiaomi-mimo") {
         const { generateKeyPair, buildAuthorizeUrl, getKeyName } = await import("@/lib/oauth/providers/xiaomi-mimo");
         const { publicKey, privateKeyDer } = generateKeyPair();
@@ -121,18 +161,23 @@ export async function GET(request, { params }) {
         return NextResponse.json({
           state,
           authorizeUrl,
+          url: authorizeUrl,
           redirectUri,
           port: proxyResult.port,
         });
       }
 
       const redirectUri = searchParams.get("redirect_uri") || (() => {
-      const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
- const proto = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : request.url.split(":")[0]);
- const isLocal = host.includes("localhost") || host.includes("127.0.0.1") || host.includes("[::1]");
- if (!isLocal && host) return `${proto}://${host}/callback`;
- return "http://localhost:8080/callback";
- })();
+        const configuredBase = process.env.PUBLIC_BASE_URL || process.env.BASE_URL || process.env.NEXT_PUBLIC_BASE_URL;
+        if (configuredBase && !configuredBase.includes("localhost") && !configuredBase.includes("127.0.0.1")) {
+          return `${configuredBase.replace(/\/$/, "")}/callback`;
+        }
+        const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+        const proto = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : request.url.split(":")[0]);
+        const isLocal = host.includes("localhost") || host.includes("127.0.0.1") || host.includes("[::1]");
+        if (!isLocal && host) return `${proto}://${host}/callback`;
+        return `${new URL(request.url).origin}/callback`;
+      })();
       // Collect provider-specific meta params (e.g. gitlab passes baseUrl, clientId, clientSecret)
       const reservedParams = new Set(["redirect_uri"]);
       const meta = {};
@@ -141,6 +186,12 @@ export async function GET(request, { params }) {
       // is bound to the port the proxy is actually listening on.
       if (provider === "zed") {
         try { const p = new URL(redirectUri).port; if (p) meta.nativeAppPort = p; } catch { /* ignore */ }
+      }
+      if (!getProviderNames().includes(provider === "kimi-coding" ? "kimi" : provider)) {
+        return NextResponse.json(
+          { error: `Provider '${provider}' does not support OAuth authentication.` },
+          { status: 400 }
+        );
       }
       const authData = await generateAuthData(provider, redirectUri, Object.keys(meta).length ? meta : undefined);
       return NextResponse.json(authData);
@@ -167,8 +218,12 @@ export async function GET(request, { params }) {
         const result = await startXiaomiMimoProxy();
         return NextResponse.json(result);
       }
+      if (provider === "aws-quick") {
+        const result = await startAwsQuickProxy();
+        return NextResponse.json(result);
+      }
       if (!["codex", "xai"].includes(provider)) {
-        return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed" }, { status: 400 });
+        return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed/xiaomi-mimo/aws-quick" }, { status: 400 });
       }
       const appPort = searchParams.get("app_port");
       if (!appPort) {
@@ -201,13 +256,24 @@ export async function GET(request, { params }) {
       else if (provider === "xai") session = getXaiSessionStatus(state);
       else if (provider === "codex") session = getCodexSessionStatus(state);
       else if (provider === "xiaomi-mimo") session = getXiaomiMimoSessionStatus(state);
-      else return NextResponse.json({ error: "Poll only supported for codex/xai/trae/windsurf/zed/xiaomi-mimo" }, { status: 400 });
+      else if (provider === "aws-quick") session = getAwsQuickSessionStatus(state);
+      else return NextResponse.json({ error: "Poll only supported for codex/xai/trae/windsurf/zed/xiaomi-mimo/aws-quick" }, { status: 400 });
       if (!session) return NextResponse.json({ status: "unknown" });
       if (session.status === "done" || session.status === "error") {
         const payload = { ...session };
+        if (provider === "aws-quick") {
+          // Like xiaomi-mimo this does not complete server-side: a done session
+          // must survive until the client POSTs /exchange — that call clears it.
+          // A failed one is cleared here instead.
+          if (session.status === "error") {
+            clearAwsQuickSession(state);
+            stopAwsQuickProxy();
+          }
+          return NextResponse.json(payload);
+        }
         if (provider === "xiaomi-mimo") {
           // Unlike the others this does not auto-exchange server-side, so a
-          // finished session must survive until the client POSTs /exchange -
+          // finished session must survive until the client POSTs /exchange —
           // that call clears it. A failed one is cleared here instead.
           if (session.status === "error") {
             clearXiaomiMimoSession(state);
@@ -232,7 +298,8 @@ export async function GET(request, { params }) {
       else if (provider === "xai") stopXaiProxy();
       else if (provider === "codex") stopCodexProxy();
       else if (provider === "xiaomi-mimo") stopXiaomiMimoProxy();
-      else return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed/xiaomi-mimo" }, { status: 400 });
+      else if (provider === "aws-quick") stopAwsQuickProxy();
+      else return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed/xiaomi-mimo/aws-quick" }, { status: 400 });
       return NextResponse.json({ success: true });
     }
 
@@ -263,7 +330,9 @@ export async function GET(request, { params }) {
           }
         : undefined;
       
-      // Providers that don't use PKCE for device code (Grok CLI HAR: plain device_code, no challenge)
+      // Providers that don't use PKCE for device code (Grok CLI HAR: plain device_code, no challenge).
+      // NOTE: minimax-code / minimax-code-global require PKCE S256 challenge, so they are
+      // deliberately omitted here to pass authData.codeChallenge.
       const noPkceDeviceProviders = [
         "github",
         "kiro",
@@ -277,7 +346,9 @@ export async function GET(request, { params }) {
         "grok-cli",
         "muse",
         "glm",
+        "zcode",
         "nous",
+        "freepi",
       ];
       let deviceData;
       if (noPkceDeviceProviders.includes(provider)) {
@@ -293,24 +364,6 @@ export async function GET(request, { params }) {
         // itself (qoder rolls its own PKCE pair); fall back to the generic one.
         codeVerifier: deviceData.codeVerifier || authData.codeVerifier,
       });
-    }
-
-    if (action === "lease-status") {
-      // MiniMax Code desktop broker probe: is the desktop app installed,
-      // running and signed in on this machine? Read-only — leases nothing.
-      const MCODE_LEASE_PROVIDERS = ["minimax-code", "minimax-code-global"];
-      if (!MCODE_LEASE_PROVIDERS.includes(provider)) {
-        return NextResponse.json({ error: "lease-status only supported for minimax-code/minimax-code-global" }, { status: 400 });
-      }
-      const override = searchParams.get("data_dir");
-      const dataDir = override ? String(override).trim() : resolveMcodeDataDir(null);
-      try {
-        const status = await requestStatus(dataDir);
-        return NextResponse.json({ found: true, dataDir, ...status });
-      } catch (error) {
-        const code = error instanceof AuthLeaseError ? error.code : "INTERNAL_ERROR";
-        return NextResponse.json({ found: false, dataDir, error: code, message: error.message });
-      }
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
@@ -332,45 +385,9 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: "Invalid or empty request body" }, { status: 400 });
     }
 
-    if (action === "lease-connect") {
-      // MiniMax Code: create a connection that borrows the desktop app's
-      // sign-in over the local auth-lease pipe (authType "mcode-lease"). The
-      // router stores no tokens for it — the desktop broker owns refresh.
-      const MCODE_LEASE_PROVIDERS = ["minimax-code", "minimax-code-global"];
-      if (!MCODE_LEASE_PROVIDERS.includes(provider)) {
-        return NextResponse.json({ error: "lease-connect only supported for minimax-code/minimax-code-global" }, { status: 400 });
-      }
-      const dataDir = body?.dataDir ? String(body.dataDir).trim() : resolveMcodeDataDir(null);
-      try {
-        // Validate availability up front so the user gets the broker's exact
-        // failure reason instead of a dead connection.
-        await requestLease(dataDir);
-      } catch (error) {
-        const code = error instanceof AuthLeaseError ? error.code : "INTERNAL_ERROR";
-        return NextResponse.json({ error: error.message, code }, { status: 409 });
-      }
-
-      // Idempotent: one lease connection per (provider, data dir).
-      resolveLeaseEndpoint(dataDir); // throws INVALID_REQUEST on a non-absolute override
-      const existing = (await getProviderConnections({ provider }))
-        .find((c) => c.authType === "mcode-lease" && resolveMcodeDataDir(c) === dataDir);
-      if (existing) {
-        return NextResponse.json({ success: true, connection: { id: existing.id, provider: existing.provider }, reused: true });
-      }
-
-      const connection = await createProviderConnection({
-        provider,
-        authType: "mcode-lease",
-        name: provider === "minimax-code-global" ? "MiniMax Desktop (Lease, Global)" : "MiniMax Desktop (Lease)",
-        providerSpecificData: { mcodeDataDir: dataDir },
-        testStatus: "active",
-      });
-      return NextResponse.json({ success: true, connection: { id: connection.id, provider: connection.provider } });
-    }
-
     if (action === "register-session") {
       // Register proxy session out of URL query (state) + body (codeVerifier).
-      // Zed's codeVerifier encodes the RSA private key - must stay out of URL/logs.
+      // Zed's codeVerifier encodes the RSA private key — must stay out of URL/logs.
       const searchParams = new URL(request.url).searchParams;
       const state = searchParams.get("state") || body?.state;
       if (!state) return NextResponse.json({ error: "Missing state" }, { status: 400 });
@@ -378,14 +395,45 @@ export async function POST(request, { params }) {
       if (provider === "trae") ok = registerTraeSession({ state });
       else if (provider === "windsurf") ok = registerWindsurfSession({ state });
       else if (provider === "zed") ok = registerZedSession({ state, codeVerifier: body?.codeVerifier, systemId: body?.systemId });
-      else return NextResponse.json({ error: "register-session only supported for trae/windsurf/zed" }, { status: 400 });
+      else if (provider === "aws-quick") ok = !!getAwsQuickSessionStatus(state); // session registered at /authorize
+      else return NextResponse.json({ error: "register-session only supported for trae/windsurf/zed/aws-quick" }, { status: 400 });
       return NextResponse.json({ success: ok });
+    }
+
+    if (action === "paste") {
+      // Amazon Quick paste-back fallback: accepts the browser's final address —
+      // either the /callback?... hop-1 URL (saves discovery, retry required) or
+      // the /?code&state final URL (completes the exchange).
+      if (provider !== "aws-quick") {
+        return NextResponse.json({ error: "Paste-back only supported for aws-quick" }, { status: 400 });
+      }
+      const url = String(body?.url || "").trim();
+      if (!url) {
+        return NextResponse.json({ error: "Missing url" }, { status: 400 });
+      }
+      try {
+        const result = await pasteAwsQuickUrl(url);
+        // Diagnosable without leaking the code/state: host + path + which params.
+        try {
+          const u = new URL(url);
+          console.log(`[aws-quick oauth] paste ok (${result.status}) host=${u.host} path=${u.pathname} params=${[...u.searchParams.keys()].join(",")}`);
+        } catch {}
+        return NextResponse.json(result);
+      } catch (err) {
+        try {
+          const u = new URL(url);
+          console.log(`[aws-quick oauth] paste failed host=${u.host} path=${u.pathname} params=${[...u.searchParams.keys()].join(",")} : ${err.message}`);
+        } catch {
+          console.log(`[aws-quick oauth] paste failed (unparseable url) : ${err.message}`);
+        }
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
     }
 
     if (action === "exchange") {
       const { code, redirectUri, codeVerifier, state, meta, systemId } = body;
 
-      // Xiaomi MiMo: no token exchange needed - the callback already decrypted the sk.
+      // Xiaomi MiMo: no token exchange needed — the callback already decrypted the sk.
       // Just read the session result and create the connection.
       if (provider === "xiaomi-mimo") {
         if (!state) {
@@ -401,13 +449,13 @@ export async function POST(request, { params }) {
         const { uid, accessToken, baseUrl } = session.result;
 
         // Desktop-exclusive Preview models authenticate with the account-session
-        // passToken, which only lives in MiMo Desktop's cookie store - attach it
+        // passToken, which only lives in MiMo Desktop's cookie store — attach it
         // to the connection so those models work right after OAuth.
         let passToken = null;
         try {
           passToken = await readDesktopPassToken();
         } catch {
-          // Desktop not installed / cookie DB locked - preview models stay unavailable.
+          // Desktop not installed / cookie DB locked — preview models stay unavailable.
         }
 
         try {
@@ -443,6 +491,57 @@ export async function POST(request, { params }) {
         } catch (err) {
           clearXiaomiMimoSession(state);
           stopXiaomiMimoProxy();
+          return NextResponse.json({ error: err.message }, { status: 500 });
+        }
+      }
+
+      // Amazon Quick: the proxy (or the paste-back flow) already completed the
+      // two-hop exchange — read the settled session result and create the connection.
+      if (provider === "aws-quick") {
+        if (!state) {
+          return NextResponse.json({ error: "Missing state" }, { status: 400 });
+        }
+        const session = getAwsQuickSessionResult(state);
+        if (!session || session.status !== "done" || !session.result) {
+          return NextResponse.json(
+            { error: session?.error || "OAuth session not completed. Please restart the login flow." },
+            { status: 400 },
+          );
+        }
+        const result = session.result;
+        const { mapTokens } = await import("@/lib/oauth/providers/aws-quick");
+        try {
+          const tokenData = mapTokens(result.tokens, {
+            userInfo: result.userInfo,
+            discovery: result.discovery,
+            stage: result.stage,
+            clientId: result.clientId,
+            clientSecret: result.clientSecret,
+          });
+          const connection = await createProviderConnection({
+            provider: "aws-quick",
+            authType: "oauth",
+            ...tokenData,
+            // Contract with the gateway executor: expiresAt is epoch ms.
+            expiresAt: tokenData.expiresIn
+              ? Date.now() + tokenData.expiresIn * 1000
+              : null,
+            testStatus: "active",
+          });
+          clearAwsQuickSession(state);
+          stopAwsQuickProxy();
+          return NextResponse.json({
+            success: true,
+            connection: {
+              id: connection.id,
+              provider: connection.provider,
+              email: connection.email,
+              displayName: connection.displayName,
+            },
+          });
+        } catch (err) {
+          clearAwsQuickSession(state);
+          stopAwsQuickProxy();
           return NextResponse.json({ error: err.message }, { status: 500 });
         }
       }
@@ -565,7 +664,14 @@ export async function POST(request, { params }) {
       }
 
       // Providers that don't use PKCE for device code
-      const noPkceProviders = ["github", "kimi", "kimi-coding", "kilocode", "codebuddy-cn", "codebuddy-intl", "glm", "nous"];
+      // NOTE: minimax-code / minimax-code-global are deliberately NOT here. Their
+      // /device-code leg sends a PKCE S256 challenge (see noPkceDeviceProviders
+      // above), so the granted device code is bound to that challenge. Dropping
+      // the verifier on /poll made the exchange fail with "this device code can
+      // no longer be exchanged" AFTER a successful browser login — the OAuth
+      // device code is single-use, so the failed attempt burned it. They now
+      // fall through to the PKCE branch below, which forwards codeVerifier.
+      const noPkceProviders = ["github", "kimi", "kimi-coding", "kilocode", "codebuddy-cn", "codebuddy-intl", "glm", "zcode", "grok-cli", "muse", "nous", "freepi"];
       let result;
       if (noPkceProviders.includes(provider)) {
         // kimi needs extraData._kimiDeviceId for stable X-Msh-Device-Id (CLIProxyAPI parity)
@@ -582,11 +688,13 @@ export async function POST(request, { params }) {
         }
         result = await pollForToken(provider, deviceCode, codeVerifier, extraData);
       } else {
-        // Qwen and other PKCE providers
+        // Qwen and other PKCE providers. extraData is forwarded because the
+        // MiniMax Code providers ride this branch yet still need
+        // extraData._minimaxPollByUser to pick user_code vs device_code.
         if (!codeVerifier) {
           return NextResponse.json({ error: "Missing code verifier" }, { status: 400 });
         }
-        result = await pollForToken(provider, deviceCode, codeVerifier);
+        result = await pollForToken(provider, deviceCode, codeVerifier, extraData);
       }
 
       if (result.success) {
@@ -619,7 +727,10 @@ export async function POST(request, { params }) {
         error: result.error,
         errorDescription: result.errorDescription,
         pending: isPending,
-        // fatal: unrecoverable (e.g. post-exchange failure) - client must stop polling and show it
+        // Server-side back-off (freepi): seconds the client must wait before
+        // polling again. Dropping it makes the poll loop hammer the upstream.
+        ...(result.retryAfter ? { retryAfter: result.retryAfter } : {}),
+        // fatal: unrecoverable (e.g. post-exchange failure) — client must stop polling and show it
         ...(result.fatal ? { fatal: true } : {}),
       });
     }

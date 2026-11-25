@@ -39,6 +39,8 @@ export const PROVIDER_CACHE_TTL_MS = {
   dahl: 60 * 60 * 1000,
   zhipu: 60 * 60 * 1000,
   glm: 60 * 60 * 1000,
+  freepi: 60 * 60 * 1000,
+  fp: 60 * 60 * 1000,
 };
 
 export const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -112,7 +114,8 @@ export function deriveConversationKey({ body, request = null, headers = null, ap
       else if (role === "user" && !firstUser && text) firstUser = text.slice(0, 500);
       if (system && firstUser) break;
     }
-    const anchor = `${system}\0${firstUser}`;
+    const targetModel = body?.model ? String(body.model).trim() : "";
+    const anchor = `${targetModel}\0${system}\0${firstUser}`;
     if (anchor.length > 5) {
       const hash = crypto.createHash("sha256").update(anchor).digest("hex").slice(0, 20);
       const caller = apiKey

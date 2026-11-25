@@ -10,6 +10,9 @@ const STRIP_RULES = [
   { match: /claude/i, drop: ["temperature"] },
   // GitHub Copilot gpt-5.4: temperature unsupported.
   { provider: "github", match: /gpt-5\.4/i, drop: ["temperature"] },
+  // Native Anthropic API rejects top-level reasoning_effort strictly
+  { provider: "claude", drop: ["reasoning_effort"] },
+  { provider: "anthropic", drop: ["reasoning_effort"] },
   // GitHub Copilot Claude (except opus/sonnet 4.6): thinking + reasoning_effort rejected. #713
   { provider: "github", match: (m) => /claude/i.test(m) && !/claude.*(opus|sonnet).*4\.6/i.test(m), drop: ["thinking", "reasoning_effort"] },
   // Cloudflare Workers AI: content must be plain string, rejects OpenAI content-part array (#1926)
@@ -46,8 +49,6 @@ const STRIP_RULES = [
   // Current OpenAI models (gpt-5.x / gpt-6.x) reject `max_tokens` with HTTP 400
   // ("Use 'max_completion_tokens' instead"). Clients send `max_tokens`, so rename it.
   { provider: "openai", renameParams: { max_tokens: "max_completion_tokens" } },
-  // LLMTR chat accepts `reasoning` only as a boolean. An object 400s.
-  { provider: "llmtr", coerceReasoningBoolean: true },
 ];
 
 // Test a rule's match (regex or predicate) against the model id.
@@ -68,6 +69,12 @@ export function stripUnsupportedParams(provider, model, body) {
   for (const rule of STRIP_RULES) {
     if (rule.provider && rule.provider !== provider) continue;
     if (!matches(rule, model)) continue;
+    // Rename params (keeps an explicit target value if the client already sent one).
+    for (const [from, to] of Object.entries(rule.renameParams || {})) {
+      if (body[from] === undefined) continue;
+      if (body[to] === undefined) body[to] = body[from];
+      delete body[from];
+    }
     for (const key of rule.drop || []) {
       if (body[key] !== undefined) delete body[key];
     }
@@ -97,11 +104,6 @@ export function stripUnsupportedParams(provider, model, body) {
             .join("");
         }
       }
-    }
-    if (rule.coerceReasoningBoolean && body.reasoning != null && typeof body.reasoning !== "boolean") {
-      const value = body.reasoning;
-      const off = value?.enabled === false || value?.effort === "none" || value?.effort === "off";
-      body.reasoning = !off;
     }
     if (rule.clampToModelMaxOutput || Number.isFinite(rule.maxOutputCap)) {
       const modelCeiling = getCapabilitiesForModel(provider, model).maxOutput;

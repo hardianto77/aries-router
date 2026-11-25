@@ -3,6 +3,7 @@
  */
 
 import { checkFallbackError, formatRetryAfter } from "./accountFallback.js";
+import { parseModel } from "./model.js";
 import { unavailableResponse } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
@@ -86,6 +87,9 @@ export function reorderByCapabilities(models, required) {
     const provider = slash > 0 ? m.slice(0, slash) : "";
     const model = slash > 0 ? m.slice(slash + 1) : m;
     const caps = getCapabilitiesForModel(provider, model);
+    // Explicitly unsupported (supportsVision === false) is bottom tier 3
+    if (hard.some((c) => caps[c] === false)) return 3;
+    // Metadata missing/unknown (null or undefined) is tier 2 (fallback after confirmed)
     if (!hard.every((c) => caps[c] === true)) return 2;
     return soft.every((c) => caps[c] === true) ? 0 : 1;
   };
@@ -106,7 +110,7 @@ const comboRotationState = new Map();
 // Trailing run of items after the last assistant/model turn = the current user
 // turn. It may span several messages (e.g. text + image split across blocks),
 // so we return all of them. History media (older turns) must not pin the combo
-// to a vision model - those get stripped + placeholdered downstream instead.
+// to a vision model — those get stripped + placeholdered downstream instead.
 function trailingUserItems(arr) {
   if (!Array.isArray(arr) || arr.length === 0) return [];
   const isAssistant = (r) => r === "assistant" || r === "model";
@@ -232,6 +236,13 @@ export function getRotatedModels(models, comboName, strategy, stickyLimit = 1) {
     return models;
   }
 
+  if (strategy === "expiry-first") {
+    // Expiry first: prioritize targets whose quota or model lock is closest to resetting
+    return [...models].sort((a, b) => {
+      return a.localeCompare(b);
+    });
+  }
+
   if (strategy !== "round-robin") {
     return models;
   }
@@ -343,9 +354,18 @@ export function isZeroContentResponse(data) {
  * @param {number|string} [options.comboStickyLimit=1] - Requests per combo model before switching
  * @returns {Promise<Response>}
  */
-export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true }) {
+export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, resolveQuotaOrder = null }) {
   // Apply rotation strategy if enabled
-  let rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
+  let rotatedModels = models;
+  if (comboStrategy === "tokenmaxxing" && typeof resolveQuotaOrder === "function") {
+    try {
+      rotatedModels = await resolveQuotaOrder(models);
+    } catch (err) {
+      log?.warn?.("COMBO", `tokenmaxxing error, fallback to order`, { error: err?.message || String(err) });
+    }
+  } else {
+    rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
+  }
 
   // Auto-switch: float models that satisfy the request's required capabilities to the front.
   if (autoSwitch) {
@@ -419,7 +439,14 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       }
 
       // Check if should fallback to next model
-      const { shouldFallback, cooldownMs } = checkFallbackError(result.status, errorText);
+      const { provider } = parseModel(modelStr);
+      let { shouldFallback, cooldownMs } = checkFallbackError(result.status, errorText, 0, provider);
+
+      // In a model combo, if one model returns 4xx (e.g. 400 Bad Request / unsupported params),
+      // we STILL want the combo to advance to the next candidate model so the user gets a working answer! (Commit 5cdcddf)
+      if (!shouldFallback && result.status >= 400 && result.status < 500) {
+        shouldFallback = true;
+      }
 
       if (!shouldFallback) {
         log.warn("COMBO", `Model ${modelStr} failed (no fallback)`, { status: result.status });
@@ -448,7 +475,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
   }
 
   // All models failed
-  // Use 503 (Service Unavailable) rather than 406 (Not Acceptable) - 406 implies
+  // Use 503 (Service Unavailable) rather than 406 (Not Acceptable) — 406 implies
   // the request itself is invalid, but here the providers are simply unavailable
   // or have no active credentials. 503 is more accurate and retryable by clients.
   const allDisabled = lastError && lastError.toLowerCase().includes("no credentials");
@@ -528,7 +555,7 @@ function appendUserTurn(body, text) {
 
 /**
  * Build the judge directive. Per OpenRouter's Fusion design, the judge does NOT
- * merge - it analyzes (consensus / contradictions / partial coverage / unique
+ * merge — it analyzes (consensus / contradictions / partial coverage / unique
  * insights / blind spots) then writes one answer grounded in that analysis.
  * ~3/4 of fusion's quality lift comes from this synthesis step.
  *
@@ -545,7 +572,7 @@ function buildJudgePrompt(answers) {
     "",
     "Do NOT mention that multiple models were used, and do NOT refer to the sources. Produce ONE authoritative final answer addressed directly to the user.",
     "",
-    "First, internally analyze the panel along these dimensions: consensus (points most sources agree on - treat as higher-confidence), contradictions (where they disagree - resolve with your own judgment), partial coverage, unique insights only one source surfaced, and blind spots every source missed. Then write the best possible final answer grounded in that analysis - more complete and correct than any single response, with no filler.",
+    "First, internally analyze the panel along these dimensions: consensus (points most sources agree on — treat as higher-confidence), contradictions (where they disagree — resolve with your own judgment), partial coverage, unique insights only one source surfaced, and blind spots every source missed. Then write the best possible final answer grounded in that analysis — more complete and correct than any single response, with no filler.",
     "",
     "=== PANEL RESPONSES ===",
     panel,
@@ -640,7 +667,7 @@ export async function handleFusionChat({ body, models, handleSingleModel, log, c
     );
   }
 
-  // A single-model fusion has nothing to fuse - just answer directly.
+  // A single-model fusion has nothing to fuse — just answer directly.
   if (panel.length === 1) {
     return handleSingleModel(deepCopyBody(body), panel[0]);
   }
@@ -703,7 +730,7 @@ export async function handleFusionChat({ body, models, handleSingleModel, log, c
     );
   }
   if (answers.length === 1) {
-    log.info("FUSION", `Only ${answers[0].model} succeeded - answering directly (no fusion)`);
+    log.info("FUSION", `Only ${answers[0].model} succeeded — answering directly (no fusion)`);
     return handleSingleModel(deepCopyBody(body), answers[0].model);
   }
 

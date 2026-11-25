@@ -2,10 +2,13 @@
 // Mirrors the desktop client's own chain: subscription list -> project key ->
 // project access token, with the start-plan lane using the zcode JWT directly.
 
+import { ZCODE_APP_VERSION } from "../config/zcodeIdentity.js";
+
 const ZCODE_CLIENT_VERSION = "3.17.2";
-// The start-plan gateway (zcode.z.ai) currently only admits the 3.16.3 client
-// fingerprint; newer declared versions get HTTP 405 code 3012 "unusual activity".
-export const ZCODE_START_CLIENT_VERSION = "3.16.3";
+// The start-plan gateway (zcode.z.ai) admits only the 3.16.3 client
+// fingerprint; newer declared versions get HTTP 405 code 3012. Sourced from the
+// shared identity constant so the whole app declares one version.
+export const ZCODE_START_CLIENT_VERSION = ZCODE_APP_VERSION;
 const ZCODE_TIMEOUT_MS = 15000;
 const CACHE_TTL_MS = 4 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 500;
@@ -123,7 +126,8 @@ export async function refreshZcodeJwt(businessAccessToken, { log = null } = {}) 
   });
   const zcodeJwtToken = String(data?.token || data?.access_token || data?.accessToken || "").trim();
   if (!zcodeJwtToken) return null;
-  return { zcodeJwtToken };
+  const businessToken = String(data?.access_token || data?.accessToken || "").trim();
+  return { zcodeJwtToken, businessToken };
 }
 
 // Personal subscriptions are an array of products; an active entry must both
@@ -367,7 +371,11 @@ export async function resolveZcodeAuth(credentials, { log = null, force = false 
   const requestedPlan = ["start-plan", "individual-coding-plan", "team-coding-plan"].includes(psd.planKind)
     ? psd.planKind
     : "auto";
-  const businessToken = String(credentials?.accessToken || "").trim();
+  const businessToken = String(
+    psd.zaiBusinessToken ||
+    psd.oauthAccessToken ||
+    (credentials?.accessToken && !credentials.accessToken.includes(".") ? credentials.accessToken : "")
+  ).trim();
   const zcodeJwtToken = String(psd.zcodeJwtToken || "").trim();
 
   if (!force) {
@@ -403,7 +411,7 @@ export async function resolveZcodeAuth(credentials, { log = null, force = false 
     // Auto: an active personal coding subscription selects the project-token
     // lane; otherwise the account falls back to its start-plan JWT.
     let individual = false;
-    if (businessToken && !zcodeJwtToken) {
+    if (businessToken) {
       try {
         const subscriptions = await requestJson(`${FAMILY_ORIGIN[family]}/api/biz/subscription/list`, {
           headers: { Authorization: bearer(businessToken), "Content-Type": "application/json" },

@@ -6,7 +6,7 @@ import { restoreToolNames } from "../utils/opencodeFingerprint.js";
 import { filterToOpenAIFormat } from "./formats/openai.js";
 import { normalizeThinkingConfig } from "../services/provider.js";
 import { applyThinking, captureThinking } from "./concerns/thinkingUnified.js";
-import { captureSessionId } from "../utils/sessionManager.js";
+import { captureSessionId, resolveSessionIdentity } from "../utils/sessionManager.js";
 import { AntigravityExecutor } from "../executors/antigravity.js";
 import { PROVIDERS } from "../providers/index.js";
 
@@ -79,6 +79,15 @@ export function translateRequest(sourceFormat, targetFormat, model, body, stream
   const clientSessionId = captureSessionId(result, credentials, connectionId, targetFormat);
   // Expose to downstream translators (gemini-cli/antigravity envelopes) that run after envelope is stripped
   if (credentials) credentials._clientSessionId = clientSessionId;
+  if (provider === "codebuddy-intl" && credentials) {
+    const rawHeaders = credentials.rawHeaders || {};
+    const headers = typeof rawHeaders.entries === "function"
+      ? Object.fromEntries(rawHeaders.entries())
+      : Object.fromEntries(Object.entries(rawHeaders).map(([key, value]) => [key.toLowerCase(), value]));
+    credentials._codebuddySessionIdentity = resolveSessionIdentity({
+      headers, body: { ...result, messages: undefined, input: undefined }, scope: "codebuddy-intl",
+    });
+  }
 
   // If same format, skip translation steps
   if (sourceFormat !== targetFormat) {
@@ -162,7 +171,7 @@ export function translateRequest(sourceFormat, targetFormat, model, body, stream
 // Translate response chunk: target -> openai -> source
 export function translateResponse(targetFormat, sourceFormat, chunk, state) {
   ensureInitialized();
-  // If same format, return as-is - except the tool name may still be cloaked:
+  // If same format, return as-is — except the tool name may still be cloaked:
   // translateRequest() suffixes client tools for OAuth-cloaked Claude providers
   // even when no format conversion is needed, so streamed tool_use blocks must
   // be decloaked here or the client sees an unknown ("_ide"-suffixed) tool.
@@ -175,7 +184,7 @@ export function translateResponse(targetFormat, sourceFormat, chunk, state) {
 
   // Direct route: if a response translator is registered for this exact
   // target:source pair, use it instead of pivoting through OpenAI. Mirrors the
-  // request-side direct route (e.g. kiro:claude - KiroExecutor already emits
+  // request-side direct route (e.g. kiro:claude — KiroExecutor already emits
   // OpenAI-shaped chunks, so this converts them straight to Claude SSE).
   const directFn = responseRegistry.get(`${targetFormat}:${sourceFormat}`);
   if (directFn) {

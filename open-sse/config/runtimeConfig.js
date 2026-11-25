@@ -39,52 +39,85 @@ function envMs(name, def) {
   return Number.isFinite(n) && n > 0 ? n : def;
 }
 
+// Parse a boolean env flag ("true"/"1" → true, "false"/"0" → false), falling back to a default.
+function envBool(name, def) {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  return def;
+}
+
 function envUrl(name, def) {
   const raw = process.env[name]?.trim();
   return raw || def;
 }
 
-function envChoice(name, allowed, def) {
-  const raw = process.env[name]?.trim().toLowerCase();
-  return allowed.includes(raw) ? raw : def;
-}
-
-export const EGRESS_CONFIG = {
-  mode: envChoice("EGRESS_PROBE_MODE", ["off", "auto", "always"], "auto"),
-  probeUrl: envUrl("EGRESS_PROBE_URL", "https://api64.ipify.org?format=json"),
-  probeTimeoutMs: envMs("EGRESS_PROBE_TIMEOUT_MS", 2500),
-  ipCacheTtlMs: envMs("EGRESS_IP_CACHE_TTL_MS", 10 * 60 * 1000),
-  ipStaleTtlMs: envMs("EGRESS_IP_STALE_TTL_MS", 60 * 60 * 1000),
-  directRecheckMs: envMs("EGRESS_DIRECT_RECHECK_MS", 15 * 1000),
-  minCooldownMs: envMs("EGRESS_MIN_COOLDOWN_MS", 1000),
-  maxCooldownMs: envMs("EGRESS_MAX_COOLDOWN_MS", 24 * 60 * 60 * 1000),
-  defaultCooldownMs: envMs("EGRESS_DEFAULT_COOLDOWN_MS", 60 * 1000),
-  limitMessage: envUrl(
-    "EGRESS_LIMIT_MESSAGE",
-    "Free usage limit reached on the current egress. Retry after the indicated delay or switch proxies."
-  ),
-};
-
-export const OPENCODE_TRANSPORT_CONFIG = {
-  mode: envChoice("OPENCODE_TRANSPORT", ["off", "auto"], "auto"),
-  bunBin: envUrl("OPENCODE_BUN_BIN", "bun"),
-  readyTimeoutMs: envMs("OPENCODE_TRANSPORT_READY_TIMEOUT_MS", 8000),
-  failureBackoffMs: envMs("OPENCODE_TRANSPORT_BACKOFF_MS", 5 * 60 * 1000),
-};
-
 // SearXNG endpoint used by the unauthenticated web-search provider.
 // Configure this for a separate Docker service or remote SearXNG instance.
 export const SEARXNG_URL = envUrl("SEARXNG_URL", "http://localhost:8888/search");
 
-// Inter-chunk stall timeout (once tokens are flowing). Generous headroom so
-// slow reasoning models aren't aborted mid-stream. Env: STREAM_STALL_TIMEOUT_MS.
-export const STREAM_STALL_TIMEOUT_MS = envMs("STREAM_STALL_TIMEOUT_MS", 360 * 1000);
+// Stream watchdog budget: one timer covering BOTH phases — before the first upstream byte
+// (prefill, aborts as "stream first-chunk timeout") and between chunks once tokens flow
+// (aborts as "stream stall timeout"). Keep it generous (600s = 10m) so long reasoning /
+// generation streams from slow models (GLM-5.3-Flash, Claude 3.7 Thinking, DeepSeek R1)
+// aren't aborted mid-stream. A provider registry `transport.stallTimeoutMs` overrides it
+// per provider. Env: STREAM_STALL_TIMEOUT_MS.
+export const STREAM_STALL_TIMEOUT_MS = envMs("STREAM_STALL_TIMEOUT_MS", 600 * 1000);
 
-// Time-to-first-token timeout (prompt prefill). Env: STREAM_FIRST_CHUNK_TIMEOUT_MS.
+// Kiro tool-call-repair first-chunk timeout ONLY (consumed by executors/kiro.js). Chat
+// streaming does NOT use this: its first-chunk phase is covered by the provider stall budget
+// above. Env: STREAM_FIRST_CHUNK_TIMEOUT_MS.
 export const STREAM_FIRST_CHUNK_TIMEOUT_MS = envMs("STREAM_FIRST_CHUNK_TIMEOUT_MS", 200 * 1000);
+
+export const ALLOW_INSECURE_TLS_FALLBACK = envBool("ALLOW_INSECURE_TLS_FALLBACK", false) && !envBool("STRICT_SSL", false);
 
 // Fetch connect timeout: abort if upstream doesn't return response headers within this duration
 export const FETCH_CONNECT_TIMEOUT_MS = envMs("FETCH_CONNECT_TIMEOUT_MS", 60 * 1000);
+
+// Keep-alive socket TTL. Cap it below upstream/edge idle windows (Cloudflare, AWS Global
+// Accelerator / NVIDIA NIM) that drop idle sockets without a TCP RST. keepAliveMaxTimeout is
+// clamped to the same value so an upstream `Keep-Alive` header cannot extend it to 600s.
+export const DEFAULT_KEEPALIVE_TIMEOUT_MS = 4 * 1000;
+export const FRESH_RETRY_KEEPALIVE_TIMEOUT_MS = 1;
+export const FETCH_KEEPALIVE_TIMEOUT_MS = envMs("FETCH_KEEPALIVE_TIMEOUT_MS", DEFAULT_KEEPALIVE_TIMEOUT_MS);
+
+export function resolveKeepAliveTimeouts() {
+  const timeout = envMs("FETCH_KEEPALIVE_TIMEOUT_MS", DEFAULT_KEEPALIVE_TIMEOUT_MS);
+  return { keepAliveTimeout: timeout, keepAliveMaxTimeout: timeout };
+}
+
+// Escape hatch: FETCH_FRESH_RETRY=off disables the transport-level replay, leaving only the
+// executor's own retry path (which still forces a fresh socket). Defaults to on.
+export function isFreshSocketReplayEnabled() {
+  const raw = String(process.env.FETCH_FRESH_RETRY ?? "").trim().toLowerCase();
+  return !(raw === "off" || raw === "0" || raw === "false" || raw === "no");
+}
+
+// Dead keep-alive sockets surface as these codes/substrings; DNS, connect-refused and TLS
+// failures are excluded so a real unreachable host is never mistaken for a stale socket.
+export const STALE_SOCKET_ERROR_CODES = new Set([
+  "UND_ERR_SOCKET",
+  "ECONNRESET",
+  "EPIPE",
+  "UND_ERR_HEADERS_TIMEOUT",
+]);
+
+export const NON_STALE_SOCKET_ERROR_CODES = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_INVALID_ARG",
+]);
+
+// Deliberately excludes a bare "fetch failed": with no error code the upstream may already
+// hold the request, and replaying it would send (and bill) the same completion twice.
+export const STALE_SOCKET_ERROR_SUBSTRINGS = [
+  "other side closed",
+  "socket hang up",
+];
 
 // Gemini native TTS fetch timeout: abort if Google does not return response headers in time.
 export const GEMINI_NATIVE_TTS_FETCH_TIMEOUT_MS = envMs("GEMINI_NATIVE_TTS_FETCH_TIMEOUT_MS", 45 * 1000);
@@ -119,6 +152,51 @@ export function resolveRetryEntry(entry) {
     delayMs: entry.delayMs != null ? entry.delayMs : RETRY_CONFIG.delayMs
   };
 }
+
+function envChoice(name, validChoices, def) {
+  const raw = process.env[name];
+  if (raw && validChoices.includes(raw.toLowerCase())) return raw.toLowerCase();
+  return def;
+}
+
+export const EGRESS_CONFIG = {
+  mode: envChoice("EGRESS_PROBE_MODE", ["off", "auto", "always"], "auto"),
+  probeUrl: envUrl("EGRESS_PROBE_URL", "https://api64.ipify.org?format=json"),
+  probeTimeoutMs: envMs("EGRESS_PROBE_TIMEOUT_MS", 2500),
+  ipCacheTtlMs: envMs("EGRESS_IP_CACHE_TTL_MS", 10 * 60 * 1000),
+  ipStaleTtlMs: envMs("EGRESS_IP_STALE_TTL_MS", 60 * 60 * 1000),
+  directRecheckMs: envMs("EGRESS_DIRECT_RECHECK_MS", 15 * 1000),
+  minCooldownMs: envMs("EGRESS_MIN_COOLDOWN_MS", 1000),
+  maxCooldownMs: envMs("EGRESS_MAX_COOLDOWN_MS", 24 * 60 * 60 * 1000),
+  defaultCooldownMs: envMs("EGRESS_DEFAULT_COOLDOWN_MS", 60 * 1000),
+  limitMessage: envUrl(
+    "EGRESS_LIMIT_MESSAGE",
+    "Free usage limit reached on the current egress. Retry after the indicated delay or switch proxies."
+  ),
+};
+
+export const OPENCODE_TRANSPORT_CONFIG = {
+  mode: envChoice("OPENCODE_TRANSPORT", ["off", "auto"], "auto"),
+  bunBin: envUrl("OPENCODE_BUN_BIN", "bun"),
+  readyTimeoutMs: envMs("OPENCODE_TRANSPORT_READY_TIMEOUT_MS", 8000),
+  failureBackoffMs: envMs("OPENCODE_TRANSPORT_BACKOFF_MS", 5 * 60 * 1000),
+};
+
+// Guard rails for the OAuth refresh path.
+// - noRefreshTokenCooldownMs: how long a connection with no usable refreshToken is
+//   skipped before we look at it again (it cannot ever succeed until the account is
+//   re-imported, but a short TTL keeps a fresh import from waiting a full cycle).
+// - failureCooldownMs: backoff after a refresh attempt produced nothing usable, so a
+//   dead account is not retried on every request or every scheduler tick.
+// - maxPerTick: hard cap on how many connections one background tick may refresh, so a
+//   mass-expiry event cannot turn into an unbounded refresh storm.
+// - maxCooldownEntries: bound on the cooldown map so it cannot grow without limit.
+export const REFRESH_GUARD_CONFIG = {
+  noRefreshTokenCooldownMs: envMs("REFRESH_NO_TOKEN_COOLDOWN_MS", 10 * 60 * 1000),
+  failureCooldownMs: envMs("REFRESH_FAILURE_COOLDOWN_MS", 30 * 1000),
+  maxPerTick: envMs("BG_REFRESH_MAX_PER_TICK", 25),
+  maxCooldownEntries: envMs("REFRESH_MAX_COOLDOWN_ENTRIES", 1000),
+};
 
 // Requests containing these texts will bypass provider
 export const SKIP_PATTERNS = [

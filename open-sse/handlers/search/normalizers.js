@@ -295,7 +295,24 @@ function normalizeGlmSearch(data, _query, _searchType) {
   return { results, totalResults: results.length };
 }
 
+function normalizeDeepSeekSearch(data, query, searchType) {
+  const now = new Date().toISOString();
+  const rawList = Array.isArray(data?.results) ? data.results : Array.isArray(data?.data) ? data.data : [];
+  const results = rawList.map((item, idx) =>
+    makeResult("deepseek-search", {
+      title: item.title || "",
+      url: item.url || item.link || "",
+      snippet: item.snippet || item.content || item.text || "",
+      published_at: item.published_date || item.published_at || item.date || null,
+      favicon_url: null,
+      source_type: "web",
+    }, idx, now)
+  );
+  return { results, totalResults: results.length };
+}
+
 const NORMALIZERS = {
+  "deepseek-search": normalizeDeepSeekSearch,
   "serper": normalizeSerper,
   "brave-search": normalizeBrave,
   "perplexity": normalizePerplexity,

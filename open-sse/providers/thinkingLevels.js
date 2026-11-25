@@ -21,9 +21,11 @@ const FORMAT_LEVELS = {
   openai: L.openai,
   "claude-adaptive": L.budgetX,
   "claude-budget": L.budgetX,
+  "zai-anthropic": L.budgetX,
   "gemini-level": L.gemini,
   "gemini-budget": L.base,
   zai: L.onOff,
+  mistral: ["none", "low", "medium", "high", "xhigh"],
   qwen: L.base,
   kimi: L.levelMax,
   deepseek: L.hiMax,
@@ -68,6 +70,11 @@ const PATTERN_THINKING = [
   // would never fire for dotted ids like deepseek-v4.1-flash.
   { provider: "codebuddy-cn", pattern: "deepseek-v4-pro",     levels: ["low", "high", "xhigh"] },
   { provider: "codebuddy-cn", pattern: "deepseek-v4.1-flash", levels: ["low", "high", "max"] },
+  // Mistral (probed live 2026-11-24): reasoning_effort is accepted but model-gated —
+  // deepseek-v4-1-flash-1017 takes none|low|high|xhigh, mistral-large low|medium|high.
+  // These must stay above the unqualified "*deepseek-v4.*" glob (first match wins).
+  { provider: "mistral", pattern: "*deepseek*", levels: ["none", "low", "high", "xhigh"] },
+  { provider: "mistral", pattern: "*large*",    levels: ["low", "medium", "high"] },
   { pattern: "*deepseek-v4.*", levels: ["none", "low", "medium", "high", "xhigh", "max"] },
   // codebuddy-cn per-model effort sets — the server's product-config payload
   // publishes `reasoning.supportedEfforts` per model. NOTE: the chat endpoint
@@ -82,6 +89,7 @@ const PATTERN_THINKING = [
   { provider: "codebuddy-cn", pattern: "kimi-k2.8-preview",  levels: ["low", "medium", "high"] },
   { provider: "codebuddy-cn", pattern: "hy3",          levels: ["low", "high"] },
   { provider: "codebuddy-cn", pattern: "hy4-preview",  levels: ["high"] },
+  { provider: "codebuddy-cn", pattern: "hy4",          levels: ["high"] },
   // codebuddy-intl rides the same gateway catalog, so its deepseek levels match.
   { provider: "codebuddy-intl", pattern: "deepseek-v4*", levels: ["low", "high", "xhigh"] },
   // MiniMax Code (mcode) — adaptive effort via output_config.effort. M3.1

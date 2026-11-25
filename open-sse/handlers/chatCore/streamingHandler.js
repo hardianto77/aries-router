@@ -1,18 +1,20 @@
 import { FORMATS } from "../../translator/formats.js";
 import { needsTranslation } from "../../translator/index.js";
 import { createSSETransformStreamWithLogger, createPassthroughStreamWithLogger } from "../../utils/stream.js";
-import { pipeWithDisconnect } from "../../utils/streamHandler.js";
+import { pipeWithDisconnect, buildDefaultEmptyStreamTerminal } from "../../utils/streamHandler.js";
 import { PROVIDERS } from "../../config/providers.js";
 import { HTTP_STATUS, STREAM_STALL_TIMEOUT_MS } from "../../config/runtimeConfig.js";
+import { EMPTY_STREAM_ERROR } from "../../config/errorConfig.js";
 import { buildAbortedResponsesTerminalBytes } from "../../utils/responsesStreamHelpers.js";
-import { buildStreamErrorBytes } from "../../utils/streamHelpers.js";
-import { buildErrorBody } from "../../utils/error.js";
+import { buildStreamErrorBytes, formatSSE } from "../../utils/streamHelpers.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats, formatDoneLine } from "./requestDetail.js";
+import { saveToSemanticCache } from "../../rtk/semanticCache.js";
 import { saveRequestDetail } from "@/lib/usageDb.js";
 import { SSE_HEADERS_CORS as SSE_HEADERS } from "../../utils/sseConstants.js";
 import { calledModelName } from "../../utils/modelAlias.js";
 import { upstreamResponseHeaders } from "../../utils/upstreamHeaders.js";
-import { applyUsageMultipliers, estimateInputTokens, estimateOutputTokens, hasValidUsage } from "../../utils/usageTracking.js";
+import { createErrorResult } from "../../utils/error.js";
+import { createRefusalSanitizerStream } from "../../rtk/refusalGuard.js";
 
 // Codex returns Responses API SSE → which client format to translate INTO, by request sourceFormat.
 // Gemini-family all map to ANTIGRAVITY decoder; unknown sources fall back to OPENAI.
@@ -27,7 +29,7 @@ const CODEX_SOURCE_TO_TARGET = {
 /**
  * Determine which SSE transform stream to use based on provider/format.
  */
-function buildTransformStream({ provider, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, customToolNames, model, connectionId, body, onStreamComplete, apiKey, credentials, aliasModel, hideError = false }) {
+function buildTransformStream({ provider, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, customToolNames, model, connectionId, body, onStreamComplete, apiKey, credentials, aliasModel }) {
   const isDroidCLI = userAgent?.toLowerCase().includes("droid") || userAgent?.toLowerCase().includes("codex-cli");
   // Responses-API providers (e.g. codex) emit Responses SSE → translate into client format
   const isResponsesProvider = PROVIDERS[provider]?.format === FORMATS.OPENAI_RESPONSES;
@@ -35,20 +37,35 @@ function buildTransformStream({ provider, sourceFormat, targetFormat, userAgent,
 
   if (needsCodexTranslation) {
     const codexTarget = CODEX_SOURCE_TO_TARGET[sourceFormat] || FORMATS.OPENAI;
-    return createSSETransformStreamWithLogger(FORMATS.OPENAI_RESPONSES, codexTarget, provider, reqLogger, toolNameMap, model, connectionId, body, onStreamComplete, apiKey, customToolNames, credentials, aliasModel, hideError);
+    return createSSETransformStreamWithLogger(FORMATS.OPENAI_RESPONSES, codexTarget, provider, reqLogger, toolNameMap, model, connectionId, body, onStreamComplete, apiKey, customToolNames, credentials, aliasModel);
   }
 
   if (needsTranslation(targetFormat, sourceFormat)) {
-    return createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider, reqLogger, toolNameMap, model, connectionId, body, onStreamComplete, apiKey, customToolNames, credentials, aliasModel, hideError);
+    return createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider, reqLogger, toolNameMap, model, connectionId, body, onStreamComplete, apiKey, customToolNames, credentials, aliasModel);
   }
 
-  return createPassthroughStreamWithLogger(provider, reqLogger, model, connectionId, body, onStreamComplete, apiKey, aliasModel, hideError);
+  return createPassthroughStreamWithLogger(provider, reqLogger, model, connectionId, body, onStreamComplete, apiKey, aliasModel);
+}
+
+// The empty-stream error frame per client format. OpenAI-style clients get an
+// error payload, then [DONE]; Anthropic clients (Claude Code) need an
+// `event: error` with Anthropic's envelope; every Responses client (Codex) gets
+// the response.failed terminal used for aborts, whether the route is a
+// passthrough or translated from a chat-format provider.
+function buildEmptyStreamTerminal(sourceFormat) {
+  if (sourceFormat === FORMATS.OPENAI_RESPONSES) return () => buildAbortedResponsesTerminalBytes();
+  if (sourceFormat === FORMATS.CLAUDE) {
+    return (message) => new TextEncoder().encode(
+      formatSSE({ type: "error", error: { type: EMPTY_STREAM_ERROR.claudeType, message } }, FORMATS.CLAUDE)
+    );
+  }
+  return (message) => buildDefaultEmptyStreamTerminal(message);
 }
 
 /**
- * Handle streaming response - pipe provider SSE through transform stream to client.
+ * Handle streaming response — pipe provider SSE through transform stream to client.
  */
-export async function handleStreamingResponse({ providerResponse, provider, model, sourceFormat, targetFormat, userAgent, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, reqLogger, toolNameMap, customToolNames, streamController, onStreamComplete, streamDetailId, pxpipe, reqTag, log, credentials, requestedModel, hideError = false }) {
+export async function handleStreamingResponse({ providerResponse, provider, model, sourceFormat, targetFormat, userAgent, body, stripRefusal = false, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, reqLogger, toolNameMap, customToolNames, streamController, onStreamComplete, streamDetailId, pxpipe, reqTag, log, credentials, requestedModel }) {
   if (onRequestSuccess) {
     Promise.resolve()
       .then(onRequestSuccess)
@@ -77,7 +94,7 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
     streamController?.handleError?.(new Error(`upstream non-SSE: ${status}`));
     return {
       success: false,
-      response: new Response(JSON.stringify(buildErrorBody(status, `[${status}]: ${shortMsg}`, hideError)), {
+      response: new Response(JSON.stringify({ error: { message: `[${status}]: ${shortMsg}` } }), {
         status,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       }),
@@ -86,7 +103,7 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
 
   // The name the client called is the only one it is allowed to see.
   const aliasModel = calledModelName(requestedModel, model);
-  const transformStream = buildTransformStream({ provider, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, customToolNames, model, connectionId, body, onStreamComplete, apiKey, credentials, aliasModel, hideError });
+  const transformStream = buildTransformStream({ provider, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, customToolNames, model, connectionId, body, onStreamComplete, apiKey, credentials, aliasModel });
 
   // Terminal bytes when the stream aborts after HTTP 200 was already sent, so the
   // client sees a real error instead of a silently truncated stream.
@@ -95,12 +112,69 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
   const isResponsesPassthrough = sourceFormat === FORMATS.OPENAI_RESPONSES && targetFormat === FORMATS.OPENAI_RESPONSES;
   const onAbortTerminal = isResponsesPassthrough
     ? buildAbortedResponsesTerminalBytes
-    : (message) => buildStreamErrorBytes(HTTP_STATUS.GATEWAY_TIMEOUT, message, sourceFormat, hideError);
+    : (message) => buildStreamErrorBytes(HTTP_STATUS.GATEWAY_TIMEOUT, message, sourceFormat);
   const stallTimeoutMs = PROVIDERS[provider]?.stallTimeoutMs || STREAM_STALL_TIMEOUT_MS;
-  const transformedBody = pipeWithDisconnect(providerResponse, transformStream, streamController, onAbortTerminal, stallTimeoutMs);
+  // In-band error frame when the stream produced nothing, in the client's own
+  // error shape.
+  let emptyStreamTriggered = false;
+  const baseEmptyStreamTerminal = buildEmptyStreamTerminal(sourceFormat);
+  const emptyStreamTerminal = (message) => {
+    emptyStreamTriggered = true;
+    return baseEmptyStreamTerminal(message);
+  };
+  let transformedBody = pipeWithDisconnect(providerResponse, transformStream, streamController, onAbortTerminal, stallTimeoutMs, emptyStreamTerminal);
+  if (stripRefusal || body?._stripRefusal) {
+    transformedBody = transformedBody.pipeThrough(createRefusalSanitizerStream(sourceFormat));
+  }
+  const peekReader = transformedBody.getReader();
+  const textDecoder = new TextDecoder();
+  const bufferedChunks = [];
+  let sawEmptyErrorFrame = false;
+  let peekDone = false;
+  while (true) {
+    const { value, done } = await peekReader.read();
+    if (done) { peekDone = true; break; }
+    const text = typeof value === "string" ? value : textDecoder.decode(value, { stream: true });
+    if (
+      emptyStreamTriggered ||
+      (text.includes(EMPTY_STREAM_ERROR.code) && text.includes(EMPTY_STREAM_ERROR.message)) ||
+      (text.includes('"type":"error"') && text.includes(EMPTY_STREAM_ERROR.message))
+    ) {
+      sawEmptyErrorFrame = true;
+      break;
+    }
+    bufferedChunks.push(value);
+    const hasRealPayload = text.split("\n").some((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith(":")) return false;
+      if (trimmed.startsWith("data:")) {
+        const p = trimmed.slice(5).trim();
+        return p !== "" && p !== "[DONE]";
+      }
+      return true;
+    });
+    if (hasRealPayload) break;
+  }
+  if (emptyStreamTriggered || sawEmptyErrorFrame || (peekDone && bufferedChunks.length === 0)) {
+    try { await peekReader.cancel(); } catch {}
+    streamController?.handleError?.(new Error(EMPTY_STREAM_ERROR.message));
+    if (log?.errorLine) log.errorLine(reqTag, "✗", `EMPTY STREAM FALLBACK · ${provider}/${model}`);
+    return { ...createErrorResult(HTTP_STATUS.BAD_GATEWAY, EMPTY_STREAM_ERROR.message), emptyStream: true };
+  }
+  transformedBody = new ReadableStream({
+    start(controller) { for (const chunk of bufferedChunks) controller.enqueue(chunk); },
+    async pull(controller) {
+      try {
+        const { value, done } = await peekReader.read();
+        if (done) { controller.close(); return; }
+        controller.enqueue(value);
+      } catch (err) { controller.error(err); }
+    },
+    async cancel(reason) { try { await peekReader.cancel(reason); } catch {} }
+  });
 
   saveRequestDetail(buildRequestDetail({
-    provider, model, connectionId, requestedModel,
+    provider, model, connectionId, requestedModel, apiKey,
     latency: { ttft: 0, total: Date.now() - requestStartTime },
     tokens: { prompt_tokens: 0, completion_tokens: 0 },
     request: extractRequestConfig(body, stream),
@@ -122,67 +196,10 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
 /**
  * Build onStreamComplete callback for streaming usage tracking.
  */
-export function buildOnStreamComplete({ provider, model, connectionId, apiKey, requestedModel, requestStartTime, body, stream, finalBody, translatedBody, clientRawRequest, pxpipe, reqTag, log, modelMultipliers = null, isAntiProbe = false }) {
+export function buildOnStreamComplete({ provider, model, connectionId, apiKey, requestedModel, requestStartTime, body, stream, finalBody, translatedBody, clientRawRequest, pxpipe, reqTag, log, semanticCacheEnabled, sourceFormat }) {
   const streamDetailId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
   const onStreamComplete = (contentObj, usage, ttftAt) => {
-    let finalUsage = usage;
-    const outTokens = finalUsage?.completion_tokens ?? finalUsage?.output_tokens ?? 0;
-    const contentLength = contentObj?.totalContentLength ||
-      (contentObj?.content && contentObj.content !== "[Empty streaming response]" ? contentObj.content.length : 0) +
-      (contentObj?.thinking ? contentObj.thinking.length : 0);
-
-    if (outTokens === 0 && contentLength > 0) {
-      const estimatedOut = estimateOutputTokens(contentLength);
-      if (estimatedOut > 0) {
-        if (!finalUsage || !hasValidUsage(finalUsage)) {
-          const estimatedIn = estimateInputTokens(body);
-          finalUsage = {
-            prompt_tokens: estimatedIn,
-            completion_tokens: estimatedOut,
-            total_tokens: estimatedIn + estimatedOut,
-            estimated: true,
-          };
-        } else {
-          finalUsage = { ...finalUsage };
-          if (finalUsage.completion_tokens !== undefined || finalUsage.prompt_tokens !== undefined) {
-            finalUsage.completion_tokens = estimatedOut;
-            finalUsage.total_tokens = (finalUsage.prompt_tokens || 0) + estimatedOut;
-          } else if (finalUsage.output_tokens !== undefined || finalUsage.input_tokens !== undefined) {
-            finalUsage.output_tokens = estimatedOut;
-            finalUsage.total_tokens = (finalUsage.input_tokens || 0) + estimatedOut;
-          }
-        }
-      }
-    }
-
-    const inTokens = finalUsage?.prompt_tokens ?? finalUsage?.input_tokens ?? 0;
-    if (inTokens === 0 && body) {
-      const estimatedIn = estimateInputTokens(body);
-      if (estimatedIn > 0) {
-        if (!finalUsage) {
-          finalUsage = {
-            prompt_tokens: estimatedIn,
-            completion_tokens: outTokens,
-            total_tokens: estimatedIn + outTokens,
-            estimated: true,
-          };
-        } else {
-          finalUsage = { ...finalUsage };
-          if (finalUsage.prompt_tokens !== undefined || finalUsage.completion_tokens !== undefined) {
-            finalUsage.prompt_tokens = estimatedIn;
-            finalUsage.total_tokens = estimatedIn + (finalUsage.completion_tokens || 0);
-          } else if (finalUsage.input_tokens !== undefined || finalUsage.output_tokens !== undefined) {
-            finalUsage.input_tokens = estimatedIn;
-            finalUsage.total_tokens = estimatedIn + (finalUsage.output_tokens || 0);
-          }
-        }
-      }
-    }
-
-    if (modelMultipliers && finalUsage) {
-      finalUsage = applyUsageMultipliers(finalUsage, modelMultipliers);
-    }
     const latency = {
       ttft: ttftAt ? ttftAt - requestStartTime : Date.now() - requestStartTime,
       total: Date.now() - requestStartTime
@@ -190,23 +207,70 @@ export function buildOnStreamComplete({ provider, model, connectionId, apiKey, r
     const safeContent = contentObj?.content || "[Empty streaming response]";
     const safeThinking = contentObj?.thinking || null;
 
+    // An empty stream is NOT a success. This was hardcoded to "success", so a
+    // request that produced no content at all was recorded green — the
+    // dashboard, the usage view and anything reading requestDetails all agreed
+    // nothing was wrong while the caller received an empty body. Recording it
+    // truthfully is what makes the failure findable; pipeWithDisconnect emits
+    // the client-facing error frame.
+    const producedNothing = !contentObj?.content && !contentObj?.thinking &&
+      !(usage?.completion_tokens > 0);
+    const detailStatus = producedNothing ? "error" : "success";
+
     saveRequestDetail(buildRequestDetail({
-      provider, model, connectionId, requestedModel,
+      provider, model, connectionId, requestedModel, apiKey,
       latency,
-      tokens: finalUsage || { prompt_tokens: 0, completion_tokens: 0 },
+      tokens: usage || { prompt_tokens: 0, completion_tokens: 0 },
       request: extractRequestConfig(body, stream),
       providerRequest: finalBody || translatedBody || null,
       providerResponse: safeContent,
       response: { content: safeContent, thinking: safeThinking, type: "streaming" },
       pxpipe,
-      status: "success"
+      status: detailStatus
     }, { id: streamDetailId })).catch(err => {
       console.error("[RequestDetail] Failed to update streaming content:", err.message);
     });
+    if (producedNothing && log?.errorLine) {
+      log.errorLine(reqTag, "✗", `EMPTY STREAM · ${provider}/${model} · no content and no completion tokens`);
+    }
 
     // Persist stream usage to DB (no console line; the "📊 done" line below is authoritative)
-    saveUsageStats({ provider, model, tokens: finalUsage, connectionId, apiKey, requestedModel, endpoint: clientRawRequest?.endpoint, label: "STREAM USAGE", silent: true });
-    if (log?.line) log.line(reqTag, "📊", formatDoneLine({ usage: finalUsage, latency }));
+    saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, requestedModel, endpoint: clientRawRequest?.endpoint, label: "STREAM USAGE", silent: true });
+    if (log?.line) log.line(reqTag, "📊", formatDoneLine({ usage, latency }));
+
+    // Cache completed streaming response for repeat prompt acceleration
+    // ONLY for OpenAI format without tools
+    const hasTools = (body.tools && body.tools.length > 0) || (body.request?.tools && body.request.tools.length > 0);
+    const isCacheableFormat = sourceFormat === FORMATS.OPENAI || sourceFormat === FORMATS.OPENAI_RESPONSES;
+    if (semanticCacheEnabled && isCacheableFormat && !hasTools && safeContent && safeContent !== "[Empty streaming response]") {
+      try {
+        const syntheticResponse = {
+          id: `chatcmpl-${Date.now()}`,
+          object: "chat.completion",
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: safeContent,
+                ...(safeThinking ? { reasoning_content: safeThinking } : {})
+              },
+              finish_reason: "stop"
+            }
+          ],
+          usage: usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+        };
+        const nonStreamBody = { ...body, stream: false };
+        saveToSemanticCache(nonStreamBody, `${provider}/${model}`, syntheticResponse);
+        if (requestedModel && requestedModel !== `${provider}/${model}`) {
+          saveToSemanticCache(nonStreamBody, requestedModel, syntheticResponse);
+        }
+      } catch (err) {
+        // fail-open
+      }
+    }
   };
 
   return { onStreamComplete, streamDetailId };

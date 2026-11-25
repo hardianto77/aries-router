@@ -1,10 +1,14 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
-import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
+import { resolveConnectionProxyConfig, pickProxyPoolId, quarantineProxy, isProxyQuarantined } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
-import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
+import { resolveProviderId, FREE_PROVIDERS, FREE_TIER_PROVIDERS, AI_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
 import { getConsistentMachineIdSync } from "@/shared/utils/machineId";
+import { resolveAgyTransport } from "open-sse/executors/agyCliExecutor.js";
+import { getAffinityConnectionId, setAffinityConnection, touchAffinity, clearAffinity } from "./conversationAffinity.js";
+import { tripCircuitBreaker, isCircuitBreakerOpen, recordCircuitSuccess } from "./circuitBreaker.js";
+import { cooldownRegistry } from "./cooldownRegistry.js";
 
 export { apiKeyGateFailure, shouldLogAuthFailure } from "./keyGate.js";
 import * as log from "../utils/logger.js";
@@ -34,7 +38,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     ? excludeConnectionIds
     : (excludeConnectionIds ? new Set([excludeConnectionIds]) : new Set());
   const preferredConnectionId = options?.preferredConnectionId || null;
+  const conversationKey = options?.conversationKey || null;
   const requestedModel = options?.requestedModel || model;
+  const body = options?.body || null;
   // Acquire mutex to prevent race conditions
   const currentMutex = selectionMutex;
   let resolveMutex;
@@ -47,62 +53,135 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     const providerId = resolveProviderId(provider);
 
     // Inject a virtual connection for no-auth free providers (with optional proxy pool from settings)
-    if (FREE_PROVIDERS[providerId]?.noAuth) {
+    const isNoAuth =
+      providerId === "opencode" ||
+      providerId === "ovh" ||
+      providerId === "venice" ||
+      Boolean(FREE_PROVIDERS[providerId]?.noAuth) ||
+      Boolean(FREE_TIER_PROVIDERS[providerId]?.noAuth) ||
+      Boolean(AI_PROVIDERS[providerId]?.noAuth);
+
+    if (isNoAuth) {
+      if (excludeSet.has("noauth") || excludeSet.has("noauth-direct")) return null;
       const settings = await getSettings();
       const override = (settings.providerStrategies || {})[providerId] || {};
       const strategy = override.rotateStrategy || "none";
-      let pickedId = override.proxyPoolId || null;
+      const hasProxyConfigured = Boolean(override.proxyPoolId && override.proxyPoolId !== "__none__") || strategy !== "none";
 
-      const allPools = strategy !== "none" ? await getProxyPools({ isActive: true }) : [];
-      const selectedPool = pickedId ? allPools.find((p) => p.id === pickedId) : null;
-      const hasDynamicSid = /-sid-\d+/i.test(selectedPool?.proxyUrl || "");
+      let pickedId = null;
 
-      if (strategy !== "none") {
-        const poolIds = allPools
-          .filter((p) => p.proxyUrl)
-          .map((p) => p.id)
-          .filter((id) => !excludeSet.has(`proxy:${id}`) && !excludeSet.has(id));
-        if (poolIds.length === 0) {
-          log.warn("AUTH", `${provider} | all proxy pools exhausted (${excludeSet.size} excluded)`);
-          return null;
+      if (hasProxyConfigured) {
+        // Proxy / rotation is ON: aggressively rotate across active proxies in pool, no direct VPS fallback
+        const allPools = await getProxyPools({ isActive: true });
+        // Prioritize healthy proxies (active status & lowest latency first)
+        const sortedPools = [...allPools]
+          .filter(p => p.proxyUrl)
+          .sort((a, b) => {
+            const statusScore = (s) => (s === "active" ? 0 : s === "unknown" ? 1 : 2);
+            const scoreDiff = statusScore(a.testStatus) - statusScore(b.testStatus);
+            if (scoreDiff !== 0) return scoreDiff;
+            return (a.latencyMs || 9999) - (b.latencyMs || 9999);
+          });
+
+        const poolIds = sortedPools.map(p => p.id);
+        const eligiblePoolIds = poolIds.filter(id => !excludeSet.has(`noauth-proxy:${id}`) && !isProxyQuarantined(id));
+
+        const rotStrategy = strategy !== "none" ? strategy : "round-robin";
+        const candidateId = (override.proxyPoolId && override.proxyPoolId !== "__none__") ? override.proxyPoolId : null;
+
+        // If rotation strategy is explicitly "none" (single proxy pinned), try candidateId first
+        if (strategy === "none" && candidateId && !excludeSet.has(`noauth-proxy:${candidateId}`) && !isProxyQuarantined(candidateId)) {
+          pickedId = candidateId;
+        } else if (eligiblePoolIds.length > 0) {
+          pickedId = pickProxyPoolId(eligiblePoolIds, rotStrategy, providerId) || eligiblePoolIds[0];
+        } else {
+          // Fallback to any non-excluded poolId even if quarantined if pool has no non-quarantined proxies left
+          const fallbackPoolIds = poolIds.filter(id => !excludeSet.has(`noauth-proxy:${id}`));
+          pickedId = fallbackPoolIds.length > 0 ? fallbackPoolIds[0] : null;
         }
-        pickedId = pickProxyPoolId(poolIds, strategy, providerId);
-      } else if (!pickedId && excludeSet.has("noauth")) {
-        log.warn("AUTH", `${provider} | direct public connection already excluded`);
-        return null;
-      } else if (pickedId && !hasDynamicSid && (excludeSet.has(`proxy:${pickedId}`) || excludeSet.has(pickedId))) {
-        log.warn("AUTH", `${provider} | configured proxy pool ${pickedId} excluded`);
-        return null;
-      }
-      const resolvedProxy = await resolveConnectionProxyConfig({ proxyPoolId: pickedId || "" });
-      const sidMatch = (resolvedProxy.connectionProxyUrl || "").match(/-sid-(\d+)/i);
-      const connectionId = pickedId ? (sidMatch ? `proxy:${pickedId}:${sidMatch[1]}` : `proxy:${pickedId}`) : "noauth";
-      if (excludeSet.has(connectionId)) {
-        log.warn("AUTH", `${provider} | connection ${connectionId} already excluded`);
-        return null;
-      }
-      const connectionName = pickedId ? (resolvedProxy.proxyPool?.name || `Proxy (${pickedId.slice(0, 8)})`) : "Public";
-      return {
-        id: connectionId,
-        connectionId,
-        connectionName,
-        isActive: true,
-        accessToken: "public",
-        providerSpecificData: {
-          connectionProxyEnabled: resolvedProxy.connectionProxyEnabled,
-          connectionProxyUrl: resolvedProxy.connectionProxyUrl,
-          connectionNoProxy: resolvedProxy.connectionNoProxy,
-          connectionProxyPoolId: resolvedProxy.proxyPoolId || null,
-          vercelRelayUrl: resolvedProxy.vercelRelayUrl || "",
-          strictProxy: resolvedProxy.strictProxy === true,
-        },
-      };
+
+        // When proxy/rotation is ON but pool is empty, fail-open to direct so requests never hard-abort
+        if (!pickedId) {
+          return {
+            id: "noauth-direct",
+            connectionId: "noauth-direct",
+            connectionName: "Public (Direct)",
+            isActive: true,
+            accessToken: "public",
+            providerSpecificData: {
+              connectionProxyEnabled: false,
+              connectionProxyUrl: "",
+              connectionNoProxy: "",
+              connectionProxyPoolId: null,
+              vercelRelayUrl: "",
+            },
+            };
+            }
+            } else {
+            // Proxy is OFF: use direct VPS connection as usual
+            return {
+            id: "noauth-direct",
+            connectionId: "noauth-direct",
+            connectionName: "Public (Direct)",
+            isActive: true,
+            accessToken: "public",
+            providerSpecificData: {
+            connectionProxyEnabled: false,
+            connectionProxyUrl: "",
+            connectionNoProxy: "",
+            connectionProxyPoolId: null,
+            vercelRelayUrl: "",
+            },
+            };
+            }
+
+            const resolvedProxy = await resolveConnectionProxyConfig({ proxyPoolId: pickedId });
+            // Special rule: opencode should NEVER be forced to vercel-relay unless explicitly configured
+            // Cloudflare blocks Vercel server IP ranges from accessing OpenCode free models
+            if (providerId === "opencode" && resolvedProxy.vercelRelayUrl) {
+            resolvedProxy.vercelRelayUrl = "";
+            }
+
+            const hasProxy = Boolean(resolvedProxy.connectionProxyUrl || resolvedProxy.vercelRelayUrl);
+            const connId = hasProxy ? `noauth-proxy:${pickedId}` : "noauth-direct";
+
+            return {
+            id: connId,
+            connectionId: connId,
+            connectionName: hasProxy ? "Public (Proxy)" : "Public (Direct)",
+            isActive: true,
+            accessToken: "public",
+            providerSpecificData: {
+            connectionProxyEnabled: resolvedProxy.connectionProxyEnabled,
+            connectionProxyUrl: resolvedProxy.connectionProxyUrl,
+            connectionNoProxy: resolvedProxy.connectionNoProxy,
+            connectionProxyPoolId: resolvedProxy.proxyPoolId || pickedId || null,
+            vercelRelayUrl: resolvedProxy.vercelRelayUrl || "",
+            },
+            };
     }
 
     const connections = await getProviderConnections({ provider: providerId, isActive: true });
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
     if (connections.length === 0) {
+      if (providerId === "antigravity" && resolveAgyTransport(null) === "acp") {
+        if (
+          excludeSet.has("agy-cli") ||
+          cooldownRegistry.isCooling("agy-cli") ||
+          (model && cooldownRegistry.isCooling(`agy-cli|${model}`))
+        ) {
+          return null;
+        }
+        return {
+          id: "agy-cli",
+          connectionId: "agy-cli",
+          connectionName: "agy CLI (ACP)",
+          isActive: true,
+          accessToken: "agy-cli",
+          providerSpecificData: { transport: "acp" },
+        };
+      }
       log.warn("AUTH", `No credentials for ${provider}`);
       return null;
     }
@@ -111,20 +190,22 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     const isAntigravity = providerId === "antigravity";
     const antigravityQuotaCache = isAntigravity && model ? getAntigravityQuotaCache() : null;
 
-    // Filter out model-locked, excluded, and Antigravity quota-exhausted connections.
+    // Filter out model-locked, excluded, circuit-broken, cooldown-quarantined, and Antigravity quota-exhausted connections.
     const availableConnections = connections.filter(c => {
       if (excludeSet.has(c.id)) return false;
       if (isModelLockActive(c, model)) return false;
+      if (isCircuitBreakerOpen(c.id)) return false;
+      if (cooldownRegistry.isCooling(c.id)) return false;
+      if (model && cooldownRegistry.isCooling(`${c.id}|${model}`)) return false;
       const enabled = c.providerSpecificData?.enabledModels;
-      if (Array.isArray(enabled) && enabled.length && requestedModel && !enabled.includes(requestedModel)
-        && (String(providerId).startsWith("openai-compatible") || providerId === "codex")) return false;
+      if (providerId === "codex" && Array.isArray(enabled) && enabled.length && requestedModel && !enabled.includes(requestedModel)) return false;
       // Antigravity: skip if live quota exhausted for this model
       if (isAntigravity && model && antigravityQuotaCache) {
-        const connQuotas = antigravityQuotaCache.get(c.id);
-        const quota = getAntigravityModelQuota(connQuotas, model) || connQuotas?.[model];
+        const cachedQuotas = antigravityQuotaCache.get(c.id);
+        const quota = getAntigravityModelQuota(cachedQuotas, model);
         if (quota && quota.remainingPercentage <= 0 && quota.resetAt && new Date(quota.resetAt).getTime() > Date.now()) {
           const account = c.id?.slice(0, 8) || "unknown";
-          log.info("AG_QUOTA", `${account} | CACHE_BLOCK ${model} - skip upstream until ${quota.resetAt}`);
+          log.info("AG_QUOTA", `${account} | CACHE_BLOCK ${model} — skip upstream until ${quota.resetAt}`);
           return false;
         }
       }
@@ -147,8 +228,8 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       const expiries = lockedConns.map(c => getEarliestModelLockUntil(c)).filter(Boolean);
       if (isAntigravity && model && antigravityQuotaCache) {
         connections.forEach((c) => {
-          const connQuotas = antigravityQuotaCache.get(c.id);
-          const quota = getAntigravityModelQuota(connQuotas, model) || connQuotas?.[model];
+          const cachedQuotas = antigravityQuotaCache.get(c.id);
+          const quota = getAntigravityModelQuota(cachedQuotas, model);
           const resetAt = quota?.resetAt;
           if (resetAt && new Date(resetAt).getTime() > Date.now()) expiries.push(resetAt);
         });
@@ -182,8 +263,80 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         log.info("AUTH", `${provider} | pinned to ${connection.id?.slice(0, 8)} (${connection.name || connection.email || "unnamed"})`);
       }
     }
+
+    // Cache-Aware Conversation Affinity (KV prompt-cache hit preservation)
+    if (!connection && conversationKey && settings.cacheAffinityEnabled !== false) {
+      const affinityId = getAffinityConnectionId(providerId, conversationKey);
+      if (affinityId) {
+        const affinityConn = availableConnections.find((c) => c.id === affinityId);
+        if (affinityConn) {
+          let useAffinity = true;
+          if (resolveProviderId(providerId) === "freepi") {
+            const isMultiTurn = Array.isArray(body?.messages) && body.messages.some((m) => m?.role === "assistant");
+            const hasExplicitSession = Boolean(body?.session_id || body?.conversation_id);
+            const mustStaySticky = isMultiTurn || hasExplicitSession;
+            if (!mustStaySticky) {
+              try {
+                const { getFreePiQueuePressure } = await import("open-sse/executors/freepi.js");
+                const pressure = getFreePiQueuePressure(affinityConn.accessToken || affinityConn.apiKey || "");
+                if (!pressure.idle) {
+                  // Busy account on single turn: release sticky affinity so slot dispatcher can pick an idle account
+                  clearAffinity(providerId, conversationKey);
+                  useAffinity = false;
+                }
+              } catch (_) {}
+            }
+          }
+
+          if (useAffinity) {
+            connection = affinityConn;
+            log.info("CACHE_AFFINITY", `${provider} | warm KV-cache match → sticky on ${connection.id?.slice(0, 8)} (${connection.name || connection.email || "unnamed"})`);
+            touchAffinity(providerId, conversationKey, connection.id);
+            await updateProviderConnection(connection.id, {
+              lastUsedAt: new Date().toISOString(),
+              consecutiveUseCount: (connection.consecutiveUseCount || 0) + 1
+            });
+            if (resolveProviderId(providerId) === "freepi") {
+              try {
+                const { reserveFreePiSlot } = await import("open-sse/executors/freepi.js");
+                reserveFreePiSlot(connection.accessToken || connection.apiKey || "");
+              } catch (_) {}
+            }
+          }
+        } else {
+          clearAffinity(providerId, conversationKey);
+        }
+      }
+    }
+
     if (connection) {
       // skip strategy
+    } else if ((strategy === "least-loaded" || (strategy !== "round-robin" && availableConnections.length > 1)) && resolveProviderId(providerId) === "freepi") {
+      // FreePI allows exactly one in-flight request per token, so recency is the
+      // wrong signal — each account's own queue depth is. Pick the account nobody
+      // is waiting on; when all are busy, take the shortest queue instead of
+      // landing behind a long stream the way blind rotation does.
+      const { getFreePiQueuePressure, reserveFreePiSlot } = await import("open-sse/executors/freepi.js");
+      let best = null;
+      let bestLoad = Infinity;
+      for (const candidate of availableConnections) {
+        const pressure = getFreePiQueuePressure(candidate.accessToken || candidate.apiKey || "");
+        if (pressure.total < bestLoad) {
+          best = candidate;
+          bestLoad = pressure.total;
+        }
+      }
+      connection = best || availableConnections[0];
+      // Claim it immediately: two requests selecting in the same tick would
+      // otherwise both see "idle" and pile onto one account.
+      reserveFreePiSlot(connection.accessToken || connection.apiKey || "");
+      if (bestLoad > 0) {
+        log.info("AUTH", `${provider} | all accounts busy (shortest queue ${bestLoad}) → least-loaded ${connection.id?.slice(0, 8)}`);
+      }
+      await updateProviderConnection(connection.id, {
+        lastUsedAt: new Date().toISOString(),
+        consecutiveUseCount: (connection.consecutiveUseCount || 0) + 1,
+      });
     } else if (strategy === "round-robin") {
       const stickyLimit = providerOverride.stickyRoundRobinLimit || settings.stickyRoundRobinLimit || 3;
 
@@ -228,7 +381,37 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       connection = availableConnections[0];
     }
 
-    const resolvedProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+    if (connection && conversationKey && settings.cacheAffinityEnabled !== false) {
+      setAffinityConnection(providerId, conversationKey, connection.id);
+    }
+
+    let connectionSpecificData = connection.providerSpecificData || {};
+
+    // Provider-level proxy rotation for standard providers (Round-robin live pools / Random)
+    if (providerOverride.rotateStrategy && providerOverride.rotateStrategy !== "none") {
+      try {
+        const { getProxyPools } = await import("@/lib/db/repos/proxyPoolsRepo");
+        const allPools = await getProxyPools({ isActive: true });
+        const validPools = allPools.filter((p) => p.proxyUrl);
+        const eligiblePools = validPools.filter((p) => !isProxyQuarantined(p.id));
+        const activeList = eligiblePools.length > 0 ? eligiblePools : validPools;
+
+        if (activeList.length > 0) {
+          const poolIds = activeList.map((p) => p.id);
+          const pickedPoolId = pickProxyPoolId(poolIds, providerOverride.rotateStrategy, providerId) || poolIds[0];
+          if (pickedPoolId) {
+            connectionSpecificData = {
+              ...connectionSpecificData,
+              proxyPoolId: pickedPoolId,
+            };
+          }
+        }
+      } catch (err) {
+        log.warn("AUTH", `${provider} | proxy rotation resolution failed: ${err.message}`);
+      }
+    }
+
+    const resolvedProxy = await resolveConnectionProxyConfig(connectionSpecificData);
 
     return {
       authType: connection.authType,
@@ -264,7 +447,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
 }
 
 /**
- * Mark account+model as unavailable - locks modelLock_${model} in DB.
+ * Mark account+model as unavailable — locks modelLock_${model} in DB.
  * All errors (429, 401, 5xx, etc.) lock per model, not per account.
  * @param {string} connectionId
  * @param {number} status - HTTP status code from upstream
@@ -274,10 +457,38 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
  * @returns {{ shouldFallback: boolean, cooldownMs: number }}
  */
 export async function markAccountUnavailable(connectionId, status, errorText, provider = null, model = null, resetsAtMs = null) {
-  if (!connectionId || connectionId === "noauth") return { shouldFallback: false, cooldownMs: 0 };
-  if (connectionId.startsWith("proxy:")) {
-    const { shouldFallback, cooldownMs } = checkFallbackError(status, errorText, 0, provider);
-    return { shouldFallback, cooldownMs };
+  if (!connectionId) return { shouldFallback: false, cooldownMs: 0 };
+  if (connectionId.startsWith("noauth-proxy")) {
+    // Quarantine proxy if it failed with 403, 429, 524, 502, 504, or timeout/Abuse/Rate limit
+    const isProxyFailure = status === 403 || status === 429 || status === 524 || status === 502 || status === 504 ||
+      (errorText && (
+        errorText.includes("Abuse") ||
+        errorText.includes("timeout") ||
+        errorText.includes("timed out") ||
+        errorText.includes("524") ||
+        errorText.includes("FreeTierError") ||
+        errorText.includes("FreeUsageLimitError") ||
+        errorText.includes("Rate limit exceeded") ||
+        errorText.includes("ProxyConnect") ||
+        errorText.includes("tunnel error") ||
+        errorText.includes("ECONNRESET") ||
+        errorText.includes("ECONNREFUSED")
+      ));
+    if (isProxyFailure) {
+      const parts = connectionId.split(":");
+      if (parts[1]) {
+        quarantineProxy(parts[1], 3 * 60 * 1000);
+      }
+    }
+    // A proxy failure on a free no-auth provider should rotate IMMEDIATELY (0ms) to another proxy in pool!
+    return { shouldFallback: true, cooldownMs: 0 };
+  }
+  if (connectionId === "noauth" || connectionId === "noauth-direct" || connectionId === "agy-cli") {
+    // If direct VPS IP encounters a temporary 403, 429, 524, 502, 504, try next fallback connection if available
+    if (status === 403 || status === 429 || status === 524 || status === 502 || status === 504) {
+      return { shouldFallback: true, cooldownMs: 15000 };
+    }
+    return { shouldFallback: false, cooldownMs: 0 };
   }
   const connections = await getProviderConnections({ provider });
   const conn = connections.find(c => c.id === connectionId);
@@ -308,18 +519,76 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
 
   const reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
   const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
+  const connName = conn?.displayName || conn?.name || conn?.email || connectionId.slice(0, 8);
+  const settings = await getSettings();
 
-  await updateProviderConnection(connectionId, {
+  // If an account is permanently dead (401 invalid key, 403 forbidden/banned, 402 out of credits/insufficient balance),
+  // auto-delete it immediately when autoDeleteDeadKeys is enabled.
+  const isDeadAuth = status === 401 || status === 403;
+  const isOutOfCredits = status === 402 || (typeof errorText === "string" && (
+    errorText.toLowerCase().includes("insufficient_quota") ||
+    errorText.toLowerCase().includes("quota exceeded") ||
+    errorText.toLowerCase().includes("out of credits") ||
+    errorText.toLowerCase().includes("balance is insufficient") ||
+    errorText.toLowerCase().includes("token quota exhausted") ||
+    errorText.toLowerCase().includes("invalid_api_key")
+  ));
+
+  if (settings.autoDeleteDeadKeys === true || settings.autoPruneDeadConnections === true) {
+    if (isDeadAuth || isOutOfCredits) {
+      try {
+        const { deleteProviderConnection } = await import("@/lib/localDb");
+        await deleteProviderConnection(connectionId);
+        log.warn("AUTH", `🗑 Auto-deleted dead/exhausted connection ${connName} [${status}]`);
+        return { shouldFallback: true, cooldownMs: 0 };
+      } catch (e) {
+        log.error("AUTH", `Failed to auto-delete dead connection ${connectionId}:`, e.message);
+      }
+    }
+  }
+
+  // Determine if this error is strictly scoped to a specific model or affects the whole account.
+  // Model-scoped errors include:
+  // - Any rate limit (429) or model quota/capacity failure when a model is specified
+  // - Any plan restriction (400, 404, 406, "model is not supported", "model_not_found") when a model is specified
+  // Account-wide failures include:
+  // - 401 / 403 (dead or revoked authentication)
+  // - 402 / out of credits (insufficient balance across the whole account)
+  // - Global rate limits without a model or with githubResetAtMs (account-level lock)
+  const isModelScoped = Boolean(model) && !githubResetAtMs && !isDeadAuth && !isOutOfCredits;
+
+  // Trip circuit breaker on actual connection/server-level errors (not per-model rate limits or model restrictions)
+  if (shouldFallback && connectionId && connectionId !== "noauth") {
+    const cdDuration = cooldownMs || (githubResetAtMs ? Math.max(1000, githubResetAtMs - Date.now()) : 30000);
+    if (isModelScoped) {
+      // Cooldown ONLY this model on this connection; do NOT trip circuit breaker on the whole account
+      cooldownRegistry.mark(`${connectionId}|${model}`, cdDuration, reason);
+      log.info("COOLDOWN", `⏳ Connection ${connName} model [${model}] placed in cooldown for ${Math.round(cdDuration / 1000)}s`);
+    } else {
+      // Trip circuit breaker on actual account/connection-level errors
+      cooldownRegistry.mark(connectionId, cdDuration, reason);
+      tripCircuitBreaker(connectionId, { status, error: reason, provider, model });
+      log.info("COOLDOWN", `⏳ Connection ${connName} [${provider}] placed in account cooldown for ${Math.round(cdDuration / 1000)}s`);
+    }
+  }
+
+  const updatePayload = {
     ...lockUpdate,
-    testStatus: "unavailable",
     lastError: reason,
     errorCode: status,
     lastErrorAt: new Date().toISOString(),
     backoffLevel: newBackoffLevel ?? backoffLevel
-  });
+  };
+
+  // Only mark the entire connection testStatus as "unavailable" if it is an account-level failure.
+  // If only a specific model is locked, keep the account testStatus intact (e.g. "active") so other models remain usable.
+  if (!isModelScoped) {
+    updatePayload.testStatus = "unavailable";
+  }
+
+  await updateProviderConnection(connectionId, updatePayload);
 
   const lockKey = Object.keys(lockUpdate)[0];
-  const connName = conn?.displayName || conn?.name || conn?.email || connectionId.slice(0, 8);
   log.warn("AUTH", `${connName} locked ${lockKey} for ${Math.round(cooldownMs / 1000)}s [${status}]`);
 
   if (provider && status && reason) {
@@ -340,6 +609,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
  */
 export async function clearAccountError(connectionId, currentConnection, model = null) {
   if (!connectionId || connectionId === "noauth") return;
+  recordCircuitSuccess(connectionId);
   const conn = currentConnection._connection || currentConnection;
   const now = Date.now();
   const allLockKeys = Object.keys(conn).filter(k => k.startsWith("modelLock_"));
@@ -379,10 +649,6 @@ export async function clearAccountError(connectionId, currentConnection, model =
   await updateProviderConnection(connectionId, clearObj);
 }
 
-// Server-internal callers (dashboard model probes) authenticate with the CLI
-// token instead of a user API key. Key allow-lists are per-user policy, so an
-// internal probe must not be judged by - or blocked on - whichever user key
-// happens to cover the probed model.
 const INTERNAL_PROBE_KEY = "__9r-internal-probe__";
 const CLI_TOKEN_HEADER = "x-9r-cli-token";
 const CLI_TOKEN_SALT = "9r-cli-auth";
@@ -391,13 +657,10 @@ const CLI_TOKEN_SALT = "9r-cli-auth";
  * Extract API key from request headers
  */
 export function extractApiKey(request) {
-  // Internal token wins over any user key: it is derived from a machine secret
-  // and carries no per-key model restrictions.
   const cliToken = request.headers.get(CLI_TOKEN_HEADER);
   if (cliToken && cliToken === getConsistentMachineIdSync(CLI_TOKEN_SALT)) {
     return INTERNAL_PROBE_KEY;
   }
-
   // Check Authorization header first
   const authHeader = request.headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ")) {
@@ -419,6 +682,6 @@ export function extractApiKey(request) {
 export async function isValidApiKey(apiKey, requestedModel = null, clientIp = null) {
   if (apiKey === INTERNAL_PROBE_KEY) return true;
   if (!apiKey) return false;
-  return await validateApiKey(apiKey, requestedModel);
+  return await validateApiKey(apiKey, requestedModel, clientIp);
 }
 

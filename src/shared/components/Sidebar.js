@@ -18,6 +18,7 @@ const COMBINED_WEB_ITEM = { id: "web", label: "Web Fetch & Search", icon: "trave
 const navItems = [
   { href: "/dashboard/endpoint", label: "Endpoint & Key", icon: "api" },
   { href: "/dashboard/providers", label: "Providers", icon: "dns" },
+  { href: "/dashboard/residential-fresh", label: "Residential Fresh Proxy", icon: "wifi_proxy" },
   // { href: "/dashboard/basic-chat", label: "Basic Chat", icon: "chat" }, // Hidden
   { href: "/dashboard/combos", label: "Combo & Vision Adapter", icon: "layers" },
   { href: "/dashboard/usage", label: "Usage", icon: "bar_chart" },
@@ -140,6 +141,7 @@ export default function Sidebar({ onClose }) {
     if (item.href === "/dashboard/api-key-usage") return permissions.viewUsage || permissions.manageApiKeys;
     if (item.href === "/dashboard/quota") return permissions.manageProviders;
     if (item.href === "/dashboard/token-saver" || item.href === "/dashboard/cli-tools") return permissions.manageTools;
+    if (item.href === "/dashboard/residential-fresh") return permissions.manageProviders || permissions.manageAdvanced;
     return false;
   });
 

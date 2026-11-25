@@ -25,12 +25,22 @@ function appPath(...segments) {
   return path.join(APP_ROOT, ...segments);
 }
 
+try {
+  const _hooksPath = appPath("scripts", "auth-guard-hooks.mjs");
+  if (fs.existsSync(_hooksPath)) {
+    require("node:module").register(pathToFileURL(_hooksPath).href);
+  }
+} catch (e) {
+  console.warn("[custom-server] eager auth hooks register:", e && e.message ? e.message : e);
+}
+
 // Per-process secret proving x-9r-real-ip was stamped below rather than sent by the client.
 // A bare `next start` / `next dev` never loads this file, so it cannot produce a matching
 // header even though the env var is inherited by child processes. Named like x-9r-cli-token
 // so the request-detail header sanitizer redacts it too.
 const PEER_TOKEN = crypto.randomBytes(24).toString("hex");
 process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
+try { globalThis.__xrouter_wreq__ = require("wreq-js"); globalThis.__xrouter_native_require__ = require; } catch(e) { console.warn("[custom-server] wreq preload:", e.message); }
 
 let backgroundRefreshStarted = false;
 

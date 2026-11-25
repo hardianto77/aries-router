@@ -1,30 +1,14 @@
 import { ERROR_TYPES, DEFAULT_ERROR_MESSAGES } from "../config/errorConfig.js";
 
-// What the client is allowed to read when Hide Raw Errors is on: the status
-// code, the error type and the fact that something failed - never the message.
 export const HIDDEN_ERROR_MESSAGE = "There is an error but this error is hidden, try checking your error log.";
 
-/**
- * Replace the message inside an already-parsed error object with the hidden
- * placeholder, keeping type/code intact. Handles the OpenAI shape
- * (`{ message }`), the Anthropic shape (`{ type, error: { message } }`) and a
- * bare string. Mutates and returns the object.
- * @param {any} err - parsed error object or string
- * @returns {any} the same error, masked
- */
 export function maskErrorPayload(err) {
   if (!err) return err;
   if (typeof err === "string") return HIDDEN_ERROR_MESSAGE;
   if (typeof err !== "object") return err;
-  if (typeof err.message === "string") {
-    err.message = HIDDEN_ERROR_MESSAGE;
-  }
-  if (err.error && typeof err.error === "object" && typeof err.error.message === "string") {
-    err.error.message = HIDDEN_ERROR_MESSAGE;
-  }
-  if (typeof err.detail === "string") {
-    err.detail = HIDDEN_ERROR_MESSAGE;
-  }
+  if (typeof err.message === "string") err.message = HIDDEN_ERROR_MESSAGE;
+  if (err.error && typeof err.error === "object" && typeof err.error.message === "string") err.error.message = HIDDEN_ERROR_MESSAGE;
+  if (typeof err.detail === "string") err.detail = HIDDEN_ERROR_MESSAGE;
   return err;
 }
 
@@ -32,22 +16,18 @@ export function maskErrorPayload(err) {
  * Build OpenAI-compatible error response body
  * @param {number} statusCode - HTTP status code
  * @param {string} message - Error message
- * @param {boolean} [hideError] - Whether to hide the real error message
  * @returns {object} Error response object
  */
-export function buildErrorBody(statusCode, message, hideError = false) {
+export function buildErrorBody(statusCode, message, _details = undefined, options = undefined) {
   const errorInfo = ERROR_TYPES[statusCode] || 
     (statusCode >= 500 
       ? { type: "server_error", code: "internal_server_error" }
       : { type: "invalid_request_error", code: "" });
 
-  const rawMessage = message || DEFAULT_ERROR_MESSAGES[statusCode] || "An error occurred";
-  const finalMessage = hideError ? HIDDEN_ERROR_MESSAGE : rawMessage;
-
   return {
     error: {
-      message: finalMessage,
-      type: errorInfo.type,
+      message: message || DEFAULT_ERROR_MESSAGES[statusCode] || "An error occurred",
+      type: options?.type || errorInfo.type,
       code: errorInfo.code
     }
   };
@@ -57,12 +37,10 @@ export function buildErrorBody(statusCode, message, hideError = false) {
  * Create error Response object (for non-streaming)
  * @param {number} statusCode - HTTP status code
  * @param {string} message - Error message
- * @param {object} [extraHeaders] - Optional headers
- * @param {boolean} [hideError] - Whether to hide error message
  * @returns {Response} HTTP Response object
  */
-export function errorResponse(statusCode, message, extraHeaders = null, hideError = false) {
-  return new Response(JSON.stringify(buildErrorBody(statusCode, message, hideError)), {
+export function errorResponse(statusCode, message, extraHeaders = null) {
+  return new Response(JSON.stringify(buildErrorBody(statusCode, message)), {
     status: statusCode,
     headers: {
       "Content-Type": "application/json",
@@ -77,10 +55,9 @@ export function errorResponse(statusCode, message, extraHeaders = null, hideErro
  * @param {WritableStreamDefaultWriter} writer - Stream writer
  * @param {number} statusCode - HTTP status code
  * @param {string} message - Error message
- * @param {boolean} [hideError] - Whether to hide error message
  */
-export async function writeStreamError(writer, statusCode, message, hideError = false) {
-  const errorBody = buildErrorBody(statusCode, message, hideError);
+export async function writeStreamError(writer, statusCode, message) {
+  const errorBody = buildErrorBody(statusCode, message);
   const encoder = new TextEncoder();
   await writer.write(encoder.encode(`data: ${JSON.stringify(errorBody)}\n\n`));
 }
@@ -131,13 +108,13 @@ export async function parseUpstreamError(response, executor = null) {
  * @param {number} [resetsAtMs] - Optional precise cooldown expiry (ms epoch) for provider-specific quota errors
  * @returns {{ success: false, status: number, error: string, response: Response, resetsAtMs?: number }}
  */
-export function createErrorResult(statusCode, message, resetsAtMs, extraHeaders = null, hideError = false) {
+export function createErrorResult(statusCode, message, resetsAtMs, extraHeaders = null) {
   return {
     success: false,
     status: statusCode,
     error: message,
     resetsAtMs,
-    response: errorResponse(statusCode, message, extraHeaders, hideError)
+    response: errorResponse(statusCode, message, extraHeaders)
   };
 }
 
@@ -149,11 +126,9 @@ export function createErrorResult(statusCode, message, resetsAtMs, extraHeaders 
  * @param {string} retryAfterHuman - Human-readable retry info e.g. "reset after 30s"
  * @returns {Response}
  */
-export function unavailableResponse(statusCode, message, retryAfter, retryAfterHuman, extraHeaders = null, hideError = false) {
+export function unavailableResponse(statusCode, message, retryAfter, retryAfterHuman, extraHeaders = null) {
   const retryAfterSec = Math.max(Math.ceil((new Date(retryAfter).getTime() - Date.now()) / 1000), 1);
-  const msg = hideError
-    ? buildErrorBody(statusCode, message, true).error.message
-    : `${message} (${retryAfterHuman})`;
+  const msg = `${message} (${retryAfterHuman})`;
   return new Response(
     JSON.stringify({ error: { message: msg } }),
     {
@@ -166,63 +141,6 @@ export function unavailableResponse(statusCode, message, retryAfter, retryAfterH
       }
     }
   );
-}
-
-/**
- * Mask a client-facing error body when Hide Raw Errors is on.
- *
- * The toggle used to be threaded into a handful of call sites, so any path that
- * forgot the flag (combo fallbacks, executor-built responses, auth gates) still
- * shipped the upstream message. Masking at the handler boundary instead makes
- * the guarantee unconditional: no error detail leaves the server, whichever
- * branch produced the response. Status code, error type and code stay, so a
- * caller can still tell a 401 from a 503; only the message is replaced.
- *
- * Successful responses - including 200 SSE streams - pass through untouched.
- */
-export async function maskHiddenError(response, hideError) {
-  if (!hideError || !response || response.status < 400) return response;
-  const contentType = response.headers.get("content-type") || "";
-
-  const rebuild = (payload) => {
-    const headers = new Headers(response.headers);
-    headers.delete("content-length");
-    headers.set("content-type", "application/json");
-    return new Response(JSON.stringify(payload), {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-  };
-
-  let body = null;
-  if (contentType.includes("application/json")) {
-    try {
-      body = await response.clone().json();
-    } catch {
-      body = null;
-    }
-  }
-
-  if (body && typeof body === "object") {
-    // Nothing named `error` to mask - leave the payload alone.
-    if (!body.error) return response;
-    const error = typeof body.error === "object"
-      ? { ...body.error, message: HIDDEN_ERROR_MESSAGE }
-      : HIDDEN_ERROR_MESSAGE;
-    return rebuild({ ...body, error });
-  }
-
-  // Not JSON, or not parseable: an upstream HTML/text error page would leak the
-  // provider's wording verbatim, so rebuild it as a masked JSON error instead.
-  let text = "";
-  try {
-    text = (await response.clone().text()).trim();
-  } catch {
-    text = "";
-  }
-  if (!text) return response;
-  return rebuild(buildErrorBody(response.status, text, true));
 }
 
 /**
@@ -241,4 +159,28 @@ export function formatProviderError(error, provider, model, statusCode) {
   const causeMsg = error.cause?.message;
   const causeStr = causeCode || causeMsg ? ` (cause: ${[causeCode, causeMsg].filter(Boolean).join(": ")})` : "";
   return `[${code}]: ${message}${causeStr}`;
+}
+
+export async function maskHiddenError(response, hideError) {
+  if (!hideError || !response || response.status < 400) return response;
+  const contentType = response.headers.get("content-type") || "";
+  const rebuild = (payload) => {
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    headers.set("content-type", "application/json");
+    return new Response(JSON.stringify(payload), { status: response.status, statusText: response.statusText, headers });
+  };
+  let body = null;
+  if (contentType.includes("application/json")) {
+    try { body = await response.clone().json(); } catch { body = null; }
+  }
+  if (body && typeof body === "object") {
+    if (!body.error) return response;
+    const error = typeof body.error === "object" ? { ...body.error, message: HIDDEN_ERROR_MESSAGE } : HIDDEN_ERROR_MESSAGE;
+    return rebuild({ ...body, error });
+  }
+  let text = "";
+  try { text = (await response.clone().text()).trim(); } catch { text = ""; }
+  if (!text) return response;
+  return rebuild(buildErrorBody(response.status, HIDDEN_ERROR_MESSAGE));
 }

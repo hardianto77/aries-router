@@ -104,7 +104,7 @@ export default function ModelBypassPage() {
   const handleOpenEdit = (rule) => {
     setEditingRule(rule);
     const content = rule.content || "";
-    const isCustom = content && !content.startsWith("[");
+    const isCustom = content && content !== "[DEFAULT_KERNEL_PROMPT]" && content !== "[KERNEL_DEFAULT]";
     const preset = isCustom ? "custom" : "default";
 
     setFormData({

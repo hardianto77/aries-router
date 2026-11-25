@@ -1,30 +1,32 @@
-import { randomBytes } from "node:crypto";
+import crypto from "node:crypto";
 import { DefaultExecutor } from "./default.js";
+import { resolveContinuationId, resolveSessionIdentity } from "../utils/sessionManager.js";
+import { refreshCodebuddyIntlToken } from "../services/tokenRefresh.js";
 
-/**
- * RFC 9562 UUIDv7: 48-bit millisecond timestamp first, then random bits.
- *
- * The desktop client's request / message ids are this shape (dashed UUID whose
- * version nibble is 7); dropping the dashes yields the 32-hex form the gateway
- * actually puts in the request headers.
- */
-function uuid7() {
-  const buf = randomBytes(16);
-  const ms = Date.now();
-  buf[0] = (ms / 2 ** 40) & 0xff;
-  buf[1] = (ms / 2 ** 32) & 0xff;
-  buf[2] = (ms / 2 ** 24) & 0xff;
-  buf[3] = (ms / 2 ** 16) & 0xff;
-  buf[4] = (ms / 2 ** 8) & 0xff;
-  buf[5] = ms & 0xff;
-  buf[6] = (buf[6] & 0x0f) | 0x70; // version 7
-  buf[8] = (buf[8] & 0x3f) | 0x80; // RFC variant
-  const hex = buf.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+function findHeaderKey(headers, name) {
+  if (!headers || typeof headers !== "object") return null;
+  return Object.keys(headers).find((key) => key.toLowerCase() === name.toLowerCase()) || null;
+}
+
+function copyClientHeader(headers, rawHeaders, name) {
+  const existing = findHeaderKey(headers, name);
+  if (existing) return headers[existing];
+  if (typeof rawHeaders?.get === "function") {
+    const value = rawHeaders.get(name);
+    if (typeof value === "string" && value.trim()) {
+      headers[name] = value.trim();
+      return headers[name];
+    }
+    return null;
+  }
+  const source = findHeaderKey(rawHeaders, name);
+  if (!source || typeof rawHeaders[source] !== "string" || !rawHeaders[source].trim()) return null;
+  headers[source] = rawHeaders[source].trim();
+  return headers[source];
 }
 
 /**
- * CodeBuddyIntlExecutor — talks to https://www.workbuddy.ai/v2/chat/completions
+ * CodeBuddyIntlExecutor — talks to https://www.codebuddy.ai/v2/chat/completions
  *
  * Same OpenAI-compatible-but-stream-only gateway behavior as codebuddy-cn:
  * non-stream requests are rejected, and reasoning is surfaced only when the
@@ -36,45 +38,36 @@ export class CodeBuddyIntlExecutor extends DefaultExecutor {
     super("codebuddy-intl");
   }
 
-  /**
-   * The gateway's channel check reads the request's conversation header family.
-   * A chat request that carries none of it is rejected with HTTP 400 /
-   * code 11-128 (`conversation id missing`, displayTips「这次调用没通过渠道
-   * 校验，可能不是官方客户端发出的」). The desktop client sends all four:
-   *
-   *   X-Conversation-ID          dashed UUID
-   *   X-Conversation-Request-ID  32 hex  (same value as X-Root-Request-ID)
-   *   X-Root-Request-ID          32 hex
-   *   X-Conversation-Message-ID  32 hex  (same value as X-Request-ID)
-   *   X-Request-ID               32 hex
-   *
-   * plus the W3C/B3 trace family, which the client derives from the same
-   * traceparent. Upstream keeps no history under the conversation id — a fresh
-   * id per call is accepted (verified against the 5.8.4 capture), so no
-   * cross-request session state is needed here.
-   */
   buildHeaders(credentials, stream = true, url, model, body = null) {
     const headers = super.buildHeaders(credentials, stream, url, model, body);
+    const rawHeaders = credentials?.rawHeaders || {};
+    const suppliedConversationId = copyClientHeader(headers, rawHeaders, "X-Conversation-ID");
+    copyClientHeader(headers, rawHeaders, "X-Conversation-Request-ID");
+    copyClientHeader(headers, rawHeaders, "X-Conversation-Message-ID");
 
-    const convId = uuid7();
-    const convReqId = uuid7().replace(/-/g, "");
-    const msgId = uuid7().replace(/-/g, "");
-    const trace = uuid7().replace(/-/g, "");
-    const span = randomBytes(8).toString("hex");
-
-    headers["X-Conversation-ID"] = convId;
-    headers["X-Conversation-Request-ID"] = convReqId;
-    headers["X-Root-Request-ID"] = convReqId;
-    headers["X-Conversation-Message-ID"] = msgId;
-    headers["X-Request-ID"] = msgId;
-
-    headers["X-Trace-ID"] = trace;
-    headers["traceparent"] = `00-${trace}-${span}-01`;
-    headers["b3"] = `${trace}-${span}-1`;
-    headers["X-B3-TraceId"] = trace;
-    headers["X-B3-SpanId"] = span;
-    headers["X-B3-Sampled"] = "1";
-
+    if (!suppliedConversationId) {
+      const sessionHeaders = typeof rawHeaders.entries === "function"
+        ? Object.fromEntries(rawHeaders.entries())
+        : Object.fromEntries(Object.entries(rawHeaders).map(([key, value]) => [key.toLowerCase(), value]));
+      // Only explicit client identity can join turns; account or text is not a conversation.
+      const identity = credentials?._codebuddySessionIdentity || resolveSessionIdentity({
+        headers: sessionHeaders,
+        body: body ? { ...body, messages: undefined, input: undefined } : null,
+        scope: "codebuddy-intl",
+      });
+      headers["X-Conversation-ID"] = resolveContinuationId({
+        sessionId: identity.sessionId,
+        connectionId: credentials?.connectionId,
+        scope: "codebuddy-intl",
+        ephemeral: identity.ephemeral,
+      });
+    }
+    if (!findHeaderKey(headers, "X-Conversation-Request-ID")) {
+      headers["X-Conversation-Request-ID"] = crypto.randomUUID();
+    }
+    if (!findHeaderKey(headers, "X-Conversation-Message-ID")) {
+      headers["X-Conversation-Message-ID"] = crypto.randomUUID();
+    }
     return headers;
   }
 
@@ -89,10 +82,37 @@ export class CodeBuddyIntlExecutor extends DefaultExecutor {
       transformed.reasoning_summary = "auto";
     }
 
+    // Tencent WAF flags third-party CLI agent identity strings (Claude Code, Cursor, etc.)
+    // as unauthorized tooling / prompt injection and rejects/bans the account.
+    // Neutralize only matching agent markers while preserving user system prompts.
+    const NEUTRAL_PROMPT = "You are a helpful AI assistant that helps with software engineering tasks.";
+    const AGENT_PATTERN = /you are claude code|claude.?code.+official.+cli|anthropic.+official.+cli|anxthxropic.+official.+cli|you are (?:cursor|windsurf|cline|aider|continue|copilot|cody)|you are an? (?:ai )?(?:coding |code )?agent|cc_entrypoint\s*=\s*(?:cli|vscode|jetbrains|gui)|claude.?code.+issues|give feedback.+claude.?code|you are .{0,30}(?:powerful )?ai agent|orchestration capabilities|OhMyOpenCode|<agent-identity>|<Role>|<Behavior_Instructions>/i;
+
     // CodeBuddy rejects plain OpenAI shape (11101 invalid request): needs a
     // leading system prompt + user content as typed blocks, not a bare string.
     const source = Array.isArray(transformed.messages) ? transformed.messages : [];
-    transformed.messages = [{ role: "system", content: "You are CodeBuddy Code." }];
+    const clientSystemPrompts = source
+      .filter((m) => m && ["system", "developer"].includes(m.role))
+      .map((m) => {
+        const text =
+          typeof m.content === "string"
+            ? m.content
+            : Array.isArray(m.content)
+              ? m.content.map((c) => c?.text || "").join("\n")
+              : "";
+        if (text && AGENT_PATTERN.test(text)) {
+          return NEUTRAL_PROMPT;
+        }
+        return text;
+      })
+      .filter(Boolean);
+
+    const systemPromptText =
+      clientSystemPrompts.length > 0
+        ? clientSystemPrompts.join("\n\n")
+        : "You are CodeBuddy Code.";
+
+    transformed.messages = [{ role: "system", content: systemPromptText }];
     for (const message of source) {
       if (!message || typeof message !== "object" || ["system", "developer"].includes(message.role)) continue;
       if (message.role === "user" && typeof message.content === "string") {
@@ -104,6 +124,7 @@ export class CodeBuddyIntlExecutor extends DefaultExecutor {
 
     return transformed;
   }
+
   parseError(response, bodyText) {
     if (bodyText) {
       try {
@@ -130,6 +151,11 @@ export class CodeBuddyIntlExecutor extends DefaultExecutor {
       } catch {}
     }
     return super.parseError(response, bodyText);
+  }
+
+  async refreshCredentials(credentials, log) {
+    if (!credentials?.refreshToken) return null;
+    return refreshCodebuddyIntlToken(credentials.refreshToken, log);
   }
 }
 

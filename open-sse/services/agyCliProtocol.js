@@ -323,7 +323,7 @@ let shimDirPromise = null;
 /** The stdio MCP server agy is given as `nc`, resolved from this file. */
 export function mcpServerPath() {
     try {
-        const direct = fileURLToPath(new URL("../lib/agy-mcp-server.mjs", import.meta.url));
+        const direct = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "lib", "agy-mcp-server.mjs");
         if (fs.existsSync(direct))
             return direct;
     }
@@ -336,7 +336,7 @@ export function mcpServerPath() {
         if (fs.existsSync(candidate))
             return candidate;
     }
-    return fileURLToPath(new URL("../lib/agy-mcp-server.mjs", import.meta.url));
+    return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "lib", "agy-mcp-server.mjs");
 }
 function shellQuote(value) {
     return `'${value.replace(/'/g, `'\\''`)}'`;

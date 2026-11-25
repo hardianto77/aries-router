@@ -1,10 +1,10 @@
-// Pricing rates for AI models - all rates in $/1M tokens
+// Pricing rates for AI models — all rates in $/1M tokens
 //
 // Fallback order (first match wins):
-//   1. PROVIDER_PRICING[provider][model]  - provider-specific override
-//   2. FREE_MODEL_NAMESPACES               - upstream bills these at $0
-//   3. MODEL_PRICING[model]               - canonical model price (provider-agnostic)
-//   4. PATTERN_PRICING                    - glob pattern match (e.g. "codex-*")
+//   1. PROVIDER_PRICING[provider][model]  — provider-specific override
+//   2. FREE_MODEL_NAMESPACES               — upstream bills these at $0
+//   3. MODEL_PRICING[model]               — canonical model price (provider-agnostic)
+//   4. PATTERN_PRICING                    — glob pattern match (e.g. "codex-*")
 
 /**
  * Namespaces upstream meters at $0. A free model must never inherit a paid
@@ -26,7 +26,7 @@ export function isFreeModel(model) {
 }
 
 /**
- * Canonical model pricing - provider-agnostic.
+ * Canonical model pricing — provider-agnostic.
  * Cover all known models; deduplicated across providers.
  */
 export const MODEL_PRICING = {
@@ -51,17 +51,10 @@ export const MODEL_PRICING = {
   "claude-sonnet-4.6":            { input: 3.00,  output: 15.00, cached: 0.30,  reasoning: 22.50,  cache_creation: 3.00  },
   "claude-opus-4-5-thinking":     { input: 5.00,  output: 25.00, cached: 0.50,  reasoning: 37.50,  cache_creation: 5.00  },
   "claude-opus-4-6-thinking":     { input: 5.00,  output: 25.00, cached: 0.50,  reasoning: 37.50,  cache_creation: 5.00  },
-  "claude-opus-5-5-thinking":     { input: 4.00,  output: 20.00, cached: 0.20,  reasoning: 20.00,  cache_creation: 5.00  },
-  "claude-opus-5-5":              { input: 4.00,  output: 20.00, cached: 0.20,  reasoning: 20.00,  cache_creation: 5.00  },
-  "claude-opus-5-5-high":         { input: 4.00,  output: 20.00, cached: 0.20,  reasoning: 20.00,  cache_creation: 5.00  },
-  "claude-opus-5-5-medium":       { input: 4.00,  output: 20.00, cached: 0.20,  reasoning: 20.00,  cache_creation: 5.00  },
-  "claude-opus-5-5-low":          { input: 4.00,  output: 20.00, cached: 0.20,  reasoning: 20.00,  cache_creation: 5.00  },
+  "claude-fable-5-2":             { input: 8.00,  output: 40.00, cached: 0.20,  reasoning: 40.00,  cache_creation: 10.00 },
+  "claude-fable-5-1":             { input: 10.00, output: 50.00, cached: 1.00,  reasoning: 50.00,  cache_creation: 12.50 },
   "claude-fable-5":               { input: 10.00, output: 50.00, cached: 1.00,  reasoning: 50.00,  cache_creation: 12.50 },
   "claude-sonnet-5-5":            { input: 2.00,  output: 10.00, cached: 0.20,  reasoning: 10.00,  cache_creation: 2.50  },
-  "claude-sonnet-5-5-thinking":   { input: 2.00,  output: 10.00, cached: 0.20,  reasoning: 10.00,  cache_creation: 2.50  },
-  "claude-sonnet-5-5-high":       { input: 2.00,  output: 10.00, cached: 0.20,  reasoning: 10.00,  cache_creation: 2.50  },
-  "claude-sonnet-5-5-medium":     { input: 2.00,  output: 10.00, cached: 0.20,  reasoning: 10.00,  cache_creation: 2.50  },
-  "claude-sonnet-5-5-low":        { input: 2.00,  output: 10.00, cached: 0.20,  reasoning: 10.00,  cache_creation: 2.50  },
   "claude-sonnet-5":              { input: 2.00,  output: 10.00, cached: 0.20,  reasoning: 10.00,  cache_creation: 2.50  },
 
   // === OpenAI / GPT ===
@@ -91,8 +84,8 @@ export const MODEL_PRICING = {
   // Long-context pricing is higher, but this table currently stores one rate per model.
   "gpt-6-astra":                  { input: 10.00, output: 50.00, cached: 1.00,  reasoning: 50.00,  cache_creation: 12.50 },
   "gpt-6.1-sol":                  { input: 2.00,  output: 10.00, cached: 0.10,  reasoning: 10.00,  cache_creation: 2.50  },
-  "gpt-6-sol":                    { input: 2.00,  output: 10.00, cached: 0.20,  reasoning: 10.00,  cache_creation: 2.50  },
   "gpt-6.1-terra":                { input: 1.00,  output: 5.00,  cached: 0.05,  reasoning: 5.00,   cache_creation: 1.25  },
+  "gpt-6-sol":                    { input: 2.00,  output: 10.00, cached: 0.20,  reasoning: 10.00,  cache_creation: 2.50  },
   "gpt-6-luna":                   { input: 0.10,  output: 0.50,  cached: 0.01,  reasoning: 0.50,   cache_creation: 0.125 },
   "o1":                           { input: 15.00, output: 60.00, cached: 7.50,  reasoning: 90.00,  cache_creation: 15.00 },
   "o1-mini":                      { input: 3.00,  output: 12.00, cached: 1.50,  reasoning: 18.00,  cache_creation: 3.00  },
@@ -154,6 +147,8 @@ export const MODEL_PRICING = {
   "deepseek-v4-flash":            { input: 0.14,  output: 0.28,  cached: 0.0028, reasoning: 0.28,   cache_creation: 0.14  },
   "deepseek-v4.1-flash":          { input: 0.14,  output: 0.28,  cached: 0.0028, reasoning: 0.28,   cache_creation: 0.14  },
   "deepseek-flash":               { input: 0.14,  output: 0.28,  cached: 0.0028, reasoning: 0.28,   cache_creation: 0.14  },
+  "deepseek-v5-pro":              { input: 0.435, output: 0.87,  cached: 0.003625, reasoning: 0.87,  cache_creation: 0.435 },
+  "deepseek-v5-flash":             { input: 0.14,  output: 0.28,  cached: 0.0028, reasoning: 0.28,   cache_creation: 0.14  },
   "deepseek-v4-pro":              { input: 0.435, output: 0.87,  cached: 0.003625, reasoning: 0.87,  cache_creation: 0.435 },
 
   // === GLM ===
@@ -176,6 +171,7 @@ export const MODEL_PRICING = {
   // === Muse (Meta Model API) ===
   // Rates from https://dev.meta.ai/docs/pricing-rate-limits (contributor tier:
   // cheaper, Meta may train on the data).
+  "muse-wonder-1.0":               { input: 2.00, output: 8.00, cached: 0.25,  reasoning: 8.00,   cache_creation: 0 },
   "muse-spark-1.3":                { input: 1.25, output: 4.25, cached: 0.15,  reasoning: 4.25,   cache_creation: 0 },
   "muse-spark-1.2":                { input: 1.25, output: 4.25, cached: 0.15,  reasoning: 4.25,   cache_creation: 0 },
   "muse-spark-1.1":                { input: 1.25, output: 4.25, cached: 0.15,  reasoning: 4.25,   cache_creation: 0 },
@@ -198,11 +194,17 @@ export const MODEL_PRICING = {
  * Keyed by provider alias (cc, cx, gc, gh, ...) or provider id (openai, anthropic, ...).
  */
 export const PROVIDER_PRICING = {
-  // GitHub Copilot (gh) - explicit override, matches canonical gpt-5.3-codex rate
+  zcode: {
+    "GLM-5.3-Flash": { ...ZERO_PRICING },
+    "GLM-5.3": { ...ZERO_PRICING },
+    "GLM-5.2": { ...ZERO_PRICING },
+    "GLM-5-Turbo": { ...ZERO_PRICING },
+  },
+  // GitHub Copilot (gh) — explicit override, matches canonical gpt-5.3-codex rate
   gh: {
     "gpt-5.3-codex": { input: 1.75, output: 14.00, cached: 0.175, reasoning: 14.00, cache_creation: 1.75 },
   },
-  // TokenRouter - exact rates from https://api.tokenrouter.com/api/pricing ($1/1M tokens).
+  // TokenRouter — exact rates from https://api.tokenrouter.com/api/pricing ($1/1M tokens).
   // Ratio→USD: input = model_ratio×2, output = model_ratio×completion_ratio×2.
   // These override the canonical MODEL_PRICING/PATTERN_PRICING, whose rates often
   // differ from TokenRouter's reseller pricing.
@@ -322,9 +324,9 @@ export const PROVIDER_PRICING = {
 };
 
 /**
- * Pattern-based pricing fallback - matched when no exact model entry found.
+ * Pattern-based pricing fallback — matched when no exact model entry found.
  * Patterns use simple glob: "*" matches any substring.
- * First match wins - order matters.
+ * First match wins — order matters.
  */
 export const PATTERN_PRICING = [
   // --- Codex variants ---
@@ -444,8 +446,10 @@ export function getPricingForModel(provider, model) {
     }
   }
 
-  // 4. Free-tier / community models - priced at zero so they're distinguishable from unknown
-  if (/(^|[-_/])(free|contributor|community|opencode|zen|preview-?free)([-_]|$)/i.test(model)) {
+  // 4. Free-tier / community models — priced at zero so they're distinguishable from unknown
+  // Note: Only models explicitly containing 'free', 'contributor', 'preview-free'
+  // Avoid broad matching that zeroes out real models.
+  if (/(^|[-_/])(free|contributor|community|preview-?free)([-_]|$)/i.test(model)) {
     return { input: 0, output: 0, cached: 0, reasoning: 0, cache_creation: 0 };
   }
 
@@ -463,7 +467,7 @@ const DEFAULT_PRICING = { input: 0.50, output: 2.00, cached: 0.25, reasoning: 2.
 
 /**
  * Get all provider pricing (for UI / API).
- * Returns PROVIDER_PRICING - consumers should fall back to MODEL_PRICING for unlisted models.
+ * Returns PROVIDER_PRICING — consumers should fall back to MODEL_PRICING for unlisted models.
  */
 export function getDefaultPricing() {
   return PROVIDER_PRICING;

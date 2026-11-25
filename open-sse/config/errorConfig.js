@@ -28,6 +28,16 @@ export const DEFAULT_ERROR_MESSAGES = {
   504: "Gateway timeout"
 };
 
+// In-band error sent when a 2xx upstream stream delivers no payload at all (the
+// status line is already committed, so the client gets an error frame instead).
+// `claudeType` is the Anthropic error type used for /v1/messages clients.
+export const EMPTY_STREAM_ERROR = {
+  message: "Upstream returned an empty stream — no content was produced. The provider connection may be unauthenticated or unavailable.",
+  type: "upstream_empty_response",
+  code: "empty_stream",
+  claudeType: "api_error",
+};
+
 // Exponential backoff config for rate limits
 export const BACKOFF_CONFIG = {
   base: 2000,
@@ -40,24 +50,8 @@ export const TRANSIENT_COOLDOWN_MS = 30 * 1000;
 
 // Hard cap for provider-reported rate limit cooldown (e.g. codex resets_at can be 5-6h)
 export const MAX_RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
-
-/**
- * Fallback-loop budgets: how long the account loop in chat.js may keep
- * rotating before it hands the last error back. The session-rotation fix for
- * spent free-tier quota (upstream #5107) re-enters the proxy loop per 429, so
- * an exhausted evening walks hundreds of proxies that all answer the same
- * 429. The probe that triggered the loop carries its own AbortSignal
- * (120s for opencode in probeBudget.js), but the loop holds no reference to
- * it — without its own deadline it answers into a void long after the caller
- * gave up, reading as "The operation was aborted due to timeout" with no
- * usable error. Keep the loop inside the caller's budget instead.
- */
 export const OPENCODE_FALLBACK_BUDGET_MS = 100 * 1000;
-
-/** Other providers never rotate sessions, so the generic loop stays short. */
 export const GENERIC_FALLBACK_BUDGET_MS = 25 * 1000;
-
-/** Antigravity rate limits are per-account/minute; rotating 8-9 accounts needs a longer window. */
 export const ANTIGRAVITY_FALLBACK_BUDGET_MS = 120 * 1000;
 
 // Cooldown durations (ms)
@@ -77,14 +71,35 @@ const COOLDOWN = {
  * - lock: false = never cool down or lock the account (caller-side bad request)
  */
 export const ERROR_RULES = [
+  // --- Antigravity fatal account state rules ---
+  { provider: "antigravity", text: "TOS_VIOLATION", cooldownMs: COOLDOWN.long, lock: true },
+  { provider: "antigravity", text: "ACCOUNT_STATE_INVALID", cooldownMs: COOLDOWN.long, lock: true },
+  { provider: "antigravity", text: "RESTRICTED_AGE", cooldownMs: COOLDOWN.long, lock: true },
+  { provider: "antigravity", text: "VALIDATION_REQUIRED", cooldownMs: COOLDOWN.long, lock: true },
+  { provider: "antigravity", text: "User location is not supported", cooldownMs: COOLDOWN.long, lock: true },
+
+  // --- OpenCode Free Tier Quota Classification (Ported from PR #5120) ---
+  { provider: "opencode", text: "FreeUsageLimitError", backoff: true },
+  { provider: "opencode", text: "free usage limit reached", backoff: true },
+  { provider: "opencode", text: "AI_APICallError", backoff: true },
+
   // --- Text-based rules (checked first, order = priority) ---
+  // FreePI specific rules: model refusal & conversation ownership are request-scoped, not fatal to the account
+  { provider: "freepi", text: "belongs to another free-pi account", cooldownMs: 0, lock: false },
+  { provider: "freepi", text: "model_requires_credits", cooldownMs: 0, lock: false },
   { provider: "codex", text: "model is not supported when using codex with a chatgpt account", cooldownMs: MAX_RATE_LIMIT_COOLDOWN_MS },
+  // Intl gateway blocks affect the account/IP, so let the connection back off.
+  { provider: "codebuddy-intl", text: "request illegal", backoff: true },
+  { provider: "codebuddy-intl", text: "conversation id missing", backoff: true },
   { text: "no credentials",           cooldownMs: COOLDOWN.long },
   { text: "request not allowed",      cooldownMs: COOLDOWN.short },
   { text: "improperly formed request", cooldownMs: COOLDOWN.long },
   { text: "rate limit",               backoff: true },
   { text: "too many requests",        backoff: true },
+  { text: "concurrency limit",        cooldownMs: COOLDOWN.short },
   { text: "quota exceeded",           backoff: true },
+  { text: "insufficient credit",      backoff: true },
+  { text: "credit balance is too low", backoff: true },
   { text: "capacity",                 backoff: true },
   { text: "overloaded",               backoff: true },
 

@@ -1,4 +1,4 @@
-// Muse (Meta Model API) - dual auth (same pattern as kimi):
+// Muse (Meta Model API) — dual auth (same pattern as kimi):
 //   oauth  = Muse Code subscription (Meta account device code, mints an LLM|… key)
 //   apikey = pay-as-you-go Model API key from dev.meta.ai
 // Transport is shared; oauth accounts get x-api-version via the museHeaders hook.
@@ -49,9 +49,11 @@ export default {
       format: "openai-responses",
       baseUrl: "https://api.meta.ai/v1/responses",
       auth: { combined: true, header: "Authorization", scheme: "bearer", hooks: ["museHeaders"] },
+      thinkingFormat: "openai-responses",
     },
   ],
   models: [
+    { id: "muse-wonder-1.0", name: "Muse Wonder 1.0 (Flagship)", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "muse-spark-1.3", name: "Muse Spark 1.3", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "muse-spark-1.2", name: "Muse Spark 1.2", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "muse-spark-1.1", name: "Muse Spark 1.1", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },

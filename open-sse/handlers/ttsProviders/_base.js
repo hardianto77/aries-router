@@ -12,7 +12,6 @@ export async function responseToBase64(res, defaultFormat = "mp3") {
   if (ctype.includes("wav")) format = "wav";
   else if (ctype.includes("mpeg") || ctype.includes("mp3")) format = "mp3";
   else if (ctype.includes("ogg")) format = "ogg";
-  else if (ctype.includes("pcm")) format = "pcm";
   return { base64: Buffer.from(buf).toString("base64"), format };
 }
 
@@ -26,7 +25,7 @@ export async function throwUpstreamError(res) {
   throw new Error(msg);
 }
 
-// Parse `model` string as "modelId/voiceId" - match against known model list (longest prefix wins)
+// Parse `model` string as "modelId/voiceId" — match against known model list (longest prefix wins)
 export function parseModelVoice(model, defaultModel = "", defaultVoice = "", knownModels = []) {
   if (!model) return { modelId: defaultModel, voiceId: defaultVoice };
   const known = knownModels.map((m) => m.id || m).filter(Boolean).sort((a, b) => b.length - a.length);

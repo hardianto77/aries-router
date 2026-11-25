@@ -178,7 +178,7 @@ def sync_provider_proxies(provider=None, auto_replace_dead=True, rotate_warp=Tru
     if provider:
         cur.execute("SELECT rowid, id, provider, data FROM providerConnections WHERE provider = ?", (provider,))
     else:
-        cur.execute("SELECT rowid, id, provider, data FROM providerConnections")
+        cur.execute("SELECT rowid, id, provider, data FROM providerConnections WHERE provider NOT IN ('tokenharbor', 'antigravity', 'gemini', 'gemini-cli', 'opencode')")
 
     rows = cur.fetchall()
     total_conns = len(rows)

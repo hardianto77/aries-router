@@ -9,9 +9,11 @@ import { buildTtsProviderModels } from "../config/ttsModels.js";
 const OAUTH_INJECT_FIELDS = ["clientId", "clientSecret", "tokenUrl"];
 
 // transport: re-apply shared default (format:"openai") + inject oauth-canonical fields
-function buildTransport(transport, oauth) {
+function buildTransport(transport, oauth, entry = {}) {
   const t = { ...transport };
   if (!t.format) t.format = PROVIDER_DEFAULTS.format;
+  if (entry.authType) t.authType = entry.authType;
+  if (entry.noAuth !== undefined) t.noAuth = entry.noAuth;
   if (oauth) {
     for (const f of OAUTH_INJECT_FIELDS) {
       if (t[f] === undefined && oauth[f] !== undefined) t[f] = oauth[f];
@@ -33,15 +35,10 @@ export const PROVIDER_OAUTH = {};
 export const PROVIDER_MEDIA = {};
 for (const entry of REGISTRY) {
   if (entry.transport) {
-    PROVIDERS[entry.id] = buildTransport(entry.transport, entry.oauth);
+    PROVIDERS[entry.id] = buildTransport(entry.transport, entry.oauth, entry);
     if (entry.transports) PROVIDERS[entry.id].transports = entry.transports;
   }
-  if (entry.models !== undefined) {
-    const normalized = entry.models.map(normalizeModel);
-    PROVIDER_MODELS[entry.alias || entry.id] = normalized;
-    if (entry.id) PROVIDER_MODELS[entry.id] = normalized;
-    // `entry.aliases` are routing compatibility names, not separate catalogues.
-  }
+  if (entry.models !== undefined) PROVIDER_MODELS[entry.alias || entry.id] = entry.models.map(normalizeModel);
   if (entry.oauth) PROVIDER_OAUTH[entry.id] = entry.oauth;
   // Build PROVIDER_MEDIA from top-level fields (post-migration) + legacy entry.media
   const mediaFields = {};

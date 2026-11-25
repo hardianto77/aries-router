@@ -1,5 +1,6 @@
 // Re-export from open-sse with localDb integration
 import { getModelAliases, getComboByName, getProviderNodes } from "@/lib/localDb";
+import { getProviderConnections } from "@/lib/db/repos/connectionsRepo";
 import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore } from "open-sse/services/model.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
 
@@ -61,22 +62,38 @@ export async function getModelInfo(modelStr, studioHops = 0) {
   if (!parsed.isAlias) {
     // Provider-node prefixes are user-defined. They must not override built-in
     // provider ids/aliases such as `cf`, `cloudflare-ai`, `openai`, or `hf`.
-    if (!RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias)) {
-      const openaiNodes = await getProviderNodes({ type: "openai-compatible" });
-      const matchedOpenAI = openaiNodes.find((node) => node.prefix === parsed.providerAlias);
-      if (matchedOpenAI) {
+    const hasCredentialedConnections = async (nodeId) => {
+      try {
+        const conns = await getProviderConnections({ provider: nodeId });
+        return Array.isArray(conns) && conns.some((c) => c && c.isActive !== 0 && c.isActive !== false);
+      } catch {
+        return true;
+      }
+    };
+
+    const openaiNodes = await getProviderNodes({ type: "openai-compatible" });
+    const matchedOpenAI = openaiNodes.find((node) => node.prefix === parsed.providerAlias);
+    if (matchedOpenAI) {
+      const reserved = RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias);
+      if (!reserved || (await hasCredentialedConnections(matchedOpenAI.id))) {
         return { provider: matchedOpenAI.id, model: parsed.model };
       }
+    }
 
-      const anthropicNodes = await getProviderNodes({ type: "anthropic-compatible" });
-      const matchedAnthropic = anthropicNodes.find((node) => node.prefix === parsed.providerAlias);
-      if (matchedAnthropic) {
+    const anthropicNodes = await getProviderNodes({ type: "anthropic-compatible" });
+    const matchedAnthropic = anthropicNodes.find((node) => node.prefix === parsed.providerAlias);
+    if (matchedAnthropic) {
+      const reserved = RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias);
+      if (!reserved || (await hasCredentialedConnections(matchedAnthropic.id))) {
         return { provider: matchedAnthropic.id, model: parsed.model };
       }
+    }
 
-      const embeddingNodes = await getProviderNodes({ type: "custom-embedding" });
-      const matchedEmbedding = embeddingNodes.find((node) => node.prefix === parsed.providerAlias);
-      if (matchedEmbedding) {
+    const embeddingNodes = await getProviderNodes({ type: "custom-embedding" });
+    const matchedEmbedding = embeddingNodes.find((node) => node.prefix === parsed.providerAlias);
+    if (matchedEmbedding) {
+      const reserved = RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias);
+      if (!reserved || (await hasCredentialedConnections(matchedEmbedding.id))) {
         return { provider: matchedEmbedding.id, model: parsed.model };
       }
     }

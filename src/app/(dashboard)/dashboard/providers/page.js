@@ -101,7 +101,7 @@ function getConnectionErrorTag(connection) {
 const APIKEY_INITIAL_VISIBLE = 20;
 
 export default function ProvidersPage() {
-  const [pvGlobalSyncing, setPvGlobalSyncing] = useState(false);
+  const [pvGlobalSyncing, setPvGlobalSyncing] = useState(null);
   const [pvSyncInfo, setPvSyncInfo] = useState(null);
   const [connections, setConnections] = useState([]);
   const [providerNodes, setProviderNodes] = useState([]);
@@ -457,13 +457,13 @@ export default function ProvidersPage() {
     compatibleProviders.length > 0 ||
     anthropicCompatibleProviders.length > 0;
 
-  const handleGlobalDirectProxySync = async () => {
-    setPvGlobalSyncing(true);
+  const handleGlobalDirectProxySync = async (mode = "proxy") => {
+    setPvGlobalSyncing(mode);
     try {
       const r = await fetch("/api/proxy-pools/pv-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rotateWarp: true, allRotate: false }),
+        body: JSON.stringify({ mode, rotateWarp: mode !== "proxy", allRotate: false }),
       });
       const d = await r.json();
       if (d.success) {
@@ -481,17 +481,30 @@ export default function ProvidersPage() {
   return (
     <PageShell>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-        <Button
-          size="sm"
-          variant="outline"
-          icon="refresh"
-          onClick={handleGlobalDirectProxySync}
-          disabled={pvGlobalSyncing}
-          className="w-full sm:w-auto h-9 justify-center bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-          title="Sync ProxyVault + Residential fresh + WARP egress -> pool -> per-account rotation"
-        >
-          {pvGlobalSyncing ? "Syncing PV & WARP Fresh..." : "Sync PV & WARP Fresh"}
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            size="sm"
+            variant="outline"
+            icon="swap_horiz"
+            onClick={() => handleGlobalDirectProxySync("proxy")}
+            disabled={!!pvGlobalSyncing}
+            className="w-full sm:w-auto h-9 justify-center bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30 hover:bg-sky-500/20"
+            title="Inject fresh residential proxies into the pool and rotate each provider assignment"
+          >
+            {pvGlobalSyncing === "proxy" ? "Syncing Proxies..." : "Sync Residential Proxies"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            icon="cloud_sync"
+            onClick={() => handleGlobalDirectProxySync("warp")}
+            disabled={!!pvGlobalSyncing}
+            className="w-full sm:w-auto h-9 justify-center bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/30 hover:bg-violet-500/20"
+            title="Rotate the WARP egress IP (fresh Cloudflare WARP identity)"
+          >
+            {pvGlobalSyncing === "warp" ? "Rotating WARP..." : "Refresh WARP IP"}
+          </Button>
+        </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}

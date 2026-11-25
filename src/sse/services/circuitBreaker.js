@@ -1,5 +1,6 @@
 import * as log from "../utils/logger.js";
 import { updateProviderConnection, getProviderConnectionById } from "@/lib/localDb";
+import { cooldownRegistry } from "./cooldownRegistry.js";
 
 /**
  * Smart Circuit Breaker & Auto-Cooldown Recovery
@@ -73,6 +74,10 @@ export function isCircuitBreakerOpen(connectionId) {
   if (!entry) return false;
 
   if (entry.state === CIRCUIT_STATES.EXHAUSTED) {
+    // Auto-recovery canary after 10 minutes so transient errors do not quarantine indefinitely
+    if (Date.now() - entry.cooldownUntil > 10 * 60 * 1000) {
+      return false;
+    }
     return true;
   }
 
@@ -92,6 +97,7 @@ export function isCircuitBreakerOpen(connectionId) {
  */
 export function recordCircuitSuccess(connectionId) {
   if (!connectionId) return;
+  cooldownRegistry.clear(connectionId);
   const entry = circuitBreakerState.get(connectionId);
   if (entry && (entry.failures > 0 || entry.state !== CIRCUIT_STATES.HEALTHY)) {
     circuitBreakerState.set(connectionId, {

@@ -27,15 +27,30 @@ export class BaseExecutor {
     return this.getBaseUrls().length || 1;
   }
 
+  /**
+   * Last-resort endpoint for a compatible provider whose stored credential has no
+   * baseUrl (rows written before bulk add learned to inherit the node's baseUrl).
+   * Falls back to the provider config's own baseUrls, which for a dynamic
+   * compatible provider is derived from the node — anything is better than
+   * silently sending a non-OpenAI key to api.openai.com and burning the pool.
+   */
+  compatFallbackBaseUrl(credentials) {
+    const configured = credentials?.providerSpecificData?.nodeBaseUrl
+      || credentials?.nodeBaseUrl
+      || this.config?.baseUrls?.[0]
+      || this.config?.baseUrl;
+    return typeof configured === "string" && configured.trim() ? configured.trim() : "";
+  }
+
   buildUrl(model, stream, urlIndex = 0, credentials = null) {
     if (this.provider?.startsWith?.("openai-compatible-")) {
-      const baseUrl = credentials?.providerSpecificData?.baseUrl || OPENAI_COMPAT_BASE;
+      const baseUrl = credentials?.providerSpecificData?.baseUrl || this.compatFallbackBaseUrl(credentials);
       const normalized = baseUrl.replace(/\/$/, "");
       const path = resolveOpenAICompatibleApiType(this.provider, credentials) === "responses" ? "/responses" : "/chat/completions";
       return `${normalized}${path}`;
     }
     if (this.provider?.startsWith?.("anthropic-compatible-")) {
-      const baseUrl = credentials?.providerSpecificData?.baseUrl || ANTHROPIC_COMPAT_BASE;
+      const baseUrl = credentials?.providerSpecificData?.baseUrl || this.compatFallbackBaseUrl(credentials) || ANTHROPIC_COMPAT_BASE;
       const normalized = baseUrl.replace(/\/$/, "");
       return `${normalized}/messages`;
     }
@@ -49,6 +64,12 @@ export class BaseExecutor {
       ...this.config.headers
     };
 
+    if (this.provider === "ovh" || this.config.authType === "none" || this.config.noAuth) {
+      delete headers["Authorization"];
+      delete headers["authorization"];
+      return headers;
+    }
+
     if (this.provider?.startsWith?.("anthropic-compatible-")) {
       // Anthropic-compatible providers use x-api-key header
       if (credentials.apiKey) {
@@ -60,11 +81,14 @@ export class BaseExecutor {
         headers["anthropic-version"] = ANTHROPIC_API_VERSION;
       }
     } else {
-      // Standard Bearer token auth for other providers
-      if (credentials.accessToken) {
-        headers["Authorization"] = `Bearer ${credentials.accessToken}`;
-      } else if (credentials.apiKey) {
-        headers["Authorization"] = `Bearer ${credentials.apiKey}`;
+      // Standard Bearer token auth for other providers (skip if provider is noAuth)
+      const isNoAuth = this.config.authType === "none" || this.config.noAuth || this.provider === "ovh";
+      if (!isNoAuth) {
+        if (credentials.accessToken && credentials.accessToken !== "public") {
+          headers["Authorization"] = `Bearer ${credentials.accessToken}`;
+        } else if (credentials.apiKey && credentials.apiKey !== "public") {
+          headers["Authorization"] = `Bearer ${credentials.apiKey}`;
+        }
       }
     }
 
@@ -97,7 +121,7 @@ export class BaseExecutor {
     return { status: response.status, message: bodyText || `HTTP ${response.status}` };
   }
 
-  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null, providerOverrides = null, directFetch = null }) {
+  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null, providerOverrides = null, directFetch = null, directFetchProxy = null }) {
     const fallbackCount = this.getFallbackCount();
     let lastError = null;
     let lastStatus = 0;
@@ -127,6 +151,18 @@ export class BaseExecutor {
     for (let urlIndex = 0; urlIndex < fallbackCount; urlIndex++) {
       const url = this.buildUrl(model, stream, urlIndex, credentials);
       const transformedBody = this.transformRequest(model, body, stream, credentials);
+      // Clean internal routing tags and unsupported upstream agent parameters
+      if (transformedBody && typeof transformedBody === "object") {
+        delete transformedBody._appliedPromptInjections;
+        delete transformedBody._skipSystemPrompt;
+        delete transformedBody._compact;
+
+        // Strip agent-injected thinking/search parameters that cause 400 on strict parsers (CPA standard)
+        delete transformedBody.enable_thinking;
+        delete transformedBody.thinking_budget;
+        delete transformedBody.thinking_config;
+        delete transformedBody.return_citations;
+      }
       const headers = this.buildHeaders(credentials, stream, url, model, transformedBody);
       // User per-provider override wins over registry headers (blocked names filtered at the API)
       if (providerOverrides?.headers) Object.assign(headers, providerOverrides.headers);
@@ -143,14 +179,13 @@ export class BaseExecutor {
         const bodyStr = JSON.stringify(transformedBody);
         const fetchT0 = Date.now();
         dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${bodyStr.length}B | connectTimeout=${timeoutMs}ms`);
-        const response = await proxyAwareFetch(url, {
+        const fetchFn = (typeof directFetch === "function" && !proxyOptions?.connectionProxyEnabled) ? directFetch : proxyAwareFetch;
+        const response = await fetchFn(url, {
           method: "POST",
           headers,
           body: bodyStr,
           signal: mergedSignal,
-          // Protocol adapters that need their own transport (opencode's TLS
-          // fingerprint) override the direct path; proxies still take priority.
-          ...(directFetch ? { directFetch } : {}),
+          ...(directFetch ? { directFetch, ...(directFetchProxy ? { directFetchProxy: true } : {}) } : {}),
         }, proxyOptions);
         clearTimeout(connectTimer);
         const ct = response.headers?.get?.("content-type") || "";
@@ -171,7 +206,7 @@ export class BaseExecutor {
         lastError = error;
         const isConnectTimeout = connectCtrl.signal.aborted && error.name === "AbortError";
         dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${isConnectTimeout ? " (connect timeout)" : ""}`);
-        // Connect timeout is internal - convert to retryable network error, don't propagate AbortError
+        // Connect timeout is internal — convert to retryable network error, don't propagate AbortError
         if (error.name === "AbortError" && !isConnectTimeout) throw error;
 
         // Map network/fetch exceptions to 502 retry config

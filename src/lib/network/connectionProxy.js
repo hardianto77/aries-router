@@ -9,28 +9,49 @@ function normalizeString(value) {
 // ─── Proxy pool rotation state (in-memory) ─────────────────────────
 const rotateState = new Map(); // providerId → { index }
 
+// In-memory quarantine for proxies failing upstream checks
+const quarantinedProxies = new Map(); // poolId -> unquarantineTimestamp
+
+export function quarantineProxy(poolId, ttlMs = 15 * 60 * 1000) {
+  if (!poolId) return;
+  quarantinedProxies.set(poolId, Date.now() + ttlMs);
+}
+
+export function isProxyQuarantined(poolId) {
+  if (!poolId) return false;
+  const expiresAt = quarantinedProxies.get(poolId);
+  if (!expiresAt) return false;
+  if (Date.now() > expiresAt) {
+    quarantinedProxies.delete(poolId);
+    return false;
+  }
+  return true;
+}
+
 /**
  * Pick one proxy pool ID from a list based on strategy.
- * round-robin: cycle sequentially (in-memory, resets on restart)
- * random:      uniform random pick
- * none/single: return first entry
+ * Automatically filters out quarantined proxies!
  */
 export function pickProxyPoolId(poolIds, strategy, providerId) {
   if (!poolIds || poolIds.length === 0) return null;
-  if (poolIds.length === 1) return poolIds[0];
+
+  const eligible = poolIds.filter((id) => !isProxyQuarantined(id));
+  const activeList = eligible.length > 0 ? eligible : poolIds;
+
+  if (activeList.length === 1) return activeList[0];
 
   if (strategy === "round-robin") {
     const state = rotateState.get(providerId) || { index: -1 };
-    state.index = (state.index + 1) % poolIds.length;
+    state.index = (state.index + 1) % activeList.length;
     rotateState.set(providerId, state);
-    return poolIds[state.index];
+    return activeList[state.index];
   }
 
   if (strategy === "random") {
-    return poolIds[Math.floor(Math.random() * poolIds.length)];
+    return activeList[Math.floor(Math.random() * activeList.length)];
   }
 
-  return poolIds[0]; // "none" or unknown
+  return activeList[0]; // "none" or unknown
 }
 
 /**
@@ -68,7 +89,7 @@ export async function resolveConnectionProxyConfig(
 ) {
   try {
     const proxyPoolIdRaw = normalizeString(
-      providerSpecificData?.proxyPoolId
+      providerSpecificData?.proxyPoolId || providerSpecificData?.connectionProxyPoolId
     );
 
     // "__none__" means explicitly disabled
@@ -107,6 +128,18 @@ export async function resolveConnectionProxyConfig(
          * Vercel/Cloudflare/Deno/Netlify relay proxies use base URL rewriting
          * instead of HTTP_PROXY environment variables.
          */
+        if (proxyPool.type === "residential" || effectiveProxyUrl.startsWith("residential://")) {
+          return {
+            source: "residential",
+            proxyPoolId,
+            proxyPool,
+            type: "residential",
+            connectionProxyEnabled: true,
+            connectionProxyUrl: effectiveProxyUrl,
+            connectionNoProxy: noProxy,
+            strictProxy: proxyPool.strictProxy === true,
+          };
+        }
         if (proxyPool.type === "vercel" || proxyPool.type === "cloudflare" || proxyPool.type === "deno" || proxyPool.type === "netlify") {
           return {
             source: proxyPool.type,

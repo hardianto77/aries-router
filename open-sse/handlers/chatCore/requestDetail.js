@@ -27,7 +27,7 @@ export function extractUsageFromResponse(responseBody) {
   // Claude format
   // Note: OpenAI Responses usage ({input_tokens, input_tokens_details:{cached_tokens}})
   // also matches this branch. Its prompt is cache-INCLUSIVE and its cache rides in
-  // input_tokens_details, so emit it as cached_tokens - the convention
+  // input_tokens_details, so emit it as cached_tokens — the convention
   // canonicalizeUsage() passes through without folding. Reading it here keeps
   // cache accounting correct for /v1/responses and codex traffic.
   if (responseBody.usage?.input_tokens !== undefined) {
@@ -61,21 +61,6 @@ export function extractUsageFromResponse(responseBody) {
     };
   }
 
-  // Ollama format: prompt_eval_count/eval_count at top level (not nested under usage).
-  // prompt_eval_cached_count is a cache-read subset of prompt_eval_count (cache-INCLUSIVE).
-  if (responseBody.done === true &&
-      (responseBody.prompt_eval_count !== undefined || responseBody.eval_count !== undefined)) {
-    const prompt = responseBody.prompt_eval_count || 0;
-    const completion = responseBody.eval_count || 0;
-    const cached = responseBody.prompt_eval_cached_count || 0;
-    return {
-      prompt_tokens: prompt,
-      completion_tokens: completion,
-      total_tokens: prompt + completion,
-      cached_tokens: cached
-    };
-  }
-
   return null;
 }
 
@@ -84,6 +69,7 @@ export function buildRequestDetail(base, overrides = {}) {
     provider: base.provider || "unknown",
     model: base.requestedModel || base.model || "unknown",
     connectionId: base.connectionId || undefined,
+    apiKey: base.apiKey || null,
     timestamp: new Date().toISOString(),
     latency: base.latency || { ttft: 0, total: 0 },
     tokens: base.tokens || { prompt_tokens: 0, completion_tokens: 0 },
@@ -103,7 +89,13 @@ export function formatDoneLine({ usage, latency }) {
   const u = usage || {};
   const inTok = u.prompt_tokens ?? u.input_tokens ?? 0;
   const outTok = u.completion_tokens ?? u.output_tokens ?? 0;
-  const cacheRead = u.cache_read_input_tokens ?? u.cached_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0;
+  const firstPositiveCache = [
+    u.cacheRead,
+    u.cache_read_input_tokens,
+    u.cached_tokens,
+    u.prompt_tokens_details?.cached_tokens,
+  ].find((v) => Number.isFinite(v) && v > 0);
+  const cacheRead = firstPositiveCache ?? (u.cache_read_input_tokens ?? u.cached_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0);
   const cacheCreate = u.cache_creation_input_tokens ?? 0;
   let inStr = `IN ${inTok}`;
   if (cacheRead || cacheCreate) {

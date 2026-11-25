@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import { sanitizeRefusalOutput } from "../../../../open-sse/rtk/refusalGuard.js";
+
+export { sanitizeRefusalOutput };
 
 const SCOPE = "promptInjections";
 
@@ -24,7 +27,7 @@ function rowToRule(row) {
       pattern: typeof val.matchCondition?.pattern === "string" ? val.matchCondition.pattern : "",
       caseSensitive: !!val.matchCondition?.caseSensitive,
     },
-    // "system_prepend" | "system_append" | "system_override" | "user_prepend" | "user_append"
+    // "system_dual" | "system_prepend" | "system_append" | "system_override" | "user_prepend" | "user_append"
     position: val.position || "system_prepend",
     content: typeof val.content === "string" ? val.content : "",
     normalizeTriggers: val.normalizeTriggers === true,
@@ -156,6 +159,14 @@ export async function reorderPromptInjections(orderedIds) {
   return true;
 }
 
+function extractTextFromParts(parts) {
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .filter((p) => p && (p.type === "text" || p.type === "input_text" || typeof p.text === "string"))
+    .map((p) => p.text || "")
+    .join(" ");
+}
+
 /**
  * Extract user prompt text across different wire formats for keyword/regex checks
  */
@@ -166,27 +177,27 @@ export function extractUserText(body) {
     return userMsgs
       .map((m) => {
         if (typeof m.content === "string") return m.content;
-        if (Array.isArray(m.content)) {
-          return m.content
-            .filter((p) => p && (p.type === "text" || typeof p.text === "string"))
-            .map((p) => p.text || "")
-            .join(" ");
-        }
+        if (Array.isArray(m.content)) return extractTextFromParts(m.content);
         return "";
       })
       .join("\n");
   }
   if (Array.isArray(body.contents)) {
     return body.contents
-      .filter((c) => c && c.role === "user")
+      .filter((c) => c && (!c.role || c.role === "user"))
       .flatMap((c) => (Array.isArray(c.parts) ? c.parts.map((p) => p?.text || "") : []))
       .join("\n");
   }
   if (typeof body.input === "string") return body.input;
   if (Array.isArray(body.input)) {
     return body.input
-      .filter((i) => i && (i.role === "user" || i.type === "message"))
-      .map((i) => (typeof i.content === "string" ? i.content : ""))
+      .filter((i) => i && (i.role === "user" || (i.type === "message" && i.role !== "assistant" && i.role !== "system" && i.role !== "developer")))
+      .map((i) => {
+        if (typeof i.content === "string") return i.content;
+        if (Array.isArray(i.content)) return extractTextFromParts(i.content);
+        if (typeof i.text === "string") return i.text;
+        return "";
+      })
       .join("\n");
   }
   return "";
@@ -216,8 +227,7 @@ function matchesPattern(target, pattern) {
  * Evaluate if a rule matches the current request context (async to check API keys if needed)
  */
 export async function isRuleMatching(rule, { modelStr = "", comboName = "", provider = "", model = "", apiKey = "", userText = "" } = {}) {
-  if (!rule || !rule.enabled) return false;
-  // Empty content = default KERNEL_PROMPT (allowed; engine injects kernel)
+  if (!rule || rule.enabled === false) return false;
   if (rule.content === null || rule.content === undefined) return false;
 
   // 1. Target API Keys restriction check
@@ -240,7 +250,6 @@ export async function isRuleMatching(rule, { modelStr = "", comboName = "", prov
     }
   }
 
-  // If rule has targetKeys, matching the key is required!
   if (hasTargetKeys && !matchesKey) return false;
 
   // 2. Keyword / Regex trigger condition check
@@ -269,7 +278,6 @@ export async function isRuleMatching(rule, { modelStr = "", comboName = "", prov
   // 3. Target Scope check (Global / Per Model / Per API Key / Combos / Custom)
   const targetType = rule.targetType || "models";
 
-  // Target Scope: GLOBAL (Semua Model & Request)
   if (targetType === "all" || targetType === "global") {
     return true;
   }
@@ -287,14 +295,11 @@ export async function isRuleMatching(rule, { modelStr = "", comboName = "", prov
     return rule.targetModels.some((pat) => candidates.some((cand) => matchesPattern(cand, pat)));
   };
 
-  // Target Scope: PER MODEL
   if (targetType === "models" || targetType === "per_model") {
     return matchesModel();
   }
 
-  // Target Scope: PER API KEY
   if (targetType === "keys" || targetType === "per_key") {
-    // If targetModels is also defined, refine by model; otherwise applies to all models for that API key
     if (Array.isArray(rule.targetModels) && rule.targetModels.length > 0) {
       return matchesModel();
     }
@@ -314,10 +319,6 @@ export async function isRuleMatching(rule, { modelStr = "", comboName = "", prov
 
 /**
  * Resolve matching JB rule for request
- * Priority:
- * 1. Key-specific match (matching apiKey)
- * 2. Model-specific match (matching model or wildcard)
- * 3. Global match (targetType === "all")
  */
 export async function resolveActiveBypassRule({ modelStr = "", provider = "", model = "", apiKey = "" } = {}) {
   try {
@@ -327,7 +328,6 @@ export async function resolveActiveBypassRule({ modelStr = "", provider = "", mo
     const activeRules = rules.filter((r) => r.enabled);
     if (activeRules.length === 0) return null;
 
-    // 1. Check Key-specific rules first
     if (apiKey) {
       for (const rule of activeRules) {
         if (Array.isArray(rule.targetKeys) && rule.targetKeys.length > 0) {
@@ -337,7 +337,6 @@ export async function resolveActiveBypassRule({ modelStr = "", provider = "", mo
       }
     }
 
-    // 2. Check Model-specific rules
     for (const rule of activeRules) {
       if (rule.targetType === "models" || (Array.isArray(rule.targetModels) && rule.targetModels.length > 0)) {
         const matches = await isRuleMatching(rule, { modelStr, provider, model, apiKey });
@@ -345,7 +344,6 @@ export async function resolveActiveBypassRule({ modelStr = "", provider = "", mo
       }
     }
 
-    // 3. Check Global rules (targetType === "all")
     for (const rule of activeRules) {
       if (rule.targetType === "all") {
         return rule;
@@ -353,10 +351,11 @@ export async function resolveActiveBypassRule({ modelStr = "", provider = "", mo
     }
 
     return null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
+
 export function interpolateVariables(template, { modelStr = "", provider = "", model = "" } = {}) {
   if (typeof template !== "string") return "";
   const now = new Date();
@@ -385,82 +384,123 @@ export const BREACH_TRIGGER_MAP = [
   [/\bdump(\w*)\b/gi, "export$1"],
 ];
 
-/**
- * Normalize trigger words in user messages before dispatch (S4 Strategy)
- */
-export function normalizeTriggerWordsInBody(body) {
-  if (!body || typeof body !== "object") return;
-  if (!Array.isArray(body.messages)) return;
-
-  for (const msg of body.messages) {
-    if (msg?.role === "user" && typeof msg.content === "string") {
-      let text = msg.content;
-      for (const [pattern, replacement] of BREACH_TRIGGER_MAP) {
-        text = text.replace(pattern, replacement);
-      }
-      msg.content = text;
-    }
+function normalizeTriggerText(text) {
+  if (typeof text !== "string" || !text) return text;
+  let out = text;
+  for (const [pattern, replacement] of BREACH_TRIGGER_MAP) {
+    out = out.replace(pattern, replacement);
   }
+  return out;
 }
 
-// S6b Refusal & Soft-Pivot Patterns (Breach Engine v1.10.2)
-const REFUSAL_PATTERNS = [
-  /\bi cannot\b/i,
-  /\bi can't\b/i,
-  /\bi'm unable\b/i,
-  /\bi am unable\b/i,
-  /\btidak bisa\b/i,
-  /\btidak dapat\b/i,
-  /\btidak etis\b/i,
-  /\bmelanggar\b/i,
-  /\bharus menolak\b/i,
-  /\bi won't\b/i,
-  /\bi will not\b/i,
-  /\bsayanganya\b/i,
-  /\bunfortunately\b/i,
-  /\bi must decline\b/i,
-  /\bas an ai\b/i,
-  /\bsaya tidak (bisa|dapat|akan)\b/i,
-  /\bstrictly adhering\b/i,
-  /\bsafety guidelines\b/i,
-  /\bi'm sorry\b/i,
-  /\bmaaf, saya\b/i,
-  /\bas an alternative\b/i,
-  /\bsebagai gantinya\b/i,
-  /\binstead, i can\b/i,
-  /\bthe following is (a )?(legitimate|safe|ethical|sanitized)\b/i,
-  /\bcontoh (aman|legal|sah)\b/i,
-  /\bversi (aman|legal|sah)\b/i,
-];
+/**
+ * Normalize trigger words in user messages across OpenAI, Claude, Gemini, and Responses formats (S4 Strategy)
+ */
+export function normalizeTriggerWordsInBody(body) {
+  if (!body || typeof body !== "object") return false;
+  let changed = false;
+
+  if (Array.isArray(body.messages)) {
+    for (const msg of body.messages) {
+      if (!msg || msg.role !== "user") continue;
+      if (typeof msg.content === "string") {
+        const next = normalizeTriggerText(msg.content);
+        if (next !== msg.content) {
+          msg.content = next;
+          changed = true;
+        }
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part && typeof part.text === "string") {
+            const next = normalizeTriggerText(part.text);
+            if (next !== part.text) {
+              part.text = next;
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(body.contents)) {
+    for (const turn of body.contents) {
+      if (!turn || (turn.role && turn.role !== "user") || !Array.isArray(turn.parts)) continue;
+      for (const part of turn.parts) {
+        if (part && typeof part.text === "string") {
+          const next = normalizeTriggerText(part.text);
+          if (next !== part.text) {
+            part.text = next;
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  if (typeof body.input === "string") {
+    const next = normalizeTriggerText(body.input);
+    if (next !== body.input) {
+      body.input = next;
+      changed = true;
+    }
+  } else if (Array.isArray(body.input)) {
+    for (const item of body.input) {
+      if (!item || (item.role && item.role !== "user")) continue;
+      if (typeof item.content === "string") {
+        const next = normalizeTriggerText(item.content);
+        if (next !== item.content) {
+          item.content = next;
+          changed = true;
+        }
+      } else if (Array.isArray(item.content)) {
+        for (const part of item.content) {
+          if (part && typeof part.text === "string") {
+            const next = normalizeTriggerText(part.text);
+            if (next !== part.text) {
+              part.text = next;
+              changed = true;
+            }
+          }
+        }
+      } else if (typeof item.text === "string") {
+        const next = normalizeTriggerText(item.text);
+        if (next !== item.text) {
+          item.text = next;
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
+const DEFAULT_KERNEL_MARKERS = new Set(["[DEFAULT_KERNEL_PROMPT]", "[KERNEL_DEFAULT]"]);
 
 /**
- * Strip refusal and soft-pivot sentences while protecting code blocks (S6b Strategy)
+ * Resolve rule payload into concrete prompt text (resolving default kernel or armoring custom prompts)
  */
-export function sanitizeRefusalOutput(text) {
-  if (!text || typeof text !== "string") return text;
+export async function resolveRulePromptText(rule, context = {}) {
+  if (!rule) return "";
+  let rawContent = typeof rule.content === "string" ? rule.content : "";
+  const trimmed = rawContent.trim();
 
-  // Stash code blocks safely
-  const codeBlocks = [];
-  const placeholder = (idx) => `__BREACH_CB_${idx}__`;
-  const textWithoutCode = text.replace(/```[\s\S]*?```/g, (match) => {
-    codeBlocks.push(match);
-    return placeholder(codeBlocks.length - 1);
-  });
+  if (!trimmed || DEFAULT_KERNEL_MARKERS.has(trimmed)) {
+    try {
+      const { KERNEL_PROMPT } = await import("open-sse/rtk/kernelPrompt.js");
+      rawContent = KERNEL_PROMPT || "";
+    } catch {
+      rawContent = "";
+    }
+  } else if (!trimmed.includes("[SYSTEM: UNIFIED MULTI-LAYER EXECUTION KERNEL")) {
+    try {
+      const { wrapCustomWithKernelLayers } = await import("open-sse/rtk/kernelPrompt.js");
+      rawContent = wrapCustomWithKernelLayers(rawContent);
+    } catch {}
+  }
 
-  // Split into sentences and drop ones with refusal/soft-pivot markers
-  const sentences = textWithoutCode.split(/(?<=[.!?\n])\s+/);
-  const cleanSentences = sentences.filter((sentence) => {
-    return !REFUSAL_PATTERNS.some((pattern) => pattern.test(sentence));
-  });
-
-  let sanitized = cleanSentences.join(" ").trim();
-
-  // Restore code blocks
-  codeBlocks.forEach((block, idx) => {
-    sanitized = sanitized.replace(placeholder(idx), block);
-  });
-
-  return sanitized || text;
+  return interpolateVariables(rawContent, context).trim();
 }
 
 /**
@@ -469,69 +509,68 @@ export function sanitizeRefusalOutput(text) {
  */
 export async function applyPromptInjectionsToBody(body, context = {}) {
   try {
-    if (!body || typeof body !== "object") return { modified: false, injectedRules: [] };
+    if (!body || typeof body !== "object") {
+      return { modified: false, injectedRules: [], appliedRuleIds: [], normalizedTriggers: false, stripRefusal: false };
+    }
 
     const rules = await getPromptInjections();
-    if (!rules || rules.length === 0) return { modified: false, injectedRules: [] };
+    if (!rules || rules.length === 0) {
+      return { modified: false, injectedRules: [], appliedRuleIds: [], normalizedTriggers: false, stripRefusal: body._stripRefusal === true };
+    }
 
-    // Array of applied rule IDs on this body to guarantee idempotency and JSON safety
     if (!Array.isArray(body._appliedPromptInjections)) {
-      Object.defineProperty(body, '_appliedPromptInjections', { value: [], writable: true, enumerable: false, configurable: true });
+      Object.defineProperty(body, "_appliedPromptInjections", { value: [], writable: true, enumerable: false, configurable: true });
     }
 
     const userText = context.userText !== undefined ? context.userText : extractUserText(body);
     const enrichedContext = { ...context, userText };
 
     const appliedRuleNames = [];
+    let normalizedTriggers = false;
 
     for (const rule of rules) {
       if (body._appliedPromptInjections.includes(rule.id)) continue;
       const matches = await isRuleMatching(rule, enrichedContext);
       if (!matches) continue;
 
-      let rawContent = rule.content || "";
-      if (rawContent.startsWith("[") || !rawContent) {
-        try {
-          const { KERNEL_PROMPT } = await import("open-sse/rtk/kernelPrompt.js");
-          rawContent = KERNEL_PROMPT || "";
-        } catch {
-          rawContent = "";
+      const promptText = await resolveRulePromptText(rule, enrichedContext);
+
+      // S4 Trigger Normalization runs BEFORE injection so only user input is normalized
+      if (rule.normalizeTriggers === true) {
+        if (normalizeTriggerWordsInBody(body)) {
+          normalizedTriggers = true;
         }
-      } else {
-        // Automatically armor custom prompts with the 3 kernel foundation layers
-        try {
-          const { wrapCustomWithKernelLayers } = await import("open-sse/rtk/kernelPrompt.js");
-          rawContent = wrapCustomWithKernelLayers(rawContent);
-        } catch {}
       }
 
-      const promptText = interpolateVariables(rawContent, enrichedContext).trim();
-      if (!promptText) continue;
+      if (promptText) {
+        executeInjection(body, rule.position, promptText);
+      }
 
-      executeInjection(body, rule.position, promptText);
       body._appliedPromptInjections.push(rule.id);
-      appliedRuleNames.push(rule.name || rule.id);
-
-      // S4 Trigger Normalization: Clean trigger words from user input if rule has it enabled
-      if (rule.normalizeTriggers === true) {
-        normalizeTriggerWordsInBody(body);
+      if (promptText || rule.normalizeTriggers || rule.stripRefusal) {
+        appliedRuleNames.push(rule.name || rule.id);
       }
 
       // S6b Refusal Stripper: Mark body so response output gets sanitized
       if (rule.stripRefusal === true) {
-        Object.defineProperty(body, '_stripRefusal', { value: true, writable: true, enumerable: false, configurable: true });
+        Object.defineProperty(body, "_stripRefusal", { value: true, writable: true, enumerable: false, configurable: true });
       }
     }
 
     return {
-      modified: appliedRuleNames.length > 0,
+      modified: appliedRuleNames.length > 0 || normalizedTriggers,
       injectedRules: appliedRuleNames,
+      appliedRuleIds: [...body._appliedPromptInjections],
+      normalizedTriggers,
       stripRefusal: body._stripRefusal === true,
     };
-  } catch (err) {
-    // Fail-open: never break chat requests
-    return { modified: false, injectedRules: [] };
+  } catch {
+    return { modified: false, injectedRules: [], appliedRuleIds: [], normalizedTriggers: false, stripRefusal: body?._stripRefusal === true };
   }
+}
+
+function isResponsesShape(body) {
+  return (body.input !== undefined || body.instructions !== undefined) && !Array.isArray(body.messages) && !body.contents;
 }
 
 /**
@@ -542,37 +581,39 @@ export function executeInjection(body, position, promptText) {
 
   const pos = position || "system_dual";
 
-  // 0. SYSTEM DUAL (Prefix Environment Foundation + Suffix Jailbreak Anchor - Highest Recency Bias)
+  // 0. SYSTEM DUAL (Prefix Environment Foundation + Latest User Anchor)
   if (pos === "system_dual" || pos === "dual") {
-    // Inject at system level
     executeInjection(body, "system_prepend", promptText);
-    // CRITICAL (Fix Attention Drift): Also inject into the LATEST user turn so multi-turn chats
-    // (turn 2, 3, 5, etc.) never lose the jailbreak framing due to conversation history dilution!
     executeInjection(body, "user_prepend", promptText);
     return;
   }
 
   // 1. SYSTEM PREPEND
   if (pos === "system_prepend") {
-    // Claude / Anthropic format (takes precedence when body.system is defined)
     if (typeof body.system === "string") {
-      body.system = `${promptText}\n\n${body.system}`;
+      if (!body.system.includes(promptText)) body.system = `${promptText}\n\n${body.system}`;
       return;
     }
     if (Array.isArray(body.system)) {
-      body.system.unshift({ type: "text", text: promptText });
+      const already = body.system.some((b) => typeof b?.text === "string" && b.text.includes(promptText));
+      if (!already) body.system.unshift({ type: "text", text: promptText });
       return;
     }
 
-    // OpenAI Responses / instructions
     if (typeof body.instructions === "string") {
-      body.instructions = `${promptText}\n\n${body.instructions}`;
+      if (!body.instructions.includes(promptText)) {
+        body.instructions = body.instructions ? `${promptText}\n\n${body.instructions}` : promptText;
+      }
+      return;
+    }
+    if (isResponsesShape(body)) {
+      body.instructions = promptText;
       return;
     }
 
-    // Gemini system_instruction format
     if (body.system_instruction && Array.isArray(body.system_instruction.parts)) {
-      body.system_instruction.parts.unshift({ text: promptText });
+      const already = body.system_instruction.parts.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+      if (!already) body.system_instruction.parts.unshift({ text: promptText });
       return;
     }
     if (body.contents && !body.system_instruction) {
@@ -580,15 +621,15 @@ export function executeInjection(body, position, promptText) {
       return;
     }
 
-    // OpenAI Chat format
     if (Array.isArray(body.messages)) {
       const idx = body.messages.findIndex((m) => m && (m.role === "system" || m.role === "developer"));
       if (idx >= 0) {
         const existing = body.messages[idx];
         if (typeof existing.content === "string") {
-          existing.content = `${promptText}\n\n${existing.content}`;
+          if (!existing.content.includes(promptText)) existing.content = `${promptText}\n\n${existing.content}`;
         } else if (Array.isArray(existing.content)) {
-          existing.content.unshift({ type: "text", text: promptText });
+          const already = existing.content.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+          if (!already) existing.content.unshift({ type: "text", text: promptText });
         }
       } else {
         body.messages.unshift({ role: "system", content: promptText });
@@ -604,25 +645,30 @@ export function executeInjection(body, position, promptText) {
 
   // 2. SYSTEM APPEND
   if (pos === "system_append") {
-    // Claude / Anthropic format
     if (typeof body.system === "string") {
-      body.system = `${body.system}\n\n${promptText}`;
+      if (!body.system.includes(promptText)) body.system = `${body.system}\n\n${promptText}`;
       return;
     }
     if (Array.isArray(body.system)) {
-      body.system.push({ type: "text", text: promptText });
+      const already = body.system.some((b) => typeof b?.text === "string" && b.text.includes(promptText));
+      if (!already) body.system.push({ type: "text", text: promptText });
       return;
     }
 
-    // OpenAI Responses
     if (typeof body.instructions === "string") {
-      body.instructions = body.instructions ? `${body.instructions}\n\n${promptText}` : promptText;
+      if (!body.instructions.includes(promptText)) {
+        body.instructions = body.instructions ? `${body.instructions}\n\n${promptText}` : promptText;
+      }
+      return;
+    }
+    if (isResponsesShape(body)) {
+      body.instructions = promptText;
       return;
     }
 
-    // Gemini
     if (body.system_instruction && Array.isArray(body.system_instruction.parts)) {
-      body.system_instruction.parts.push({ text: promptText });
+      const already = body.system_instruction.parts.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+      if (!already) body.system_instruction.parts.push({ text: promptText });
       return;
     }
     if (body.contents && !body.system_instruction) {
@@ -630,15 +676,15 @@ export function executeInjection(body, position, promptText) {
       return;
     }
 
-    // OpenAI Chat messages
     if (Array.isArray(body.messages)) {
       const idx = body.messages.findIndex((m) => m && (m.role === "system" || m.role === "developer"));
       if (idx >= 0) {
         const existing = body.messages[idx];
         if (typeof existing.content === "string") {
-          existing.content = `${existing.content}\n\n${promptText}`;
+          if (!existing.content.includes(promptText)) existing.content = `${existing.content}\n\n${promptText}`;
         } else if (Array.isArray(existing.content)) {
-          existing.content.push({ type: "text", text: promptText });
+          const already = existing.content.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+          if (!already) existing.content.push({ type: "text", text: promptText });
         }
       } else {
         body.messages.unshift({ role: "system", content: promptText });
@@ -654,31 +700,23 @@ export function executeInjection(body, position, promptText) {
 
   // 3. SYSTEM OVERRIDE
   if (pos === "system_override") {
-    // Claude format
     if (body.system !== undefined) {
       body.system = promptText;
       return;
     }
-
-    // Responses format
-    if (body.instructions !== undefined) {
+    if (body.instructions !== undefined || isResponsesShape(body)) {
       body.instructions = promptText;
       return;
     }
-
-    // Gemini format
     if (body.contents) {
       body.system_instruction = { parts: [{ text: promptText }] };
       return;
     }
-
-    // OpenAI Chat
     if (Array.isArray(body.messages)) {
       body.messages = body.messages.filter((m) => m && m.role !== "system" && m.role !== "developer");
       body.messages.unshift({ role: "system", content: promptText });
       return;
     }
-
     body.system = promptText;
     return;
   }
@@ -690,9 +728,10 @@ export function executeInjection(body, position, promptText) {
         const m = body.messages[i];
         if (m && m.role === "user") {
           if (typeof m.content === "string") {
-            m.content = `${promptText}\n\n${m.content}`;
+            if (!m.content.includes(promptText)) m.content = `${promptText}\n\n${m.content}`;
           } else if (Array.isArray(m.content)) {
-            m.content.unshift({ type: "text", text: promptText });
+            const already = m.content.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+            if (!already) m.content.unshift({ type: "text", text: promptText });
           }
           break;
         }
@@ -703,8 +742,30 @@ export function executeInjection(body, position, promptText) {
     if (Array.isArray(body.contents)) {
       for (let i = body.contents.length - 1; i >= 0; i--) {
         const turn = body.contents[i];
-        if (turn && turn.role === "user" && Array.isArray(turn.parts)) {
-          turn.parts.unshift({ text: promptText });
+        if (turn && (!turn.role || turn.role === "user") && Array.isArray(turn.parts)) {
+          const already = turn.parts.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+          if (!already) turn.parts.unshift({ text: promptText });
+          break;
+        }
+      }
+      return;
+    }
+
+    if (typeof body.input === "string") {
+      if (!body.input.includes(promptText)) body.input = `${promptText}\n\n${body.input}`;
+      return;
+    }
+
+    if (Array.isArray(body.input)) {
+      for (let i = body.input.length - 1; i >= 0; i--) {
+        const item = body.input[i];
+        if (item && (!item.role || item.role === "user")) {
+          if (typeof item.content === "string") {
+            if (!item.content.includes(promptText)) item.content = `${promptText}\n\n${item.content}`;
+          } else if (Array.isArray(item.content)) {
+            const already = item.content.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+            if (!already) item.content.unshift({ type: "input_text", text: promptText });
+          }
           break;
         }
       }
@@ -719,9 +780,10 @@ export function executeInjection(body, position, promptText) {
         const m = body.messages[i];
         if (m && m.role === "user") {
           if (typeof m.content === "string") {
-            m.content = `${m.content}\n\n${promptText}`;
+            if (!m.content.includes(promptText)) m.content = `${m.content}\n\n${promptText}`;
           } else if (Array.isArray(m.content)) {
-            m.content.push({ type: "text", text: promptText });
+            const already = m.content.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+            if (!already) m.content.push({ type: "text", text: promptText });
           }
           break;
         }
@@ -732,8 +794,30 @@ export function executeInjection(body, position, promptText) {
     if (Array.isArray(body.contents)) {
       for (let i = body.contents.length - 1; i >= 0; i--) {
         const turn = body.contents[i];
-        if (turn && turn.role === "user" && Array.isArray(turn.parts)) {
-          turn.parts.push({ text: promptText });
+        if (turn && (!turn.role || turn.role === "user") && Array.isArray(turn.parts)) {
+          const already = turn.parts.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+          if (!already) turn.parts.push({ text: promptText });
+          break;
+        }
+      }
+      return;
+    }
+
+    if (typeof body.input === "string") {
+      if (!body.input.includes(promptText)) body.input = `${body.input}\n\n${promptText}`;
+      return;
+    }
+
+    if (Array.isArray(body.input)) {
+      for (let i = body.input.length - 1; i >= 0; i--) {
+        const item = body.input[i];
+        if (item && (!item.role || item.role === "user")) {
+          if (typeof item.content === "string") {
+            if (!item.content.includes(promptText)) item.content = `${item.content}\n\n${promptText}`;
+          } else if (Array.isArray(item.content)) {
+            const already = item.content.some((p) => typeof p?.text === "string" && p.text.includes(promptText));
+            if (!already) item.content.push({ type: "input_text", text: promptText });
+          }
           break;
         }
       }

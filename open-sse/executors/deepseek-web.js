@@ -1,6 +1,7 @@
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
-import { findDeepSeekPowNonce } from "../lib/deepseek-pow-hash.js";
+import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import { solveDeepSeekPowAsync } from "../lib/deepseek-pow-worker.js";
 import {
   hasTools,
   buildToolSystemPrompt,
@@ -75,7 +76,22 @@ function isSearchModel(model) {
 }
 
 function cleanDeepSeekToken(text) {
-  return String(text || "").replace(/FINISHED/g, "").replace(/^(SEARCH|WEB_SEARCH|SEARCHING)\s*/i, "");
+  let cleaned = String(text || "").replace(/FINISHED/g, "").replace(/^(SEARCH|WEB_SEARCH|SEARCHING)\s*/i, "");
+  const FW = "[｜|]+";
+  // 1. Nested calls block: <｜｜DSML｜｜ calls> ... </｜｜DSML｜｜ calls>
+  const callsRe = new RegExp(`<${FW}DSML${FW}\\s+calls>[\\s\\S]*?<\\/${FW}DSML${FW}\\s+calls>`, "gi");
+  // 2. Named tag block: <｜DSML｜:toolName> ... </｜DSML｜:toolName>
+  const namedRe = new RegExp(`<${FW}DSML${FW}:\\w+[^>]*>[\\s\\S]*?<\\/${FW}DSML${FW}:\\w+[^>]*>`, "gi");
+  // 3. Stray markup tags & tokens
+  const strayRe = new RegExp(`<\\/?${FW}DSML${FW}[^>]*>|<\\/?(?:invoke|parameter)(?:\\s+[^>]*)?>`, "gi");
+  const specialDelims = new RegExp(`<${FW}(?:begin of sentence|end of sentence|User|Assistant)${FW}>`, "gi");
+
+  cleaned = cleaned
+    .replace(callsRe, "")
+    .replace(namedRe, "")
+    .replace(strayRe, "")
+    .replace(specialDelims, "");
+  return cleaned;
 }
 
 function formatStreamContent(raw, model) {
@@ -167,7 +183,7 @@ async function solvePow(challenge, signal) {
   const { algorithm, challenge: challengeStr, salt, difficulty, expire_at, signature, target_path } = challenge;
   if (algorithm !== "DeepSeekHashV1") throw new Error(`Unsupported PoW algorithm: ${algorithm}`);
   const prefix = `${salt}_${expire_at}_`;
-  const answer = findDeepSeekPowNonce(prefix, challengeStr.toLowerCase(), difficulty);
+  const answer = await solveDeepSeekPowAsync(prefix, challengeStr.toLowerCase(), difficulty, signal);
   if (answer < 0) throw new Error("PoW solver failed");
   return Buffer.from(
     JSON.stringify({
@@ -234,8 +250,59 @@ function transformSSE(deepseekStream, model) {
         const { scheduleFinishAfterDrain, clearFinishedDrain, isDrainPending } =
           createFinishedDrainScheduler(finishStream);
 
+        let dsmlFilterState = { buffer: "", inDsml: false, dsmlClosePattern: null };
+        const filterDsmlStream = (str) => {
+          if (!str) return "";
+          dsmlFilterState.buffer += str;
+
+          // Check if we entered a DSML block
+          if (!dsmlFilterState.inDsml) {
+            const openMatch = dsmlFilterState.buffer.match(/<([｜|]+)DSML\1(?::(\w+)|\s+(\w+))?[^>]*>/i);
+            if (openMatch) {
+              dsmlFilterState.inDsml = true;
+              const openIdx = openMatch.index;
+              const subType = openMatch[2] || openMatch[3];
+              if (subType === "calls") {
+                dsmlFilterState.dsmlClosePattern = /<\/[｜|]+DSML[｜|]+\s+calls\s*>/i;
+              } else if (openMatch[2]) {
+                dsmlFilterState.dsmlClosePattern = new RegExp(`</[｜|]+DSML[｜|]+:${openMatch[2]}\\s*>`, "i");
+              } else {
+                dsmlFilterState.dsmlClosePattern = /<\/[｜|]+DSML[｜|]+[^>]*>/i;
+              }
+              const safePrefix = dsmlFilterState.buffer.slice(0, openIdx);
+              dsmlFilterState.buffer = dsmlFilterState.buffer.slice(openIdx);
+              return safePrefix;
+            }
+            // Check if trailing string might be a partial start of <｜DSML｜ or <｜｜DSML｜｜
+            const partialMatch = dsmlFilterState.buffer.match(/(<[｜|]{0,2}[D]?[S]?[M]?[L]?[｜|]{0,2}[^<]*)$/i);
+            if (partialMatch && partialMatch[1].length < 16) {
+              const emitPart = dsmlFilterState.buffer.slice(0, -partialMatch[1].length);
+              dsmlFilterState.buffer = partialMatch[1];
+              return emitPart;
+            }
+            const out = dsmlFilterState.buffer;
+            dsmlFilterState.buffer = "";
+            return out;
+          }
+
+          // We are inside DSML: search for closing tag
+          const closePattern = dsmlFilterState.dsmlClosePattern || /<\/[｜|]+DSML[｜|]+[^>]*>/i;
+          const closeMatch = dsmlFilterState.buffer.match(closePattern);
+          if (closeMatch) {
+            dsmlFilterState.inDsml = false;
+            dsmlFilterState.dsmlClosePattern = null;
+            dsmlFilterState.buffer = dsmlFilterState.buffer.slice(closeMatch.index + closeMatch[0].length);
+            return filterDsmlStream("");
+          }
+
+          // Still buffering inside DSML, suppress output
+          return "";
+        };
+
         const sendByPath = (raw) => {
-          const text = formatStreamContent(raw, streamModel);
+          const filtered = filterDsmlStream(raw);
+          if (!filtered) return;
+          const text = formatStreamContent(filtered, streamModel);
           if (!text) return;
           ensureRole();
           let path = currentPath;
@@ -380,12 +447,14 @@ async function collectSSEContent(deepseekStream, model) {
   let buffer = "";
   let content = "";
   let reasoningContent = "";
+  let rawContent = "";
   let currentPath = "";
   const streamModel = model || "deepseek-web";
   const thinkingModel = isThinkingModel(streamModel);
   const searchResults = [];
 
   const appendByPath = (raw) => {
+    rawContent += raw;
     const text = formatStreamContent(raw, streamModel);
     if (!text) return;
     let path = currentPath;
@@ -486,7 +555,7 @@ async function collectSSEContent(deepseekStream, model) {
   const citations = appendSearchCitations(searchResults, streamModel);
   if (citations) content += `\n\n${citations}`;
 
-  return { content, reasoningContent };
+  return { content, reasoningContent, rawContent };
 }
 
 function extractMessageText(content) {
@@ -541,20 +610,20 @@ export function messagesToPrompt(messages, historyWindow = 0) {
   return parts.join("\n\n").replace(/!\[.*?\]\(.*?\)/g, "");
 }
 
-async function acquireAccessToken(userToken, signal, log) {
+async function acquireAccessToken(userToken, signal, log, proxyOptions = null) {
   const cached = tokenCache.get(userToken);
   if (cached && cached.expiresAt > Math.floor(Date.now() / 1000)) {
     return cached.accessToken;
   }
 
   log?.info?.("DEEPSEEK-WEB", "Acquiring access token from /users/current...");
-  const resp = await fetch(`${DEEPSEEK_API_BASE}/v0/users/current`, {
+  const resp = await proxyAwareFetch(`${DEEPSEEK_API_BASE}/v0/users/current`, {
     headers: {
       Authorization: `Bearer ${userToken}`,
       ...FAKE_HEADERS,
     },
     signal: signal ?? undefined,
-  });
+  }, proxyOptions);
 
   if (resp.status === 401 || resp.status === 403) {
     throw new Error("Token invalid or expired. Get a new userToken from DeepSeek localStorage");
@@ -596,8 +665,8 @@ function parseDeepSeekErrorPayload(payload) {
   return null;
 }
 
-async function createSession(accessToken, signal) {
-  const resp = await fetch(`${DEEPSEEK_API_BASE}/v0/chat_session/create`, {
+async function createSession(accessToken, signal, proxyOptions = null) {
+  const resp = await proxyAwareFetch(`${DEEPSEEK_API_BASE}/v0/chat_session/create`, {
     method: "POST",
     headers: {
       ...FAKE_HEADERS,
@@ -607,7 +676,7 @@ async function createSession(accessToken, signal) {
     },
     body: JSON.stringify({}),
     signal: signal ?? undefined,
-  });
+  }, proxyOptions);
 
   if (!resp.ok) throw new Error(`chat_session/create HTTP ${resp.status}`);
   const json = await resp.json();
@@ -617,9 +686,9 @@ async function createSession(accessToken, signal) {
   return id;
 }
 
-async function deleteSessionOnDeepSeek(accessToken, sessionId) {
+async function deleteSessionOnDeepSeek(accessToken, sessionId, proxyOptions = null) {
   try {
-    await fetch(`${DEEPSEEK_API_BASE}/v0/chat_session/delete`, {
+    await proxyAwareFetch(`${DEEPSEEK_API_BASE}/v0/chat_session/delete`, {
       method: "POST",
       headers: {
         ...FAKE_HEADERS,
@@ -627,7 +696,7 @@ async function deleteSessionOnDeepSeek(accessToken, sessionId) {
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ chat_session_id: sessionId }),
-    });
+    }, proxyOptions);
   } catch {}
 }
 
@@ -650,8 +719,8 @@ function wrapStreamWithCleanup(responseStream, cleanup) {
   });
 }
 
-async function getPowChallenge(accessToken, signal) {
-  const resp = await fetch(`${DEEPSEEK_API_BASE}/v0/chat/create_pow_challenge`, {
+async function getPowChallenge(accessToken, signal, proxyOptions = null) {
+  const resp = await proxyAwareFetch(`${DEEPSEEK_API_BASE}/v0/chat/create_pow_challenge`, {
     method: "POST",
     headers: {
       ...FAKE_HEADERS,
@@ -660,7 +729,7 @@ async function getPowChallenge(accessToken, signal) {
     },
     body: JSON.stringify({ target_path: "/api/v0/chat/completion" }),
     signal: signal ?? undefined,
-  });
+  }, proxyOptions);
   if (!resp.ok) throw new Error(`create_pow_challenge HTTP ${resp.status}`);
   const json = await resp.json();
   const bizData = json?.data?.biz_data || json?.biz_data;
@@ -673,7 +742,7 @@ export class DeepSeekWebExecutor extends BaseExecutor {
     super("deepseek-web", { baseUrl: DEEPSEEK_WEB_BASE });
   }
 
-  async execute({ model, body, stream, credentials, signal, log }) {
+  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
     const bodyObj = body || {};
     const messages = Array.isArray(bodyObj.messages) ? bodyObj.messages : [];
     const rawCreds = credentials || {};
@@ -697,19 +766,8 @@ export class DeepSeekWebExecutor extends BaseExecutor {
     const historyWindow = typeof psd.historyWindow === "number" && psd.historyWindow > 0 ? psd.historyWindow : 0;
 
     try {
-      const accessToken = await acquireAccessToken(userToken, signal, log);
-      let disableToolCalling = false;
-      try {
-        const { getSettings } = await import("@/lib/localDb.js");
-        const settings = await getSettings();
-        if (settings?.webCookieToolCalling?.["deepseek-web"] === false) {
-          disableToolCalling = true;
-        }
-      } catch {
-        // fail-open
-      }
-
-      const toolMode = disableToolCalling ? false : hasTools(bodyObj);
+      const accessToken = await acquireAccessToken(userToken, signal, log, proxyOptions);
+      const toolMode = hasTools(bodyObj);
       const toolPrompt = toolMode ? buildToolSystemPrompt(bodyObj.tools) : "";
 
       // Special turns (assistant tool_calls, tool results) become transcript
@@ -729,7 +787,7 @@ export class DeepSeekWebExecutor extends BaseExecutor {
       const refFileIds = Array.isArray(bodyObj.ref_file_ids) ? bodyObj.ref_file_ids : [];
 
       const performCompletion = async (sid) => {
-        const powChallenge = await getPowChallenge(accessToken, signal);
+        const powChallenge = await getPowChallenge(accessToken, signal, proxyOptions);
         const powAnswer = await solvePow(powChallenge, signal);
         const reqHeaders = {
           ...FAKE_HEADERS,
@@ -749,12 +807,12 @@ export class DeepSeekWebExecutor extends BaseExecutor {
           search_enabled: searchEnabled,
           preempt: false,
         };
-        const resp = await fetch(COMPLETION_URL, {
+        const resp = await proxyAwareFetch(COMPLETION_URL, {
           method: "POST",
           headers: reqHeaders,
           body: JSON.stringify(requestPayload),
           signal: signal ?? undefined,
-        });
+        }, proxyOptions);
         return { resp, reqHeaders, requestPayload };
       };
 
@@ -762,12 +820,12 @@ export class DeepSeekWebExecutor extends BaseExecutor {
         if (persistSession) {
           const cached = sessionCache.get(userToken);
           if (cached) return { sessionId: cached.sessionId, reused: true };
-          const created = await createSession(accessToken, signal);
+          const created = await createSession(accessToken, signal, proxyOptions);
           evictOldest(sessionCache);
           sessionCache.set(userToken, { sessionId: created, createdAt: Date.now() });
           return { sessionId: created, reused: false };
         }
-        return { sessionId: await createSession(accessToken, signal), reused: false };
+        return { sessionId: await createSession(accessToken, signal, proxyOptions), reused: false };
       };
 
       let { sessionId, reused: reusedSession } = await acquireSession();
@@ -777,7 +835,7 @@ export class DeepSeekWebExecutor extends BaseExecutor {
       if (!resp.ok && persistSession && reusedSession) {
         log?.warn?.("DEEPSEEK-WEB", "Reused session failed, retrying with fresh session");
         sessionCache.delete(userToken);
-        sessionId = await createSession(accessToken, signal);
+        sessionId = await createSession(accessToken, signal, proxyOptions);
         evictOldest(sessionCache);
         sessionCache.set(userToken, { sessionId, createdAt: Date.now() });
         reusedSession = false;
@@ -852,8 +910,9 @@ export class DeepSeekWebExecutor extends BaseExecutor {
           // Buffer the model's full answer, then translate a detected tool
           // call into OpenAI tool_calls deltas (RAG web backend only speaks
           // text, so calls can only be classified once the answer completes).
-          const { content, reasoningContent } = await collectSSEContent(resp.body, clientModel);
-          const parsed = parseToolCallReply(content);
+          const { content, reasoningContent, rawContent } = await collectSSEContent(resp.body, clientModel);
+          // parse from RAW so DSML tags survive cleanDeepSeekToken; fall back to cleaned
+          const parsed = parseToolCallReply(rawContent || content);
           await cleanupFn();
 
           const encoder = new TextEncoder();
@@ -911,11 +970,11 @@ export class DeepSeekWebExecutor extends BaseExecutor {
         };
       }
 
-      const { content, reasoningContent } = await collectSSEContent(resp.body, clientModel);
+      const { content, reasoningContent, rawContent } = await collectSSEContent(resp.body, clientModel);
       await cleanupFn();
 
       if (toolMode) {
-        const parsed = parseToolCallReply(content);
+        const parsed = parseToolCallReply(rawContent || content);
         if (parsed.calls.length > 0) {
           return {
             response: new Response(JSON.stringify(buildToolCallResponse({

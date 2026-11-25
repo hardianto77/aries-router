@@ -1,4 +1,4 @@
-// Restored job modules (fork v0.5.387) — kv-backed job store.
+// Restored job modules — kv-backed job store.
 import { getAdapter } from "./driver.js";
 import { makeKv } from "./helpers/kvStore.js";
 import { parseJson, stringifyJson } from "./helpers/jsonCol.js";

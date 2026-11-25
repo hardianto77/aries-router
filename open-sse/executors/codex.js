@@ -43,7 +43,7 @@ const CODEX_HOSTED_TOOL_TYPES = new Set([
 // Responses-native freeform tools carry a name plus format payload and must pass through intact.
 const CODEX_PASSTHROUGH_TOOL_TYPES = new Set(["custom"]);
 
-// Allowlist of fields accepted by Codex Responses API - anything else is stripped
+// Allowlist of fields accepted by Codex Responses API — anything else is stripped
 const RESPONSES_API_ALLOWLIST = new Set([
   "model", "input", "instructions", "tools", "tool_choice", "stream", "store",
   "reasoning", "service_tier", "include", "prompt_cache_key", "client_metadata",
@@ -60,7 +60,7 @@ function convertSystemToDeveloperRole(body) {
   }
 }
 
-// Strip server-generated item IDs (rs_/fc_/resp_/msg_) from input - avoids 404 with store=false
+// Strip server-generated item IDs (rs_/fc_/resp_/msg_) from input — avoids 404 with store=false
 function stripStoredItemReferences(body, preserveLitePrefix = false) {
   if (!Array.isArray(body.input)) return;
   body.input = body.input.filter((item) => {
@@ -109,13 +109,11 @@ function normalizeCodexTools(body) {
     const parameters = (tool.parameters && typeof tool.parameters === "object" && !Array.isArray(tool.parameters))
       ? tool.parameters
       : (fn?.parameters && typeof fn.parameters === "object" && !Array.isArray(fn.parameters) ? fn.parameters : { type: "object", properties: {} });
-    const strict = typeof tool.strict === "boolean" ? tool.strict : fn?.strict;
     for (const k of Object.keys(tool)) delete tool[k];
     tool.type = "function";
     tool.name = name.slice(0, 128);
     if (description) tool.description = description;
     tool.parameters = stripCodexUnsupportedPatterns(parameters, patternStats);
-    if (typeof strict === "boolean") tool.strict = strict;
     validNames.add(name);
     return true;
   });
@@ -225,7 +223,7 @@ export class CodexExecutor extends BaseExecutor {
     headers["session_id"] = this._currentSessionId || credentials?.connectionId || "default";
     // Identify client type to Codex backend (matches official codex CLI)
     if (!headers["originator"]) headers["originator"] = "codex_cli_rs";
-    // Account/workspace binding header - required when multiple Codex accounts
+    // Account/workspace binding header — required when multiple Codex accounts
     // are configured. OAuth import stores ChatGPT account ID as chatgptAccountId;
     // older/custom rows may use workspaceId/accountId. Prefer explicit workspaceId
     // but fall back to chatgptAccountId so requests don't cross-bind to the wrong
@@ -289,7 +287,7 @@ export class CodexExecutor extends BaseExecutor {
     }
 
     // Retry loop for SSE-level overloaded errors (200 OK body contains event: error)
-    // Reuses 503 retry config - same semantic: upstream temporarily unavailable
+    // Reuses 503 retry config — same semantic: upstream temporarily unavailable
     const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...this.config.retry };
     const { attempts, delayMs } = resolveRetryEntry(retryConfig[503]);
     let attempt = 0;
@@ -299,10 +297,14 @@ export class CodexExecutor extends BaseExecutor {
       if (!peek.matched) {
         // Replace body with re-assembled stream (prefix bytes already read + rest)
         if (peek.replacementBody) {
+          const headers = new Headers(result.response.headers);
+          if (!headers.get("content-type")?.includes("text/event-stream")) {
+            headers.set("content-type", "text/event-stream");
+          }
           result.response = new Response(peek.replacementBody, {
             status: result.response.status,
             statusText: result.response.statusText,
-            headers: result.response.headers,
+            headers,
           });
         }
         return result;
@@ -313,7 +315,7 @@ export class CodexExecutor extends BaseExecutor {
         return result;
       }
       if (attempt >= attempts) {
-        args.log?.warn?.("RETRY", `CODEX | SSE overloaded "${peek.matched}" - retries exhausted (${attempt}/${attempts})`);
+        args.log?.warn?.("RETRY", `CODEX | SSE overloaded "${peek.matched}" — retries exhausted (${attempt}/${attempts})`);
         result.response = codexSseErrorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, peek.message || peek.matched);
         return result;
       }
@@ -429,7 +431,7 @@ export class CodexExecutor extends BaseExecutor {
 
     // Keep system prompts in body.input as role=developer so they stay in the cacheable prefix
     convertSystemToDeveloperRole(body);
-    // Strip server-generated item IDs (rs_/fc_/resp_/msg_) - Codex /responses can't resolve when store=false
+    // Strip server-generated item IDs (rs_/fc_/resp_/msg_) — Codex /responses can't resolve when store=false
     stripStoredItemReferences(body, responsesLite);
     // Flatten function tools + drop unsupported types
     normalizeCodexTools(body);
@@ -504,6 +506,17 @@ export class CodexExecutor extends BaseExecutor {
       body.include = ["reasoning.encrypted_content"];
     }
 
+    // Drop alien reasoning items (e.g. Grok xAI encrypted items) from message history
+    if (Array.isArray(body.messages)) {
+      for (const msg of body.messages) {
+        if (Array.isArray(msg.content)) {
+          msg.content = msg.content.filter(
+            (c) => !(c && c.type === "reasoning" && typeof c.encrypted_content === "string" && !c.encrypted_content.startsWith("codex_"))
+          );
+        }
+      }
+    }
+
     // Remove unsupported parameters for Codex API
     delete body.temperature;
     delete body.top_p;
@@ -526,7 +539,7 @@ export class CodexExecutor extends BaseExecutor {
     if (body.service_tier === "fast") body.service_tier = "priority";
     if (body.service_tier && body.service_tier !== "priority") delete body.service_tier;
 
-    // Final allowlist filter - strip any unknown field that could trigger upstream "routing_unsupported"
+    // Final allowlist filter — strip any unknown field that could trigger upstream "routing_unsupported"
     for (const k of Object.keys(body)) {
       if (!RESPONSES_API_ALLOWLIST.has(k)) delete body[k];
     }

@@ -1,4 +1,9 @@
-import REGISTRY from "../providers/registry/index.js";
+import REGISTRY_MODULE from "../providers/registry/index.js";
+// Build output may emit the default export as an id->entry object map instead of an array
+// (minifier artifact). Normalize so OAUTH_ALIASES / PROVIDER_ID_TO_ALIAS always iterate entries.
+const REGISTRY = Array.isArray(REGISTRY_MODULE)
+  ? REGISTRY_MODULE
+  : Object.values(REGISTRY_MODULE || {});
 // PROVIDER_MODELS now built from providers/registry (transport + models co-located)
 import { PROVIDER_MODELS } from "../providers/index.js";
 import { modelQuotaFamily, modelStrip, modelTargetFormat, modelSupportedFormats, normalizeModelId } from "../providers/models/schema.js";
@@ -7,7 +12,7 @@ import { FORMATS } from "../translator/formats.js";
 export { PROVIDER_MODELS };
 
 // OpenCode providers sharing the endpoint-family fallback for unknown model ids
-const isOpenCodeAlias = (aliasOrId) => !aliasOrId || ["oc", "opencode", "oc2", "opencode-v2", "ocg", "opencode-go", "ocz", "opencode-zen"].includes(aliasOrId);
+const isOpenCodeAlias = (aliasOrId) => !aliasOrId || ["oc", "opencode", "ocg", "opencode-go", "ocz", "opencode-zen"].includes(aliasOrId);
 
 
 // Helper functions
@@ -92,20 +97,39 @@ export function getModelMeta(aliasOrId, modelId) {
   return findModel(PROVIDER_MODELS[aliasOrId], modelId, aliasOrId) || null;
 }
 
-export function getModelUpstreamId(aliasOrId, modelId) {
+export function getModelUpstreamId(aliasOrId, modelId, clientBody = null) {
   // Split off thinking suffix "(level)" so lookup hits the base id; re-append it to
   // the result so downstream applyThinking still sees the suffix (body.model is stripped separately).
   const sufMatch = typeof modelId === "string" ? modelId.match(/\([^()]+\)\s*$/) : null;
   const suffix = sufMatch ? sufMatch[0] : "";
   const baseId = suffix ? modelId.slice(0, sufMatch.index).trim() : modelId;
   const models = PROVIDER_MODELS[aliasOrId];
-  const found = findModel(models, baseId, aliasOrId);
+
+  // Resolve requested thinking level from suffix or client request body
+  const rawSuffix = suffix ? suffix.slice(1, -1).trim().toLowerCase() : "";
+  let tier = rawSuffix === "xhigh" || rawSuffix === "max" ? "high" : rawSuffix === "minimal" ? "low" : rawSuffix;
+  if (!tier && clientBody && typeof clientBody === "object") {
+    const rawEffort = clientBody.reasoning_effort || clientBody.output_config?.effort || (typeof clientBody.reasoning === "object" ? clientBody.reasoning?.effort : null);
+    if (typeof rawEffort === "string" && rawEffort) {
+      const v = rawEffort.toLowerCase().trim();
+      tier = v === "xhigh" || v === "max" ? "high" : v === "minimal" ? "low" : v;
+    } else if (clientBody.thinking && typeof clientBody.thinking === "object") {
+      const b = Number(clientBody.thinking.budget_tokens);
+      if (Number.isFinite(b) && b > 0) {
+        tier = b > 16384 ? "high" : b <= 4096 ? "low" : "medium";
+      }
+    }
+  }
+
+  // Look for tiered variant first if a tier was requested (e.g. gemini-3.8-flash-high)
+  const tieredId = tier ? `${baseId}-${tier}` : null;
+  const found = (tieredId && findModel(models, tieredId, aliasOrId)) || findModel(models, baseId, aliasOrId);
   const resolvedId = found?.upstreamModelId || found?.id;
   if (resolvedId) {
     const presetMatch = resolvedId.match(/\([^()]+\)\s*$/);
     const presetSuffix = presetMatch?.[0] || "";
     const resolvedBase = presetSuffix ? resolvedId.slice(0, presetMatch.index).trim() : resolvedId;
-    return resolvedBase + (suffix || presetSuffix);
+    return resolvedBase + (suffix || (presetSuffix && tier ? `(${tier})` : presetSuffix));
   }
   if (aliasOrId === "cx" && typeof baseId === "string" && baseId.endsWith(CODEX_REVIEW_SUFFIX)) {
     return baseId.slice(0, -CODEX_REVIEW_SUFFIX.length) + suffix;

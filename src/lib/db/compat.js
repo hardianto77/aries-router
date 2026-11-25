@@ -1,4 +1,4 @@
-// compat.js — fork-API compatibility layer (v0.5.387)
+// compat.js — fork-API compatibility layer
 import { getAdapter } from "./driver.js";
 import { stringifyJson, parseJson } from "./helpers/jsonCol.js";
 import { createProxyPool, deleteProxyPool } from "./repos/proxyPoolsRepo.js";

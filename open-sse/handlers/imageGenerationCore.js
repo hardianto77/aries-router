@@ -4,6 +4,7 @@ import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { getExecutor } from "../executors/index.js";
 import { getImageAdapter } from "./imageProviders/index.js";
 import { urlToBase64 } from "./imageProviders/_base.js";
+import { proxyAwareFetch } from "../utils/proxyFetch.js";
 
 function serializeRequestBody(requestBody) {
   if (typeof FormData !== "undefined" && requestBody instanceof FormData) return requestBody;
@@ -12,7 +13,7 @@ function serializeRequestBody(requestBody) {
 }
 
 /**
- * Core image generation handler - orchestrator only.
+ * Core image generation handler — orchestrator only.
  * Provider-specific URL/headers/body/parse/normalize live in `./imageProviders/{id}.js`.
  *
  * @param {object} options
@@ -22,9 +23,9 @@ function serializeRequestBody(requestBody) {
  * @param {object} [options.log] - Logger
  * @param {boolean} [options.streamToClient] - Pipe SSE to client (codex)
  * @param {boolean} [options.binaryOutput] - Return raw image bytes
+ * @param {object} [options.proxyOptions] - Proxy configuration
  * @param {function} [options.onCredentialsRefreshed]
  * @param {function} [options.onRequestSuccess]
- * @param {function} [options.onUsage] - Receives exact provider-reported usage when available
  * @returns {Promise<{ success: boolean, response: Response, status?: number, error?: string }>}
  */
 export async function handleImageGenerationCore({
@@ -34,9 +35,9 @@ export async function handleImageGenerationCore({
   log,
   streamToClient = false,
   binaryOutput = false,
+  proxyOptions: customProxyOptions = null,
   onCredentialsRefreshed,
   onRequestSuccess,
-  onUsage,
 }) {
   const { provider, model } = modelInfo;
 
@@ -52,11 +53,46 @@ export async function handleImageGenerationCore({
     );
   }
 
+  const proxyOptions = customProxyOptions || {
+    connectionProxyEnabled: credentials?.providerSpecificData?.connectionProxyEnabled === true,
+    connectionProxyUrl: credentials?.providerSpecificData?.connectionProxyUrl || "",
+    connectionNoProxy: credentials?.providerSpecificData?.connectionNoProxy || "",
+    vercelRelayUrl: credentials?.providerSpecificData?.vercelRelayUrl || "",
+    proxyPoolId: credentials?.providerSpecificData?.connectionProxyPoolId || null,
+    strictProxy: credentials?.providerSpecificData?.strictProxy === true,
+  };
+
+  if (proxyOptions.vercelRelayUrl) {
+    const connectionName = credentials?.connectionName || credentials?.connectionId || "unknown";
+    const poolId = credentials?.providerSpecificData?.connectionProxyPoolId || "none";
+    log?.info?.("PROXY", `${provider.toUpperCase()} | ${model} | conn=${connectionName} | pool=${poolId} | vercel-relay=${proxyOptions.vercelRelayUrl}`);
+  } else if (proxyOptions.connectionProxyEnabled && proxyOptions.connectionProxyUrl) {
+    let maskedProxyUrl = proxyOptions.connectionProxyUrl;
+    try {
+      const parsed = new URL(proxyOptions.connectionProxyUrl);
+      const host = parsed.hostname || "";
+      const port = parsed.port ? `:${parsed.port}` : "";
+      const protocol = parsed.protocol || "http:";
+      maskedProxyUrl = `${protocol}//${host}${port}`;
+    } catch {
+      // Keep raw if URL parsing fails
+    }
+
+    const poolId = credentials?.providerSpecificData?.connectionProxyPoolId || "none";
+    const connectionName = credentials?.connectionName || credentials?.connectionId || "unknown";
+    log?.info?.("PROXY", `${provider.toUpperCase()} | ${model} | conn=${connectionName} | pool=${poolId} | url=${maskedProxyUrl}`);
+  }
+
+  if (proxyOptions.connectionProxyEnabled && proxyOptions.connectionNoProxy) {
+    const connectionName = credentials?.connectionName || credentials?.connectionId || "unknown";
+    log?.debug?.("PROXY", `${provider.toUpperCase()} | ${model} | conn=${connectionName} | no_proxy=${proxyOptions.connectionNoProxy}`);
+  }
+
   // Executor-delegating adapters: skip manual URL/headers/body, use the proven executor flow
   if (adapter.useExecutor && adapter.executeViaExecutor) {
     try {
       log?.debug?.("IMAGE", `${provider.toUpperCase()} | ${model} | prompt="${body.prompt.slice(0, 50)}..." (executor)`);
-      const responseBody = await adapter.executeViaExecutor(model, body, credentials, log);
+      const responseBody = await adapter.executeViaExecutor(model, body, credentials, log, proxyOptions);
       if (onRequestSuccess) await onRequestSuccess();
       const normalized = adapter.normalize(responseBody, body.prompt);
       const finalBody = (normalized.created && Array.isArray(normalized.data)) ? normalized : responseBody;
@@ -65,7 +101,7 @@ export async function handleImageGenerationCore({
         const first = finalBody.data?.[0];
         let b64 = first?.b64_json;
         if (!b64 && first?.url) {
-          try { b64 = await urlToBase64(first.url); } catch {}
+          try { b64 = await urlToBase64(first.url, proxyOptions); } catch {}
         }
         if (b64) {
           const buf = Buffer.from(b64, "base64");
@@ -87,9 +123,10 @@ export async function handleImageGenerationCore({
         }),
       };
     } catch (error) {
-      const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
+      const status = error.status || HTTP_STATUS.BAD_GATEWAY;
+      const errMsg = formatProviderError(error, provider, model, status);
       log?.debug?.("IMAGE", `Executor error: ${errMsg}`);
-      return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
+      return createErrorResult(status, errMsg, error.resetsAtMs);
     }
   }
 
@@ -109,18 +146,18 @@ export async function handleImageGenerationCore({
 
   let providerResponse;
   try {
-    providerResponse = await fetch(url, {
+    providerResponse = await proxyAwareFetch(url, {
       method: "POST",
       headers,
       body: serializeRequestBody(requestBody),
-    });
+    }, proxyOptions);
   } catch (error) {
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("IMAGE", `Fetch error: ${errMsg}`);
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
   }
 
-  // Handle 401/403 - try token refresh (skipped for noAuth providers)
+  // Handle 401/403 — try token refresh (skipped for noAuth providers)
   const executor = getExecutor(provider);
   if (
     !executor?.noAuth &&
@@ -129,7 +166,7 @@ export async function handleImageGenerationCore({
       providerResponse.status === HTTP_STATUS.FORBIDDEN)
   ) {
     const newCredentials = await refreshWithRetry(
-      () => executor.refreshCredentials(credentials, log),
+      () => executor.refreshCredentials(credentials, log, proxyOptions),
       3,
       log
     );
@@ -143,11 +180,11 @@ export async function handleImageGenerationCore({
         const retryBody = await adapter.buildBody(model, body);
         const retryHeaders = adapter.buildHeaders(credentials, retryBody, model, body);
         const retryUrl = adapter.buildUrl(model, credentials);
-        providerResponse = await fetch(retryUrl, {
+        providerResponse = await proxyAwareFetch(retryUrl, {
           method: "POST",
           headers: retryHeaders,
           body: serializeRequestBody(retryBody),
-        });
+        }, proxyOptions);
       } catch {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`);
       }
@@ -163,7 +200,7 @@ export async function handleImageGenerationCore({
     return createErrorResult(statusCode, errMsg);
   }
 
-  // Parse provider response - adapter may override (codex SSE / async polling / binary)
+  // Parse provider response — adapter may override (codex SSE / async polling / binary)
   let parsed;
   try {
     if (adapter.parseResponse) {
@@ -172,11 +209,11 @@ export async function handleImageGenerationCore({
         log,
         streamToClient,
         onRequestSuccess,
-        onUsage,
         url,
         requestBody,
         model,
         body,
+        proxyOptions,
       });
       // Codex streaming case: returns an SSE Response directly
       if (parsed?.sseResponse) {
@@ -202,7 +239,7 @@ export async function handleImageGenerationCore({
     const first = finalBody.data?.[0];
     let b64 = first?.b64_json;
     if (!b64 && first?.url) {
-      try { b64 = await urlToBase64(first.url); } catch {}
+      try { b64 = await urlToBase64(first.url, proxyOptions); } catch {}
     }
     if (b64) {
       const buf = Buffer.from(b64, "base64");

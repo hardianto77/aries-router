@@ -12,7 +12,9 @@ export function getWritableDataDir() {
   if (cached) return cached;
   const candidates = [
     process.env.DATA_DIR,
+    path.join(os.homedir(), ".xrouter"),
     path.join(os.homedir(), ".9router"),
+    path.join(os.tmpdir(), "xrouter"),
     path.join(os.tmpdir(), "9router"),
   ].filter(Boolean);
   for (const base of candidates) {

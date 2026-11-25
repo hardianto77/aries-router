@@ -30,7 +30,7 @@ export const UNSUPPORTED_SCHEMA_CONSTRAINTS = [
   // Dependency keywords (not supported)
   "dependencies", "dependentSchemas", "dependentRequired",
   // Other unsupported keywords
-  "title", "optional", "deprecated", "if", "then", "else", "contentMediaType", "contentEncoding",
+  "title", "optional", "~optional", "deprecated", "if", "then", "else", "contentMediaType", "contentEncoding",
   // UI/Styling properties (from Cursor tools - NOT JSON Schema standard)
   "cornerRadius", "fillColor", "fontFamily", "fontSize", "fontWeight",
   "gap", "padding", "strokeColor", "strokeThickness", "textColor"
@@ -166,7 +166,9 @@ function convertConstToEnum(obj) {
   if (!obj || typeof obj !== "object") return;
 
   if (obj.const !== undefined && !obj.enum) {
-    obj.enum = [obj.const];
+    if (obj.const !== "" && obj.const !== null && obj.const !== undefined) {
+      obj.enum = [obj.const];
+    }
     delete obj.const;
   }
 
@@ -178,12 +180,26 @@ function convertConstToEnum(obj) {
 }
 
 // Convert enum values to strings (Gemini requires string enum values + explicit type:"string")
+// Also sanitizes enum values: filters out empty strings and deletes empty enum arrays (Gemini rejects empty enum / empty string enum values with 400 "cannot be empty")
 function convertEnumValuesToStrings(obj) {
   if (!obj || typeof obj !== "object") return;
 
-  if (obj.enum && Array.isArray(obj.enum)) {
-    obj.enum = obj.enum.map(v => String(v));
-    // Gemini API requires type:"string" when enum is present - without it returns 400
+  if (obj.enum !== undefined) {
+    if (Array.isArray(obj.enum)) {
+      const validEnums = obj.enum
+        .filter(v => v !== null && v !== undefined)
+        .map(v => String(v))
+        .filter(v => v.length > 0);
+
+      if (validEnums.length === 0) {
+        delete obj.enum;
+      } else {
+        obj.enum = validEnums;
+      }
+    } else {
+      delete obj.enum;
+    }
+
     if (!obj.type) {
       obj.type = "string";
     }
@@ -294,28 +310,7 @@ function flattenTypeArrays(obj) {
 
   if (obj.type && Array.isArray(obj.type)) {
     const nonNullTypes = obj.type.filter(t => t !== "null");
-    if (nonNullTypes.length === 0) {
-      obj.type = "string";
-    } else if (nonNullTypes.length === 1) {
-      obj.type = nonNullTypes[0];
-    } else {
-      // Multiple types: choose best fitting type (prefer structural clues then string over boolean/number)
-      if (obj.properties && nonNullTypes.includes("object")) {
-        obj.type = "object";
-      } else if (obj.items && typeof obj.items === "object" && Object.keys(obj.items).length > 0 && obj.items.type && nonNullTypes.includes("array")) {
-        obj.type = "array";
-      } else if (nonNullTypes.includes("string")) {
-        obj.type = "string";
-      } else if (nonNullTypes.includes("number")) {
-        obj.type = "number";
-      } else if (nonNullTypes.includes("integer")) {
-        obj.type = "integer";
-      } else if (nonNullTypes.includes("boolean")) {
-        obj.type = "boolean";
-      } else {
-        obj.type = nonNullTypes[0];
-      }
-    }
+    obj.type = nonNullTypes.length > 0 ? nonNullTypes[0] : "string";
   }
 
   for (const value of Object.values(obj)) {
@@ -364,18 +359,8 @@ function convertPrefixItems(obj) {
 // Gemini requires items on every type:"array" schema - fill a permissive placeholder
 function ensureArrayItems(obj) {
   if (!obj || typeof obj !== "object") return;
-  if (obj.type === "array") {
-    if (!obj.items || typeof obj.items !== "object" || Object.keys(obj.items).length === 0) {
-      obj.items = { type: "string" };
-    } else if (!obj.items.type) {
-      if (obj.items.properties) {
-        obj.items.type = "object";
-      } else if (obj.items.items) {
-        obj.items.type = "array";
-      } else {
-        obj.items.type = "string";
-      }
-    }
+  if (obj.type === "array" && !obj.items) {
+    obj.items = { type: "string" };
   }
   for (const v of Object.values(obj)) if (v && typeof v === "object") ensureArrayItems(v);
 }
@@ -551,11 +536,27 @@ export function normalizeGeminiContents(contents, model = null) {
     if (!c?.role || !Array.isArray(c.parts)) continue;
     const parts = c.parts.filter(p => p && Object.keys(p).length > 0).map(sanitizeFunctionResponsePart);
     if (parts.length === 0) continue;
+
+    // Deduplicate repetitive error loop feedback (e.g. IDE retry loop spamming "model output error")
+    // Prevents corrupted sessions with hundreds of retry errors from poisoning model attention
+    const cleanParts = [];
+    for (const p of parts) {
+      if (p.text && typeof p.text === "string" && (p.text.includes("model output error:") || p.text.includes("model output must contain either output text"))) {
+        const lastInClean = cleanParts.at(-1);
+        const lastInOut = out.at(-1)?.parts?.at(-1);
+        if (lastInClean?.text === p.text || lastInOut?.text === p.text) {
+          continue; // skip duplicate error spam
+        }
+      }
+      cleanParts.push(p);
+    }
+    if (cleanParts.length === 0) continue;
+
     const last = out.at(-1);
     if (last?.role === c.role) {
-      last.parts.push(...parts);
+      last.parts.push(...cleanParts);
       if (frLast) last.parts = moveFunctionResponsesLast(last.parts);
-    } else out.push({ ...c, parts: [...parts] });
+    } else out.push({ ...c, parts: [...cleanParts] });
   }
   if (out.length > 0 && out[0].role !== "user") {
     out.unshift({ role: "user", parts: [{ text: "..." }] });

@@ -19,7 +19,7 @@ export default {
   },
   category: "webCookie",
   authType: "cookie",
-  authHint: "Paste your access_token from www.kimi.ai (DevTools -> Application -> Local Storage)",
+  authHint: "Paste access_token dari www.kimi.ai (Buka www.kimi.ai -> F12 -> Application -> Local Storage -> https://www.kimi.ai -> cari key 'access_token' -> copy nilainya)",
   transport: {
     baseUrl: "https://www.kimi.ai",
     format: "kimi-web",

@@ -31,10 +31,12 @@ export default {
   transports: [
     { format: "openai", baseUrl: "https://opencode.ai/zen/go/v1/chat/completions", auth: { combined: true, header: "Authorization", scheme: "bearer" } },
     { format: "claude", baseUrl: "https://opencode.ai/zen/go/v1/messages", auth: { combined: true, header: "x-api-key", scheme: "raw", anthropicVersion: true } },
-    { format: "openai-responses", baseUrl: "https://opencode.ai/zen/go/v1/responses", auth: { combined: true, header: "Authorization", scheme: "bearer" } },
+    { format: "openai-responses", baseUrl: "https://opencode.ai/zen/go/v1/responses", auth: { combined: true, header: "Authorization", scheme: "bearer" }, thinkingFormat: "openai-responses" },
+    { format: "gemini", baseUrl: "https://opencode.ai/inference/go/v1/models", auth: { combined: true, header: "x-goog-api-key", scheme: "raw" } },
   ],
   // supportedFormats follow the endpoint table in https://opencode.ai/docs/go/
   models: [
+    { id: "gemini-4-argon-contributor", name: "Gemini 4 Argon (Contributor)", targetFormat: "gemini", supportedFormats: ["gemini"] },
     { id: "deepseek-flash", name: "DeepSeek Flash", supportedFormats: ["openai"] },
     { id: "glm-5.3-flash", name: "GLM 5.3 Flash (Vision)", supportedFormats: ["openai"] },
     { id: "glm-5.3", name: "GLM 5.3", supportedFormats: ["openai"] },
@@ -44,12 +46,14 @@ export default {
     { id: "kimi-k2.7-code", name: "Kimi K2.7 Code", supportedFormats: ["openai"] },
     { id: "kimi-k2.6", name: "Kimi K2.6", supportedFormats: ["openai"] },
     { id: "kimi-k2.5", name: "Kimi K2.5", supportedFormats: ["openai"] },
+    { id: "kimi-k3.1-pro", name: "Kimi K3.1 Pro", supportedFormats: ["openai"] },
     { id: "kimi-k3", name: "Kimi K3", supportedFormats: ["openai"] },
     { id: "kimi-k3.1-pro", name: "Kimi K3.1 Pro", supportedFormats: ["openai"] },
     { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", supportedFormats: ["openai", "claude", "openai-responses"] },
     { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", supportedFormats: ["openai", "claude", "openai-responses"] },
     { id: "deepseek-v4-flash-vision-exp", name: "DeepSeek V4 Flash Vision (Exp)", supportedFormats: ["openai", "claude", "openai-responses"] },
     { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", supportedFormats: ["openai", "claude", "openai-responses"] },
+    { id: "iceman-contributor-free", name: "Iceman Contributor Free", targetFormat: "openai-responses", supportedFormats: ["openai", "openai-responses"] },
     { id: "longcat-2.0", name: "LongCat 2.0", supportedFormats: ["openai"] },
     { id: "mimo-v2.6-flash", name: "MiMo V2.6 Flash", supportedFormats: ["openai"] },
     { id: "mimo-v2.6-pro", name: "MiMo V2.6 Pro", supportedFormats: ["openai"] },
@@ -60,7 +64,7 @@ export default {
     { id: "minimax-m3", name: "MiniMax M3", supportedFormats: ["openai", "claude"] },
     { id: "minimax-m2.7", name: "MiniMax M2.7", supportedFormats: ["openai", "claude"] },
     { id: "minimax-m2.5", name: "MiniMax M2.5", supportedFormats: ["openai", "claude"] },
-    { id: "space-bunny-free", name: "Space Bunny Free", supportedFormats: ["openai", "claude"] },
+    { id: "space-bunny-free", name: "Space Bunny (MiniMax M3.1 Flash Free)", supportedFormats: ["openai", "claude"] },
     { id: "qwen3.8-max", name: "Qwen 3.8 Max", supportedFormats: ["openai", "claude"] },
     { id: "qwen3.8-flash", name: "Qwen 3.8 Flash", supportedFormats: ["openai", "claude"] },
     { id: "qwen3.7-max", name: "Qwen 3.7 Max", supportedFormats: ["openai", "claude"] },
@@ -79,6 +83,7 @@ export default {
     { id: "grok-4.5", name: "Grok 4.5", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "gpt-5.6-luna", name: "GPT 5.6 Luna", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "gpt-6-luna", name: "GPT 6 Luna", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
+    { id: "muse-wonder-1.0", name: "Muse Wonder 1.0 (Flagship)", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "muse-spark-1.2-contributor", name: "Muse Spark 1.2 Contributor", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "muse-spark-1.3-contributor", name: "Muse Spark 1.3 Contributor", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     // Served by /zen/go/v1/messages only: /chat/completions answers
@@ -88,7 +93,7 @@ export default {
   ],
   // Live catalogue; ids outside this curated list get their endpoint lane from the
   // family regex in providers/models/helpers.js (opencodeFamilyFormats).
-  modelsFetcher: { url: "https://opencode.ai/zen/go/v1/models", type: "opencode-go" },
+  modelsFetcher: { url: "https://opencode.ai/inference/go/v1/models", type: "opencode-go" },
   passthroughModels: true,
   features: {
     usage: true,

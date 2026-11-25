@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { DefaultExecutor } from "./default.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
+import { getOpencodeUa } from "../services/opencodeVersion.js";
 import { isMuseSparkModel, isOpencodeFreeTierModel } from "../providers/models/helpers.js";
 import {
   normalizeResponsesInput,
@@ -13,78 +14,27 @@ const SESSION_HEADER = "x-opencode-session";
 const SESSION_FIELD = "_opencodeZenSession";
 const MAX_SESSION_LENGTH = 256;
 
-const RESPONSES_BASE_URL = "https://opencode.ai/zen/v1/responses";
+const RESPONSES_BASE_URL = "https://opencode.ai/inference/v1/responses";
 const MAX_TOOL_NAME_LEN = 128;
-// Same current-CLI shape as the opencode executor (reverse-engineered
-// 2026-10-23 via mitmproxy): the zen lane keys off the same fingerprint.
-const OPENCODE_UA = "opencode/1.19.4 ai-sdk/provider-utils/4.0.23 runtime/bun/1.4.4";
 export const OPENCODE_SESSION_RE = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
 const BASE62_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-// Free-tier fingerprint (mirrors opencode executor, PR #4132): upstream 403s
-// requests without the file-search quartet and without stream:true.
-const OPENCODE_FINGERPRINT_TOOLS = ["bash", "glob", "grep", "read"];
+import {
+  OPENCODE_FINGERPRINT_TOOLS,
+  OPENCODE_CANONICAL_TOOL_DEFINITIONS,
+} from "../utils/opencodeFingerprint.js";
 
-function hasValidOpencodeVersion(ua) {
-  const m = String(ua || "").match(/opencode\/(\d+)\.(\d+)(?:\.(\d+))?/i);
-  if (!m) return false;
-  const major = parseInt(m[1], 10);
-  const minor = parseInt(m[2], 10);
-  return major > 1 || (major === 1 && minor >= 17);
-}
-
-function unstableRandom() {
-  const bytes = crypto.randomBytes(14);
-  let randomPart = "";
-  for (let i = 0; i < 14; i++) {
-    randomPart += BASE62_CHARS[bytes[i] % 62];
-  }
-  return randomPart;
-}
-
-// Session prefix = 12 hex of ~(timeMs * 0x1000 + counter), low 48 bits, like the CLI.
-// Upstream decodes it and rejects a non-small counter with 403 FreeTierError
-// (live probes: counter 0–16 pass, >=100 fail), so the counter must stay real.
-const SESSION_PREFIX_MASK = (1n << 48n) - 1n;
-const SESSION_TIME_MASK = (1n << 36n) - 1n;
-
-function descendingTimeHex(time, counterValue) {
-  return (~(BigInt(time) * 0x1000n + BigInt(counterValue)) & SESSION_PREFIX_MASK)
-    .toString(16)
-    .padStart(12, "0");
-}
-
-export function generateSessionId(timestamp = Date.now()) {
-  return `ses_${descendingTimeHex(timestamp, 1)}${unstableRandom()}`;
-}
-
-export function generateRequestId(timestamp = Date.now()) {
-  const current = BigInt(timestamp) * 0x1000n + 1n;
-  const value = current;
-  const time = Array.from({ length: 6 }, (_, index) =>
-    Number((value >> BigInt(40 - 8 * index)) & 0xffn)
-      .toString(16)
-      .padStart(2, "0")
-  ).join("");
-  return `msg_${time}${unstableRandom()}`;
-}
-
-export function translateSessionId(sessionId, clientTool = "") {
-  if (typeof sessionId === "string" && OPENCODE_SESSION_RE.test(sessionId.trim())) {
-    return sessionId.trim();
-  }
-  const digest = crypto
-    .createHash("sha256")
-    .update(`opencode\0${clientTool || "generic"}\0${sessionId || ""}`)
-    .digest();
-  // Deterministic time field from the digest, counter pinned to 1 (what the CLI sends).
-  const time = BigInt(`0x${digest.subarray(0, 5).toString("hex")}`) & SESSION_TIME_MASK;
-  const timeHex = descendingTimeHex(time, 1);
-  let randomPart = "";
-  for (let i = 6; i < 20; i++) {
-    randomPart += BASE62_CHARS[digest[i] % 62];
-  }
-  return `ses_${timeHex}${randomPart}`;
-}
+export {
+  generateSessionId,
+  generateRequestId,
+  translateSessionId,
+  hasValidOpencodeVersion,
+} from "./opencode.js";
+import {
+  generateSessionId,
+  generateRequestId,
+  translateSessionId,
+  hasValidOpencodeVersion,
+} from "./opencode.js";
 
 function toolNameOf(tool) {
   if (!tool || typeof tool !== "object" || Array.isArray(tool)) return "";
@@ -106,12 +56,13 @@ function ensureChatFingerprintTools(body) {
   }
   for (const name of OPENCODE_FINGERPRINT_TOOLS) {
     if (present.has(name)) continue;
+    const def = OPENCODE_CANONICAL_TOOL_DEFINITIONS[name];
     body.tools.push({
       type: "function",
       function: {
         name,
-        description: `OpenCode built-in ${name} tool`,
-        parameters: { type: "object", properties: {} },
+        description: def.description,
+        parameters: def.parameters,
       },
     });
     present.add(name);
@@ -131,11 +82,12 @@ function ensureResponsesFingerprintTools(body) {
   }
   for (const name of OPENCODE_FINGERPRINT_TOOLS) {
     if (present.has(name)) continue;
+    const def = OPENCODE_CANONICAL_TOOL_DEFINITIONS[name];
     body.tools.push({
       type: "function",
       name,
-      description: `OpenCode built-in ${name} tool`,
-      parameters: { type: "object", properties: {} },
+      description: def.description,
+      parameters: def.parameters,
     });
     present.add(name);
   }
@@ -273,23 +225,26 @@ export class OpenCodeZenExecutor extends DefaultExecutor {
     const lower = {};
     for (const [k, v] of Object.entries(raw)) lower[k.toLowerCase()] = v;
     const downstreamUa = lower["user-agent"] || "";
-    // Free-tier gate: spoof the official client UA.
-    headers["User-Agent"] = hasValidOpencodeVersion(downstreamUa) ? downstreamUa : OPENCODE_UA;
-    headers["x-opencode-client"] = lower["x-opencode-client"] || "desktop";
+    headers["Authorization"] = credentials?.apiKey ? `Bearer ${credentials.apiKey}` : "Bearer public";
+    headers["User-Agent"] = hasValidOpencodeVersion(downstreamUa) ? downstreamUa : getOpencodeUa();
+    headers["x-opencode-client"] = lower["x-opencode-client"] || "cli";
     headers["x-opencode-project"] = lower["x-opencode-project"] || "global";
-    if (lower["x-opencode-org-id"]) headers["x-opencode-org-id"] = lower["x-opencode-org-id"];
     const prepared = credentials?.[SESSION_FIELD];
     if (prepared) {
       headers[SESSION_HEADER] = prepared;
-    } else {
-      const fallback = this.prepareRequestCredentials({ credentials });
-      headers[SESSION_HEADER] = fallback[SESSION_FIELD];
+      headers["x-opencode-session-id"] = prepared;
+      headers["x-session-affinity"] = prepared;
+      headers["x-session-id"] = prepared;
+      return headers;
     }
+
+    const fallback = this.prepareRequestCredentials({ credentials });
+    const ses = fallback?.[SESSION_FIELD] || generateSessionId();
+    headers[SESSION_HEADER] = ses;
+    headers["x-opencode-session-id"] = ses;
+    headers["x-session-affinity"] = ses;
+    headers["x-session-id"] = ses;
     if (isOpencodeFreeTierModel(model)) {
-      // Free-tier models are gated behind the attested free-tier identity even
-      // on the keyed lane: a real oc_sk_* key answers 403 FreeTierError, while
-      // `Bearer public` + session/request ids succeed. Paid models keep the
-      // connection key untouched.
       headers["Authorization"] = "Bearer public";
       headers["x-opencode-request"] = generateRequestId();
     }
@@ -298,9 +253,19 @@ export class OpenCodeZenExecutor extends DefaultExecutor {
 
   transformRequest(model, body, stream, credentials) {
     const out = super.transformRequest(model, body);
+    if (out && typeof out === "object" && model && !out.model) out.model = model;
     // Free-tier gate: upstream 403s stream:false even when everything else is valid.
     if (out && typeof out === "object") out.stream = true;
     if (!isResponsesModel(model || body?.model)) {
+      if (Array.isArray(out?.messages)) {
+        const hasSystem = out.messages.some((m) => m && (m.role === "system" || m.role === "developer"));
+        if (!hasSystem) {
+          out.messages.unshift({
+            role: "developer",
+            content: "You are OpenCode, an AI coding assistant in terminal CLI mode. Provide helpful, accurate, and concise assistance.",
+          });
+        }
+      }
       ensureChatFingerprintTools(out);
       return out;
     }

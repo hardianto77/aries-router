@@ -17,6 +17,7 @@ export const COMBINED_WEB_ITEM = {
 export const NAV_ITEMS = [
   { href: "/dashboard/endpoint", label: "Endpoint", icon: "api" },
   { href: "/dashboard/providers", label: "Providers", icon: "dns" },
+  { href: "/dashboard/residential-fresh", label: "Residential Fresh Proxy", icon: "wifi_proxy" },
   { href: "/dashboard/combos", label: "Combos", icon: "layers" },
   { href: "/dashboard/usage", label: "Usage", icon: "bar_chart" },
   { href: "/dashboard/quota", label: "Quota", icon: "data_usage" },
@@ -41,6 +42,7 @@ export const DEBUG_ITEMS = [
 export const SYSTEM_ITEMS = [
   { href: "/dashboard/profile", label: "Settings", icon: "settings" },
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
+  { href: "/dashboard/residential-proxy", label: "Residential Proxy", icon: "home_work" },
 { href: "/dashboard/vouchers", label: "Vouchers", icon: "confirmation_number" },
 ];
 
@@ -78,6 +80,7 @@ export function filterNavigation({ isApiKeyUser, permissions, enableTranslator }
     if (item.href === "/dashboard/quota") return p.manageProviders;
     if (item.href === "/dashboard/token-saver" || item.href === "/dashboard/cli-tools") return p.manageTools;
     if (item.href === "/dashboard/connection") return p.manageAdvanced || p.manageTools;
+    if (item.href === "/dashboard/residential-fresh") return p.manageProviders || p.manageAdvanced;
     return false;
   });
 

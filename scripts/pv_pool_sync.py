@@ -4,16 +4,17 @@
 #   SETIAP akun provider (per-connection, TANPA group proxy).
 #   Proxy/WARP yang mati: auto-diganti dengan yang baru (PV backfill / WARP rotate).
 # Cron tiap 15 menit + tombol "Sinkron ProxyVault" di dashboard.
-import json, sqlite3, subprocess, urllib.request, urllib.parse, uuid, hashlib, datetime, sys
+import json, sqlite3, subprocess, urllib.request, urllib.parse, uuid, hashlib, datetime, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
 DB = "/home/ubuntu/.aries-router/db/data.sqlite"
 PV = "http://127.0.0.1:8022/api/proxies/export?fmt=json"
 PV_LOGIN = "http://127.0.0.1:8022/api/login"
 WARP_URL = "http://127.0.0.1:8118"
-TOP_N = 100           # jumlah proxy sehat di pool
-CAND_N = 120          # kandidat yang di-health-check
-HC_TIMEOUT = 8        # detik per health-check
+RESI_URL = "http://127.0.0.1:20188"  # rotating residential gateway (fresh IP per request)
+TOP_N = 200           # jumlah proxy sehat di pool
+CAND_N = 300          # kandidat yang di-health-check
+HC_TIMEOUT = 10        # detik per health-check
 TH_RECENT_HOURS = 24  # TH rows yang dirotasi
 
 def now(): return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -33,22 +34,54 @@ def pv_candidates():
         print("[PV] err:", e); return []
 
 def _check(url):
-    try:
-        import urllib.request as u
-        proxy = u.ProxyHandler({"http": url, "https": url})
-        op = u.build_opener(proxy)
-        op.open("https://api.ipify.org", timeout=HC_TIMEOUT).read(64)
-        return url, True
-    except Exception:
-        return url, False
+    # 3 HTTPS probes, >=2 must succeed: router traffic is HTTPS CONNECT and single-pass
+    # successes are flaky (measured: same proxy flips 200 -> 000 between attempts).
+    ok = 0
+    lat = []
+    for _ in range(3):
+        t0 = time.time()
+        try:
+            r = subprocess.run(
+                ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                 "--max-time", str(HC_TIMEOUT), "-x", url, "https://api.ipify.org"],
+                capture_output=True, timeout=HC_TIMEOUT + 4,
+            )
+            if r.stdout.decode().strip() == "200":
+                ok += 1
+                lat.append(time.time() - t0)
+        except Exception:
+            pass
+    return url, ok >= 2, (sum(lat) / len(lat) if lat else 99)
+
 
 def healthy_pool(cands):
-    """Health-check paralel, urut sesuai urutan kandidat (latency asc)."""
+    """Parallel health-check, keep >=2/3 successes, order by measured latency."""
     result = {}
-    with ThreadPoolExecutor(max_workers=15) as ex:
-        for url, ok in ex.map(_check, cands):
-            result[url] = ok
-    return [u for u in cands if result.get(u)]
+    with ThreadPoolExecutor(max_workers=40) as ex:
+        for url, ok, lat in ex.map(_check, cands):
+            if ok:
+                result[url] = lat
+    return [u for u, _ in sorted(result.items(), key=lambda kv: kv[1])]
+
+
+def resi_alive():
+    """Verify RESI_URL supports real HTTPS CONNECT tunneling and returns HTTP 200 IPv4."""
+    try:
+        r = subprocess.run(
+            ["curl", "-s", "-w", "\n%{http_code}", "--max-time", str(HC_TIMEOUT), "-x", RESI_URL, "https://api.ipify.org"],
+            capture_output=True, text=True, timeout=HC_TIMEOUT + 4,
+        )
+        lines = (r.stdout or "").strip().splitlines()
+        code = lines[-1].strip() if lines else ""
+        body = lines[0].strip() if len(lines) >= 2 else ""
+        if code == "200" and body and body.count(".") == 3:
+            print("[resi] fresh egress sample:", body[:40])
+            return True
+        print(f"[resi] HTTPS CONNECT probe failed: code={code!r} body={body[:60]!r}")
+        return False
+    except Exception as e:
+        print("[resi] err:", e)
+        return False
 
 def warp_alive():
     try:
@@ -83,23 +116,23 @@ def main():
         print(f"[GUARD] providerConnections={_n0} (>150k) - indikasi banjir import, sync di-skip. Cek DB!")
         sys.exit(1)
     t = now()
-    alive, resi, resi_alive = [], [], []
+    alive, resi_list, resi_file_alive = [], [], []
     if not skip_proxy:
         cands = pv_candidates()
         # residential fresh: ~/resi-fresh-alive.txt (klasifikasi ip-api, hosting=false)
         try:
-            resi = [l.strip().split()[0] for l in open("/home/ubuntu/resi-fresh-alive.txt")
+            resi_list = [l.strip().split()[0] for l in open("/home/ubuntu/resi-fresh-alive.txt")
                     if l.strip().startswith("http")]
         except Exception:
-            resi = []
-        for u in resi:
+            resi_list = []
+        for u in resi_list:
             if u not in cands: cands.insert(0, u)
-        print(f"[PV] candidates: {len(cands)} (resi: {len(resi)})")
+        print(f"[PV] candidates: {len(cands)} (resi: {len(resi_list)})")
         alive = healthy_pool(cands)
         print(f"[PV] healthy: {len(alive)}")
         alive_set = set(alive)
-        resi_alive = [u for u in resi if u in alive_set]
-        print(f"[resi] sehat: {len(resi_alive)}/{len(resi)}")
+        resi_file_alive = [u for u in resi_list if u in alive_set]
+        print(f"[resi-file] sehat: {len(resi_file_alive)}/{len(resi_list)}")
 
     warp_ok = None
     if not skip_warp:
@@ -108,13 +141,19 @@ def main():
             warp_ok = warp_fix()
         print(f"[WARP] alive: {warp_ok}")
 
-    if not skip_proxy and not alive and (warp_ok is None or not warp_ok):
-        print("[ABORT] no healthy egress"); sys.exit(1)
+    # resi gateway counts as usable egress; final abort is below after resi_ok probe
     if skip_proxy and (warp_ok is None or not warp_ok):
         print("[ABORT] WARP not alive after rotate"); sys.exit(1)
 
-    urls = ([WARP_URL] if warp_ok else []) + alive[:TOP_N]
-    print(f"[pool] total egress sehat: {len(urls)}")
+    # Fresh residential gateway: always injected when alive (each request = fresh residential IP,
+    # replacing any dead proxy slots automatically).
+    resi_ok = resi_alive()
+    if resi_ok:
+        print("[resi] alive: True (rotating fresh residential gateway)")
+    urls = ([RESI_URL] if resi_ok else []) + ([WARP_URL] if warp_ok else []) + alive[:TOP_N]
+    if not urls:
+        print("[ABORT] no healthy egress (proxy, resi, warp all dead)"); sys.exit(1)
+    print(f"[pool] total egress sehat: {len(urls)} (resi {'ON' if resi_ok else 'OFF'}, warp {'ON' if warp_ok else 'OFF'})")
 
     import os
     sig = hashlib.md5(("|".join(urls)).encode()).hexdigest()
@@ -140,9 +179,24 @@ def main():
         warp_id = str(uuid.uuid4())
         cur.execute("insert into proxyPools (id, isActive, testStatus, data, createdAt, updatedAt) values (?,?, 'active',?,?,?)",
                     (warp_id, 1 if warp_ok else 0, wdata, t, t))
-    # 3. insert PV rows baru (hanya yang sehat)
     url2pid = {}
     if warp_ok: url2pid[WARP_URL] = warp_id
+    # 2b. RESI rotating-gateway row upsert (explicitly disable when unhealthy)
+    if resi_ok:
+        rdata = json.dumps({"name":"RESI-fresh-rotating","proxyUrl":RESI_URL,"noProxy":"127.0.0.1,localhost,","protocol":"http","boundConnectionCount":0,"lastTestedAt":t,"lastError":None})
+        rrow = cur.execute("select id from proxyPools where json_extract(data,'$.name')='RESI-fresh-rotating'").fetchone()
+        if rrow:
+            cur.execute("update proxyPools set isActive=1, testStatus='active', data=?, updatedAt=? where id=?", (rdata, t, rrow[0]))
+            url2pid[RESI_URL] = rrow[0]
+        else:
+            rid2 = str(uuid.uuid4())
+            cur.execute("insert into proxyPools (id, isActive, testStatus, data, createdAt, updatedAt) values (?,?, 'active',?,?,?)",
+                        (rid2, 1, rdata, t, t))
+            url2pid[RESI_URL] = rid2
+    else:
+        cur.execute("update proxyPools set isActive=0, testStatus='disabled', updatedAt=? where json_extract(data,'$.name')='RESI-fresh-rotating' or json_extract(data,'$.proxyUrl')=?", (t, RESI_URL))
+
+    # 3. insert PV rows baru (hanya yang sehat)
     for u in alive[:TOP_N]:
         pid = str(uuid.uuid4())
         pdata = json.dumps({"name":f"PV-{u.split('//')[1]}","proxyUrl":u,"noProxy":"127.0.0.1,localhost,","protocol":"http","boundConnectionCount":0,"lastTestedAt":t,"lastError":None})
@@ -161,19 +215,75 @@ def main():
         print("[failover] pv_pool.json updated (warp-only, no per-account rotation)")
         return
     n = len(urls)
-    # CASE expr: rowid % n -> url & poolId
-    url_cases = " ".join(f"when {i} then json_quote('{u}')" for i, u in enumerate(urls))
-    pid_cases = " ".join(f"when {i} then json_quote('{url2pid[u]}')" for i, u in enumerate(urls))
-    set_expr = (
-        "json_set(data, "
-        "'$.providerSpecificData.connectionProxyEnabled', json('1'), "
-        f"'$.providerSpecificData.proxyPoolId', case rowid % {n} {pid_cases} end, "
-        f"'$.providerSpecificData.connectionProxyUrl', case rowid % {n} {url_cases} end)"
-    )
-    cur.execute(f"update providerConnections set data={set_expr}, updatedAt=? where isActive=1 and provider != 'tokenharbor'", (t,))
-    total = cur.rowcount
+    # PER-PROVIDER ISOLATION: each provider family gets its OWN slice of the pool
+    # (stable hash of provider name -> start offset), so no two providers share an egress.
+    # Within one provider, its accounts rotate across that provider's slice (rowid % slice).
+    rows = cur.execute(
+        "select id, provider from providerConnections where isActive=1 and provider NOT IN ('tokenharbor', 'antigravity', 'gemini', 'gemini-cli', 'opencode', 'openai-compatible-chat-openhop', 'freepi', 'fp')"
+    ).fetchall()
+    from collections import defaultdict
+    prov_rows = defaultdict(list)
+    for rid, prov in rows:
+        prov_rows[prov].append((rid, None))
+    total = 0
+    assigned_map = {}
+    # WEIGHTED disjoint slices: floor (2 if >50 accounts else 1) then largest-remainder
+    # by account demand. Zero cross-provider overlap; big providers get fastest proxies.
+    P = len(prov_rows)
+    prov_counts = {p: len(r) for p, r in prov_rows.items()}
+    total_conns = sum(prov_counts.values()) or 1
+    plist = sorted(prov_counts, key=lambda x: (-prov_counts[x], x))
+    floor = {p: (2 if prov_counts[p] > 50 else 1) for p in plist}
+    base = sum(floor.values())
+    alloc = dict(floor)
+    if base <= n:
+        extra = n - base
+        demand = {p: extra * prov_counts[p] / total_conns for p in plist}
+        for p in plist:
+            alloc[p] += int(demand[p])
+        left = n - sum(alloc.values())
+        for p in sorted(plist, key=lambda p: -(demand[p] - int(demand[p]))):
+            if left <= 0:
+                break
+            alloc[p] += 1
+            left -= 1
+    else:
+        # pool smaller than the floor sum: hand out 1 each, biggest providers first
+        alloc = {p: 0 for p in plist}
+        for i, p in enumerate(plist):
+            alloc[p] = 1 if i < n else 0
+    print(f"[slice] pool={n} providers={P} alloc sum={sum(alloc.values())}")
+    for p in plist[:6]:
+        print(f"  [slice] {p[:40]}: {alloc[p]} egress for {prov_counts[p]} accounts")
+    pos = 0
+    for idx_prov, prov in enumerate(plist):
+        k = alloc[prov]
+        if k <= 0:
+            slice_urls = [urls[(pos + idx_prov) % n]]
+        elif pos + k <= n:
+            slice_urls = urls[pos:pos + k]
+            pos = (pos + k) % n
+        else:
+            slice_urls = urls[pos:] + urls[:k - (n - pos)]
+            pos = (pos + k) % n
+        rlist = prov_rows[prov]
+        m = len(slice_urls)
+        for k, (rid, _rowid) in enumerate(rlist):
+            u = slice_urls[k % m]
+            pid = url2pid[u]
+            cur.execute(
+                "update providerConnections set data=json_set(data, "
+                "'$.providerSpecificData.connectionProxyEnabled', json('1'), "
+                "'$.providerSpecificData.proxyPoolId', json_quote(?), "
+                "'$.providerSpecificData.connectionProxyUrl', json_quote(?)), updatedAt=? where id=?",
+                (pid, u, t, rid),
+            )
+            total += 1
+            assigned_map.setdefault(prov, set()).add(u)
     con.commit()
-    print(f"[rotate] akun provider ter-assign: {total}")
+    print(f"[rotate] akun provider ter-assign: {total} (providers: {len(assigned_map)})")
+    for prov, us in sorted(assigned_map.items()):
+        print(f"  [assign] {prov}: {len(us)} dedicated egress")
     con.close()
     # tulis pool file buat failover live di proxyFetch.js
     json.dump({"urls": urls, "ts": t}, open("/home/ubuntu/.aries-router/pv_pool.json","w"))

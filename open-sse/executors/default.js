@@ -1,16 +1,17 @@
 import { BaseExecutor } from "./base.js";
-import { randomUUID } from "node:crypto";
 import { PROVIDERS, PROVIDER_OAUTH } from "../config/providers.js";
 import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE, selectAnthropicBeta, mergeAnthropicBeta } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
 import { OAUTH_ENDPOINTS, buildKimiHeaders, NOUS_ATTRIBUTION } from "../config/appConstants.js";
 import { buildClineHeaders } from "../shared/clineAuth.js";
+import { buildKiroIdentityHeaders } from "../shared/kiroIdentity.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
 import { extractClaudeSessionIdFromUserId } from "../utils/claudeCloaking.js";
+import { randomUUID } from "node:crypto";
 
-// Auth header descriptors - derived from registry transport.auth, fallback to hardcoded defaults.
+// Auth header descriptors — derived from registry transport.auth, fallback to hardcoded defaults.
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
 const XAPIKEY = { combined: true, header: "x-api-key", scheme: "raw" };
 const AUTH_DESCRIPTORS = Object.fromEntries(
@@ -21,43 +22,34 @@ const AUTH_DESCRIPTORS = Object.fromEntries(
 
 // Apply a token to a header per scheme (matches legacy: combined always sets, even when undefined).
 function setAuth(headers, spec, token) {
+  if (!spec || !spec.header) return;
   headers[spec.header] = spec.scheme === "bearer" ? `Bearer ${token}` : token;
 }
 
 // Resolve auth onto headers from a descriptor.
 function applyAuth(headers, desc, credentials) {
-  if (desc.combined) {
+  if (!desc) return;
+  const token = credentials.cookie || credentials.apiKey || credentials.accessToken;
+  if (desc.combined || desc.header) {
     // combined providers always set the header (legacy behavior, incl. noAuth → "Bearer undefined")
-    setAuth(headers, desc, credentials.apiKey || credentials.accessToken);
-    if (desc.anthropicVersion && !headers["anthropic-version"]) headers["anthropic-version"] = ANTHROPIC_API_VERSION;
-    return;
-  }
-  // Registry transports for cookie-backed providers declare one concrete
-  // header instead of separate apiKey/oauth branches.
-  if (desc.header) {
-    if (desc.header !== "aws-sigv4") {
-      const token = credentials.apiKey || credentials.accessToken;
-      if (token) setAuth(headers, desc, token);
-    }
+    setAuth(headers, desc, token);
     if (desc.anthropicVersion && !headers["anthropic-version"]) headers["anthropic-version"] = ANTHROPIC_API_VERSION;
     return;
   }
   // split apiKey/oauth: set only the matching branch (legacy: anthropic-compatible skips when both absent)
-  if (credentials.apiKey) setAuth(headers, desc.apiKey, credentials.apiKey);
-  else if (credentials.accessToken) setAuth(headers, desc.oauth, credentials.accessToken);
+  if (desc.apiKey && (credentials.apiKey || credentials.cookie)) {
+    setAuth(headers, desc.apiKey, credentials.cookie || credentials.apiKey);
+  } else if (desc.oauth && credentials.accessToken) {
+    setAuth(headers, desc.oauth, credentials.accessToken);
+  } else if (desc.header) {
+    setAuth(headers, desc, token);
+  }
   if (desc.anthropicVersion && !headers["anthropic-version"]) headers["anthropic-version"] = ANTHROPIC_API_VERSION;
 }
 
 // Provider-specific header quirks kept as small hooks (not pure auth).
 const HEADER_HOOKS = {
-  // CodeBuddy (CN + intl): the gateway runs a channel check per request and
-  // rejects anything that does not carry the conversation/request identifiers
-  // the official plugin sends. Without them upstream answers
-  // 400 {"code":11128,"msg":"request illegal"} with
-  // "This call failed channel verification, possibly because it was not sent
-  // from an official client" — the request never reaches the model.
-  // The same request WITH these headers passes channel verification and gets
-  // as far as the real rate limiter (429 / 6004).
+  // CodeBuddy: attach official plugin channel headers so requests pass upstream channel verification.
   codebuddyHeaders: (h) => {
     const requestId = randomUUID();
     h["X-Request-ID"] = requestId;
@@ -67,10 +59,6 @@ const HEADER_HOOKS = {
   },
   // Stable device_id from OAuth connection (CLIProxyAPI KimiTokenStorage.DeviceID)
   kimiHeaders: (h, c) => Object.assign(h, buildKimiHeaders(c?.providerSpecificData?.deviceId)),
-  // Muse: x-api-version only on subscription (minted key) requests - plain
-  // MiniMax Code (mcode): the placeholder x-api-key rides every request next
-  // to the Bearer token, plus per-request session/timezone headers. Static
-  // teammates (User-Agent, X-Mavis-Agent-Id) live in the registry transport.
   minimaxHeaders: (h) => {
     h["x-api-key"] = "sk-xxx";
     h["X-Mavis-Timezone-Offset"] = String(new Date().getTimezoneOffset() * -60);
@@ -83,7 +71,7 @@ const HEADER_HOOKS = {
   kilocodeOrg: (h, c) => { if (c.providerSpecificData?.orgId) h["X-Kilocode-OrganizationID"] = c.providerSpecificData.orgId; },
 };
 
-// Config-driven OAuth refresh grants - derived from registry oauth.refresh.
+// Config-driven OAuth refresh grants — derived from registry oauth.refresh.
 const REFRESH_GRANTS = Object.fromEntries(
   Object.entries(PROVIDER_OAUTH)
     .filter(([, o]) => o.refresh)
@@ -106,41 +94,26 @@ export class DefaultExecutor extends BaseExecutor {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
   }
 
-  transformRequest(model, body, stream, credentials) {
-    const transformed = this.applyJsonSchemaFallback(this.applyNousAttribution(model, body, stream, credentials));
+  transformRequest(model, body) {
+    const transformed = this.applyJsonSchemaFallback(body);
 
     if (transformed && typeof transformed === "object") {
       // quirk: some openai-compatible providers reject Anthropic's client_metadata field
       if (this.config.quirks?.dropClientMetadata) {
         delete transformed.client_metadata;
       }
-      stripUnsupportedParams(this.provider, model, transformed);
     }
 
-    return injectReasoningContent({ provider: this.provider, model, body: transformed });
-  }
-
-  applyNousAttribution(model, body, stream, credentials) {
-    if (!this.provider?.startsWith?.("openai-compatible-") || !credentials?.apiKey
-      || !body || typeof body !== "object" || Array.isArray(body)
-      || (body.tags != null && !Array.isArray(body.tags))) return body;
-
-    try {
-      const url = new URL(this.buildUrl(model, stream, 0, credentials));
-      if (url.protocol !== "https:" || url.hostname !== NOUS_ATTRIBUTION.hostname
-        || url.pathname !== NOUS_ATTRIBUTION.chatCompletionsPath) return body;
-    } catch {
-      return body;
+    // Order matters: inject first (the DeepSeek/Kimi model rules re-add reasoning_content
+    // on every assistant turn), then strip what this provider rejects. Stripping first and
+    // injecting after let the model rule put the field straight back into a provider that
+    // its own strip rule had just removed it from — Mistral answers 422 extra_forbidden
+    // (body.messages[i].assistant.reasoning_content), Groq 400, on every multi-turn call.
+    const injected = injectReasoningContent({ provider: this.provider, model, body: transformed });
+    if (injected && typeof injected === "object") {
+      stripUnsupportedParams(this.provider, model, injected);
     }
-
-    let tags = Array.isArray(body.tags) ? [...body.tags] : [];
-    for (const fallback of NOUS_ATTRIBUTION.tags) {
-      const prefix = fallback.slice(0, fallback.indexOf("=") + 1);
-      // Empty attribution values do not satisfy the upstream requirement.
-      tags = tags.filter((tag) => typeof tag !== "string" || !tag.startsWith(prefix) || tag.slice(prefix.length).trim());
-      if (!tags.some((tag) => typeof tag === "string" && tag.startsWith(prefix))) tags.push(fallback);
-    }
-    return { ...body, tags: [...new Set(tags)] };
+    return injected;
   }
 
   // Fallback json_schema → json_object for openai-compatible providers without native Structured Output.
@@ -167,16 +140,19 @@ export class DefaultExecutor extends BaseExecutor {
     // Runtime transport (multi-endpoint providers): use the sourceFormat-matched endpoint
     const rt = credentials?.runtimeTransport;
     if (rt?.baseUrl) {
+      if (rt.format === "gemini") {
+        return `${rt.baseUrl}/${model}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}`;
+      }
       return rt.urlSuffix ? `${rt.baseUrl}${rt.urlSuffix}` : rt.baseUrl;
     }
     if (this.provider?.startsWith?.("openai-compatible-")) {
-      const baseUrl = credentials?.providerSpecificData?.baseUrl || OPENAI_COMPAT_BASE;
+      const baseUrl = credentials?.providerSpecificData?.baseUrl || this.compatFallbackBaseUrl(credentials);
       const normalized = baseUrl.replace(/\/$/, "");
       const path = resolveOpenAICompatibleApiType(this.provider, credentials) === "responses" ? "/responses" : "/chat/completions";
       return `${normalized}${path}`;
     }
     if (this.provider?.startsWith?.("anthropic-compatible-")) {
-      const baseUrl = credentials?.providerSpecificData?.baseUrl || ANTHROPIC_COMPAT_BASE;
+      const baseUrl = credentials?.providerSpecificData?.baseUrl || this.compatFallbackBaseUrl(credentials) || ANTHROPIC_COMPAT_BASE;
       const normalized = baseUrl.replace(/\/$/, "");
       return `${normalized}/messages`;
     }
@@ -189,6 +165,9 @@ export class DefaultExecutor extends BaseExecutor {
       return `${this.config.baseUrl}${this.config.urlSuffix}`;
     }
     const url = this.config.baseUrl;
+    if (this.provider === "ovh" && !url.endsWith("/chat/completions")) {
+      return `${url.replace(/\/$/, "")}/chat/completions`;
+    }
     if (url?.includes("{accountId}")) {
       const accountId = credentials?.providerSpecificData?.accountId;
       if (!accountId) throw new Error(`${this.provider} requires accountId in providerSpecificData`);
@@ -199,6 +178,9 @@ export class DefaultExecutor extends BaseExecutor {
 
   // Fallback descriptor for providers without an explicit entry in AUTH_DESCRIPTORS.
   resolveAuthDescriptor() {
+    if (this.config?.authType === "cookie" || this.config?.auth?.header === "Cookie") {
+      return { combined: true, header: this.config?.auth?.header || "Cookie", scheme: this.config?.auth?.scheme || "raw" };
+    }
     if (this.provider?.startsWith?.("anthropic-compatible-")) {
       return { apiKey: { header: "x-api-key", scheme: "raw" }, oauth: { header: "Authorization", scheme: "bearer" }, anthropicVersion: true };
     }
@@ -209,6 +191,13 @@ export class DefaultExecutor extends BaseExecutor {
   }
 
   buildHeaders(credentials, stream = true, url, model, body = null) {
+    if (this.provider === "ovh" || this.config?.noAuth || this.config?.authType === "none") {
+      const headers = { "Content-Type": "application/json", ...this.config.headers };
+      delete headers["Authorization"];
+      delete headers["authorization"];
+      if (stream) headers["Accept"] = "text/event-stream";
+      return headers;
+    }
     const rt = credentials?.runtimeTransport;
     const headers = { "Content-Type": "application/json", ...(rt ? rt.headers : this.config.headers) };
     const desc = rt?.auth || AUTH_DESCRIPTORS[this.provider] || this.resolveAuthDescriptor();
@@ -356,7 +345,7 @@ export class DefaultExecutor extends BaseExecutor {
   async refreshKiro(refreshToken, proxyOptions = null) {
     const response = await proxyAwareFetch(PROVIDERS.kiro.tokenUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "kiro-cli/1.0.0" },
+      headers: { "Content-Type": "application/json", "Accept": "application/json", ...buildKiroIdentityHeaders({ refreshToken }) },
       body: JSON.stringify({ refreshToken })
     }, proxyOptions);
     if (!response.ok) return null;
@@ -382,7 +371,7 @@ export class DefaultExecutor extends BaseExecutor {
     return { accessToken, refreshToken: data?.refreshToken || refreshToken, expiresIn };
   }
 
-  // CLIProxyAPI DeviceFlowClient.RefreshToken - form body + X-Msh-* headers + stable device_id
+  // CLIProxyAPI DeviceFlowClient.RefreshToken — form body + X-Msh-* headers + stable device_id
   async refreshKimi(credentials, proxyOptions = null) {
     const refreshToken = credentials.refreshToken;
     const cfg = PROVIDERS.kimi || PROVIDERS["kimi-coding"];

@@ -1,19 +1,19 @@
-import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
+import crypto from "node:crypto";
+import { getProviderConnectionById, updateProviderConnection, getProviderNodeById, deleteProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
-import { probeBedrockCredentials } from "open-sse/executors/bedrock.js";
-import { probeGeminiWebCookie } from "open-sse/services/geminiWebCookie.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
-import { CODEX_CLI_VERSION } from "open-sse/config/appConstants.js";
 import {
-  NOUS_CHAT_COMPLETIONS_URL,
   NOUS_VALIDATION_MODEL,
   createNousApiKeyProbe,
   getNousApiKeyValidationError,
   isNousApiKeyAccepted,
 } from "open-sse/services/nous.js";
+import { refreshNousToken } from "open-sse/services/tokenRefresh.js";
+import { CODEX_CLI_VERSION } from "open-sse/config/appConstants.js";
+import { buildKiroIdentityHeaders } from "open-sse/shared/kiroIdentity.js";
 import {
   refreshProviderCredentials,
   shouldRefreshCredentials,
@@ -29,8 +29,60 @@ import {
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
 
+/**
+ * FreePI health probe.
+ * /me and /me/stats reject CLI tokens with 401 "invalid or expired token" even
+ * while /v1/chat/completions serves traffic, so any GET-based check reports a
+ * healthy account as dead. The only honest signal is one token of real output.
+ */
+async function probeFreePi(connection, effectiveProxy = null) {
+  const token = connection?.accessToken || connection?.apiKey;
+  if (!token) return { valid: false, error: "Missing FreePI token", refreshed: false };
+  try {
+    const res = await fetchWithConnectionProxy(
+      "https://api.freepi.ai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "x-client-version": "0.6.25",
+          "x-session-id": crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          model: "particle",
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 1,
+          stream: false,
+        }),
+      },
+      effectiveProxy,
+    );
+    if (res.ok) return { valid: true, error: null, refreshed: false };
+    const text = await res.text().catch(() => "");
+    return {
+      valid: false,
+      refreshed: false,
+      error: text.includes("invalid or expired token")
+        ? "FreePI token expired — sign in again"
+        : `FreePI responded ${res.status}`,
+    };
+  } catch (err) {
+    return { valid: false, refreshed: false, error: `FreePI probe failed: ${err.message}` };
+  }
+}
+
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
+  adcode: {
+    checkExpiry: false,
+    refreshable: false,
+    customTest: async (connection) => {
+      const token = connection.apiKey || connection.accessToken || connection.token;
+      if (!token) return { valid: false, error: "No token or credentials found" };
+      return { valid: true };
+    },
+  },
   claude: { checkExpiry: true, refreshable: true },
   codex: {
     url: "https://chatgpt.com/backend-api/codex/responses",
@@ -38,7 +90,7 @@ const OAUTH_TEST_CONFIG = {
     authHeader: "Authorization",
     authPrefix: "Bearer ",
     extraHeaders: { "Content-Type": "application/json", "originator": "codex_cli_rs", "User-Agent": `codex_cli_rs/${CODEX_CLI_VERSION}` },
-    // Minimal invalid body - triggers fast 400 without consuming quota
+    // Minimal invalid body — triggers fast 400 without consuming quota
     body: JSON.stringify({ model: "gpt-5.3-codex", input: [], stream: false, store: false }),
     // 400 (bad request) means auth succeeded; only 401/403 means token is bad
     acceptStatuses: [400],
@@ -63,7 +115,7 @@ const OAUTH_TEST_CONFIG = {
     method: "GET",
     authHeader: "Authorization",
     authPrefix: "Bearer ",
-    extraHeaders: { "User-Agent": "9Router", "Accept": "application/vnd.github+json" },
+    extraHeaders: { "User-Agent": "X Router", "Accept": "application/vnd.github+json" },
   },
   iflow: {
     // iFlow getUserInfo requires accessToken as query param, not header
@@ -72,10 +124,63 @@ const OAUTH_TEST_CONFIG = {
     noAuth: true,
   },
   kiro: { checkExpiry: true, refreshable: true },
+  "aws-quick": {
+    // Probe Quick's data plane (entitlements qbs-event): validates the id_token,
+    // the tenant and the account in one call without spending agent-hours.
+    // Uses the shared proxy-aware helper (tenantUrl, else wsHost fallback) so a
+    // connection's proxy and relay settings apply here too.
+    // Refresh is handled here (AWS rotates the refresh token every refresh);
+    // testSingleConnection persists newTokens.
+    checkExpiry: false,
+    refreshable: false,
+    customTest: async (connection, effectiveProxy) => {
+      const psd = connection.providerSpecificData || {};
+      // wsHost is a valid base too (the helper derives https://<wsHost>).
+      if (!psd.tenantUrl && !psd.wsHost) {
+        return { valid: false, error: "Missing Quick tenant/account metadata" };
+      }
+      const { probeAwsQuickEntitlementsResponse } = await import("open-sse/services/usage/aws-quick.js");
+      const probe = (token) => probeAwsQuickEntitlementsResponse(token, psd, effectiveProxy, {
+        signal: AbortSignal.timeout(15000),
+      });
+      let res = await probe(connection.accessToken).catch(() => null);
+      let refreshed = false;
+      let newTokens = null;
+      if ((!res || res.status === 401 || res.status === 403) && connection.refreshToken) {
+        try {
+          const { refreshAwsQuickToken } = await import("open-sse/services/tokenRefresh/aws-quick.js");
+          const merged = await refreshAwsQuickToken(connection.refreshToken, psd, console);
+          if (merged?.accessToken) {
+            refreshed = true;
+            newTokens = {
+              accessToken: merged.accessToken,
+              idToken: merged.idToken,
+              refreshToken: merged.refreshToken || connection.refreshToken,
+              expiresIn: merged.expiresIn,
+            };
+            res = await probe(newTokens.accessToken).catch(() => null);
+          }
+        } catch { /* fall through to the original response's classification */ }
+      }
+      if (res && res.ok) return { valid: true, error: null, refreshed, newTokens };
+      if (res && (res.status === 401 || res.status === 403)) {
+        return { valid: false, error: "Token invalid or revoked", refreshed, newTokens };
+      }
+      // Throttling / upstream outage / timeout says nothing about the
+      // credentials: soft success keeps the connection active with a warning.
+      if (res && (res.status === 408 || res.status === 429 || res.status >= 500)) {
+        return { valid: true, warning: `Quick API returned ${res.status} — quota unknown`, refreshed, newTokens };
+      }
+      if (!res) {
+        return { valid: true, warning: "Quick API probe failed or timed out — quota unknown", refreshed, newTokens };
+      }
+      return { valid: false, error: `Quick API returned ${res.status}`, refreshed, newTokens };
+    },
+  },
   qoder: {
     // Test by hitting Qoder's userinfo endpoint with the device token.
     // refreshable: false because the device-flow refresh endpoint returns
-    // 403 for our flow (users re-login when expired). No checkExpiry -
+    // 403 for our flow (users re-login when expired). No checkExpiry —
     // we want the actual URL probe to run so revoked tokens surface.
     url: "https://openapi.qoder.sh/api/v1/userinfo",
     method: "GET",
@@ -102,7 +207,7 @@ const OAUTH_TEST_CONFIG = {
   },
   cline: { refreshable: true },
   gitlab: {
-    // Test by hitting the GitLab user API - requires api or read_user scope
+    // Test by hitting the GitLab user API — requires api or read_user scope
     url: "https://gitlab.com/api/v4/user",
     method: "GET",
     authHeader: "Authorization",
@@ -120,7 +225,7 @@ const OAUTH_TEST_CONFIG = {
     },
     refreshable: false,
   },
-  // Grok CLI / Grok Build - probe /v1/user (no inference quota). Headers mirror official CLI.
+  // Grok CLI / Grok Build — probe /v1/user (no inference quota). Headers mirror official CLI.
   "grok-cli": {
     url: PROVIDERS["grok-cli"]?.userUrl || "https://cli-chat-proxy.grok.com/v1/user",
     method: "GET",
@@ -136,14 +241,14 @@ const OAUTH_TEST_CONFIG = {
       }),
     },
     refreshable: true,
-    // Subscription spending-limit is not an auth failure - token is fine, credits aren't.
+    // Subscription spending-limit is not an auth failure — token is fine, credits aren't.
     // Accept 402 so the connection stays "active" with a warning (same idea as Codex 400).
     acceptStatuses: [402],
     softFailMessage: {
       402: "Connected, but Grok Build credits are exhausted (spending limit). Add credits or upgrade SuperGrok.",
     },
   },
-  // Muse Code subscription - probe /v1/models with the minted LLM|… key
+  // Muse Code subscription — probe /v1/models with the minted LLM|… key
   "muse": {
     url: "https://api.meta.ai/v1/models",
     method: "GET",
@@ -152,27 +257,164 @@ const OAUTH_TEST_CONFIG = {
     extraHeaders: { "x-api-version": "1.0.0" },
     refreshable: false,
   },
+  "zcode": {
+    customTest: async (connection, effectiveProxy) => {
+      try {
+        const { getZcodeUsage } = await import("open-sse/services/usage/zcode.js");
+        const usage = await getZcodeUsage(connection, effectiveProxy);
+        if (usage && (usage.quotas || usage.plan)) {
+          return { valid: true, error: null, refreshed: false, newTokens: null };
+        }
+        return { valid: false, error: usage?.message || "ZCode test failed", refreshed: false };
+      } catch (err) {
+        return { valid: false, error: err?.message || "ZCode connection test error", refreshed: false };
+      }
+    },
+  },
+  "glm": {
+    customTest: async (connection, effectiveProxy) => {
+      try {
+        if (connection.providerSpecificData?.zcodeJwtToken) {
+          const { getZcodeUsage } = await import("open-sse/services/usage/zcode.js");
+          const usage = await getZcodeUsage(connection, effectiveProxy);
+          if (usage && (usage.quotas || usage.plan)) {
+            return { valid: true, error: null, refreshed: false, newTokens: null };
+          }
+        }
+        const token = connection.accessToken || connection.apiKey;
+        const res = await fetchWithConnectionProxy("https://api.z.ai/api/monitor/usage/quota/limit", {
+          headers: {
+            "x-api-key": token,
+            "Authorization": `Bearer ${token}`,
+            "User-Agent": "ZCode/3.16.3",
+            "HTTP-Referer": "https://zcode.z.ai",
+            "x-zcode-app-version": "3.16.3",
+            "x-title": "Z Code@electron",
+            "x-platform": "win32-x64",
+            "x-os-category": "windows",
+            "x-os-version": "10.0.26300",
+          },
+        }, effectiveProxy).catch(() => null);
+        if (res && res.ok) {
+          return { valid: true, error: null, refreshed: false, newTokens: null };
+        }
+        if (connection.providerSpecificData?.zcodeJwtToken) {
+          return { valid: true, error: null, refreshed: false, newTokens: null };
+        }
+        return { valid: false, error: "Z.ai connection check failed", refreshed: false };
+      } catch (err) {
+        return { valid: false, error: err?.message || "GLM test error", refreshed: false };
+      }
+    },
+  },
+  freepi: {
+    // /me/stats answers 401 "invalid or expired token" for CLI tokens even while
+    // chat completions work (verified against the live account), so a GET probe
+    // marked every healthy FreePI account as expired. Probe the real endpoint.
+    checkExpiry: false,
+    refreshable: false,
+    customTest: (connection, effectiveProxy) => probeFreePi(connection, effectiveProxy),
+  },
   nous: {
-    url: NOUS_CHAT_COMPLETIONS_URL,
-    method: "POST",
-    authHeader: "Authorization",
-    authPrefix: "Bearer ",
-    extraHeaders: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: NOUS_VALIDATION_MODEL,
-      messages: [{ role: "user", content: "ping" }],
-      max_tokens: 1,
-      stream: false,
-    }),
     refreshable: true,
-    useApiKey: true
+    customTest: async (connection, effectiveProxy) => {
+      let token = connection.apiKey || connection.accessToken;
+      let refreshed = false;
+      let newTokens = null;
+
+      const tokenExpired = isTokenExpired(connection);
+      if (tokenExpired && connection.refreshToken) {
+        const tokens = await refreshOAuthToken(connection);
+        if (tokens) {
+          token = tokens.apiKey || tokens.accessToken;
+          refreshed = true;
+          newTokens = tokens;
+        } else {
+          return { valid: false, error: "Token expired and refresh failed", refreshed: false };
+        }
+      }
+
+      if (!token) {
+        return { valid: false, error: "No access token or credentials found", refreshed: false };
+      }
+
+      const candidateModels = [
+        NOUS_VALIDATION_MODEL,
+        "stepfun/step-3.7-flash:free",
+        "tencent/hy4-flash:free",
+        "qwen/qwen4-max:free",
+        "meituan/longcat-2.5:free",
+      ];
+
+      let res = null;
+      for (const candidate of candidateModels) {
+        const probe = createNousApiKeyProbe(token, candidate);
+        try {
+          res = await fetchWithConnectionProxy(
+            probe.url,
+            {
+              ...probe.options,
+              signal: AbortSignal.timeout(10000),
+            },
+            effectiveProxy
+          );
+          if (res && res.status === 404) {
+            continue;
+          }
+          break;
+        } catch (err) {
+          return { valid: false, error: err.message || "Connection failed", refreshed, newTokens };
+        }
+      }
+
+      if (res && (res.status === 401 || res.status === 403) && !refreshed && connection.refreshToken) {
+        const tokens = await refreshOAuthToken(connection);
+        if (tokens?.accessToken || tokens?.apiKey) {
+          const freshToken = tokens.apiKey || tokens.accessToken;
+          for (const candidate of candidateModels) {
+            const retryProbe = createNousApiKeyProbe(freshToken, candidate);
+            try {
+              const retryRes = await fetchWithConnectionProxy(
+                retryProbe.url,
+                {
+                  ...retryProbe.options,
+                  signal: AbortSignal.timeout(10000),
+                },
+                effectiveProxy
+              );
+              if (retryRes && retryRes.status === 404) {
+                continue;
+              }
+              const valid = isNousApiKeyAccepted(retryRes.status);
+              return {
+                valid,
+                error: valid ? null : getNousApiKeyValidationError(retryRes.status),
+                refreshed: true,
+                newTokens: tokens,
+              };
+            } catch (retryErr) {
+              return { valid: false, error: retryErr.message || "Retry connection failed", refreshed: true, newTokens: tokens };
+            }
+          }
+        }
+        return { valid: false, error: "Token invalid or revoked", refreshed: false };
+      }
+
+      const valid = res ? isNousApiKeyAccepted(res.status) : false;
+      return {
+        valid,
+        error: valid ? null : getNousApiKeyValidationError(res?.status || 500),
+        refreshed,
+        newTokens,
+      };
+    },
   },
 };
 
 /**
  * Classify an OAuth probe response as success / soft-success / hard-fail.
  * Soft success (e.g. 402 spending-limit on Grok CLI) means auth works but the
- * account cannot spend - keep connection active and surface a warning.
+ * account cannot spend — keep connection active and surface a warning.
  * Exported for unit tests.
  */
 export function classifyOAuthProbeResult(res, config, bodyText = "") {
@@ -187,7 +429,7 @@ export function classifyOAuthProbeResult(res, config, bodyText = "") {
 
   // Soft success only when the provider configured an explicit message for this
   // status (e.g. Grok CLI 402 spending-limit). Codex-style acceptStatuses:[400]
-  // stays silent success - 400 there only proves auth, not a user-facing warning.
+  // stays silent success — 400 there only proves auth, not a user-facing warning.
   if (!res.ok && config?.acceptStatuses?.includes(status)) {
     const softMap = config.softFailMessage || {};
     if (softMap[status]) {
@@ -280,8 +522,23 @@ async function refreshOAuthToken(connection) {
       return { accessToken: data.access_token, expiresIn: data.expires_in, refreshToken: data.refresh_token || refreshToken };
     }
 
-    if (provider === "codex" || provider === "grok-cli" || provider === "xai" || provider === "nous") {
+    if (provider === "codex" || provider === "grok-cli" || provider === "xai") {
       return await refreshProviderCredentials(provider, connection, console);
+    }
+
+    if (provider === "nous") {
+      const refreshed = await refreshNousToken(refreshToken, console);
+      if (!refreshed) return null;
+      return {
+        accessToken: refreshed.accessToken,
+        expiresIn: refreshed.expiresIn || 3600,
+        refreshToken: refreshed.refreshToken || refreshToken,
+        apiKey: refreshed.apiKey || refreshed.accessToken,
+        providerSpecificData: {
+          ...(connection.providerSpecificData || {}),
+          ...(refreshed.providerSpecificData || {}),
+        },
+      };
     }
 
     if (provider === "claude") {
@@ -317,7 +574,7 @@ async function refreshOAuthToken(connection) {
       }
       const response = await fetch(KIRO_CONFIG.socialRefreshUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": "kiro-cli/1.0.0" },
+        headers: { "Content-Type": "application/json", ...buildKiroIdentityHeaders({ refreshToken }) },
         body: JSON.stringify({ refreshToken }),
       });
       if (!response.ok) return null;
@@ -362,14 +619,20 @@ function isTokenExpired(connection) {
 async function testOAuthConnection(connection, effectiveProxy = null) {
   const config = OAUTH_TEST_CONFIG[connection.provider];
   if (!config) return { valid: false, error: "Provider test not supported", refreshed: false };
-  if (!connection.accessToken) return { valid: false, error: "No access token", refreshed: false };
+
+  if (typeof config.customTest === "function") {
+    return await config.customTest(connection, effectiveProxy);
+  }
+
+  const token = connection.accessToken || connection.apiKey || connection.providerSpecificData?.idToken || connection.providerSpecificData?.refreshToken;
+  if (!token && !connection.accessToken) return { valid: false, error: "No access token", refreshed: false };
 
   // Cursor uses protobuf API - can only verify token exists, not test endpoint
   if (config.tokenExists) {
     return { valid: true, error: null, refreshed: false, newTokens: null };
   }
 
-  let accessToken = config.useApiKey ? (connection.apiKey || connection.accessToken) : connection.accessToken;
+  let accessToken = connection.accessToken;
   let refreshed = false;
   let newTokens = null;
 
@@ -377,7 +640,7 @@ async function testOAuthConnection(connection, effectiveProxy = null) {
   if (config.refreshable && tokenExpired && connection.refreshToken) {
     const tokens = await refreshOAuthToken(connection);
     if (tokens) {
-      accessToken = config.useApiKey ? (tokens.apiKey || tokens.accessToken) : tokens.accessToken;
+      accessToken = tokens.accessToken;
       refreshed = true;
       newTokens = tokens;
     } else {
@@ -458,11 +721,10 @@ async function testOAuthConnection(connection, effectiveProxy = null) {
     if (res.status === 401 && config.refreshable && !refreshed && connection.refreshToken) {
       const tokens = await refreshOAuthToken(connection);
       if (tokens) {
-        const retryToken = config.useApiKey ? (tokens.apiKey || tokens.accessToken) : tokens.accessToken;
-        const retryUrl = config.buildUrl ? config.buildUrl(retryToken) : testUrl;
+        const retryUrl = config.buildUrl ? config.buildUrl(tokens.accessToken) : testUrl;
         const retryHeaders = config.noAuth
           ? { ...config.extraHeaders }
-          : { [config.authHeader]: `${config.authPrefix}${retryToken}`, ...config.extraHeaders };
+          : { [config.authHeader]: `${config.authPrefix}${tokens.accessToken}`, ...config.extraHeaders };
         const retryOpts = { method: config.method, headers: retryHeaders };
         if (config.body) retryOpts.body = config.body;
         const retryRes = await fetchWithConnectionProxy(retryUrl, retryOpts, effectiveProxy);
@@ -514,9 +776,13 @@ async function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null
   });
 }
 
-export async function testApiKeyConnection(connection, effectiveProxy = null) {
+async function testApiKeyConnection(connection, effectiveProxy = null) {
   if (isOpenAICompatibleProvider(connection.provider)) {
-    const modelsBase = connection.providerSpecificData?.baseUrl;
+    let modelsBase = connection.providerSpecificData?.baseUrl;
+    if (!modelsBase) {
+      const node = await getProviderNodeById(connection.provider);
+      modelsBase = node?.baseUrl;
+    }
     if (!modelsBase) return { valid: false, error: "Missing base URL" };
     try {
       const res = await fetchWithConnectionProxy(`${modelsBase.replace(/\/$/, "")}/models`, {
@@ -553,19 +819,6 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
       // 400/529 still confirms key accepted; only 401/403 = bad key
       const valid = res.status !== 401 && res.status !== 403;
       return { valid, error: valid ? null : "Invalid API key or base URL" };
-    } catch (err) {
-      return { valid: false, error: err.message };
-    }
-  }
-
-  // AWS-signed providers (Bedrock): without this every Test ends in the switch's default,
-  // "Provider test not supported", and marks a working connection as errored.
-  if (AI_PROVIDERS[connection.provider]?.credentialForm === "aws") {
-    try {
-      return await probeBedrockCredentials(
-        connection,
-        (url, options) => fetchWithConnectionProxy(url, options, effectiveProxy),
-      );
     } catch (err) {
       return { valid: false, error: err.message };
     }
@@ -627,8 +880,6 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
       case "nous": {
-        // /models is public on Nous; a minimal chat request is required to
-        // distinguish an accepted Portal key from an arbitrary Bearer value.
         const probe = createNousApiKeyProbe(connection.apiKey);
         const res = await fetchWithConnectionProxy(probe.url, {
           ...probe.options,
@@ -641,9 +892,22 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
         };
       }
       case "glm": {
+        const token = connection.apiKey || connection.accessToken;
         const res = await fetchWithConnectionProxy("https://api.z.ai/api/anthropic/v1/messages", {
           method: "POST",
-          headers: { "x-api-key": connection.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          headers: {
+            "x-api-key": token,
+            "Authorization": `Bearer ${token}`,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "User-Agent": "ZCode/3.16.3",
+            "HTTP-Referer": "https://zcode.z.ai",
+            "x-zcode-app-version": "3.16.3",
+            "x-title": "Z Code@electron",
+            "x-platform": "win32-x64",
+            "x-os-category": "windows",
+            "x-os-version": "10.0.26300",
+          },
           body: JSON.stringify({ model: "glm-4.7", max_tokens: 1, messages: [{ role: "user", content: "test" }] }),
         }, effectiveProxy);
         const valid = res.status !== 401 && res.status !== 403;
@@ -757,25 +1021,9 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
         const res = await fetchWithConnectionProxy("https://api.hyperbolic.xyz/v1/models", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
-      case "llmtr": {
-        // /v1/models answers 200 for any bearer token. A one-token chat call
-        // returns 401 for a bad key and anything else for a key the gateway accepts.
-        const res = await fetchWithConnectionProxy("https://llmtr.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${connection.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "qwen/qwen3.8-27b-free",
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 1,
-          }),
-        }, effectiveProxy);
-        const valid = res.status !== 401 && res.status !== 403;
-        return { valid, error: valid ? null : "Invalid API key" };
-      }
+      case "dothoosh":
       case "tokenharbor":
+      case "river":
       case "dahl":
       case "atria":
       case "agnes":
@@ -795,7 +1043,7 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
         return { valid: res.ok, error: res.ok ? null : `Ollama not reachable at ${host}` };
       }
       case "deepgram": {
-        const res = await fetchWithConnectionProxy("https://api.deepgram.com/v1/projects", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
+        const res = await fetchWithConnectionProxy("https://api.deepgram.com/v1/projects", { headers: { Authorization: `Token ${connection.apiKey}` } }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
       case "assemblyai": {
@@ -807,7 +1055,7 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
       case "fal-ai": {
-        const res = await fetchWithConnectionProxy("https://api.fal.ai/v1/models?limit=1", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
+        const res = await fetchWithConnectionProxy("https://api.fal.ai/v1/models?limit=1", { headers: { Authorization: `Key ${connection.apiKey}` } }, effectiveProxy);
         const valid = res.status !== 401 && res.status !== 403;
         return { valid, error: valid ? null : "Invalid API key" };
       }
@@ -815,10 +1063,47 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
         const res = await fetchWithConnectionProxy("https://llm.chutes.ai/v1/models", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
-      case "opencode": {
-        // OpenCode Free uses public credentials; avoid quota-consuming upstream
-        // probes during dashboard connection tests.
+      case "deepseek-web": {
+        let token = connection.apiKey.trim();
+        if (token.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(token);
+            if (parsed && typeof parsed.value === "string") token = parsed.value.trim();
+          } catch {}
+        }
+        if (token.includes("userToken=")) {
+          const m = token.match(/userToken=([^;]+)/);
+          if (m) token = m[1].trim();
+        }
+        if (token.startsWith("Bearer ")) token = token.slice(7).trim();
+        token = token.replace(/^["']|["']$/g, "").trim();
+
+        if (!token) return { valid: false, error: "Invalid token format" };
+
+        const res = await fetchWithConnectionProxy("https://chat.deepseek.com/api/v0/users/current", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            Origin: "https://chat.deepseek.com",
+            Referer: "https://chat.deepseek.com/",
+            "x-app-version": "20241129.0",
+            "x-client-platform": "web",
+          },
+        }, effectiveProxy).catch(() => null);
+
+        if (!res || !res.ok) return { valid: false, error: "Invalid token or connection failed" };
+        const data = await res.json().catch(() => null);
+        if (!data || data.code !== 0 || (data.data && data.data.biz_code !== undefined && data.data.biz_code !== 0)) {
+          return { valid: false, error: data?.msg || data?.data?.biz_msg || "Invalid token - rejected by chat.deepseek.com" };
+        }
         return { valid: true, error: null };
+      }
+      case "opencode": {
+        const res = await fetchWithConnectionProxy("https://opencode.ai/inference/v1/models", {
+          headers: { Authorization: "Bearer public", "User-Agent": "opencode/latest/2.0.29/cli", "x-opencode-client": "cli" },
+        }, effectiveProxy);
+        return { valid: res.ok, error: res.ok ? null : "OpenCode free tier unavailable" };
       }
       case "opencode-go": {
         const res = await fetchWithConnectionProxy("https://opencode.ai/zen/go/v1/chat/completions", {
@@ -836,6 +1121,12 @@ export async function testApiKeyConnection(connection, effectiveProxy = null) {
           headers: { Authorization: `Bearer ${connection.apiKey}` },
         }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
+      }
+      case "freepi": {
+        // apiKey-mode connections land here (OAuth ones go through customTest);
+        // same reason: a GET probe on /me/stats lies about healthy tokens.
+        const checked = await probeFreePi(connection, effectiveProxy);
+        return { valid: checked.valid, error: checked.error };
       }
       case "blackbox": {
         const baseUrl = PROVIDERS["blackbox"]?.baseUrl?.replace(/\/chat\/completions$/, "") || "https://api.blackbox.ai/v1";
@@ -876,7 +1167,7 @@ case "llm7": {
         return { valid: res.ok, error: res.ok ? null : "Invalid API key or base URL" };
       }
       case "kimchi": {
-        // Dual-auth: same validation endpoint as the OAuth flow - the token (API key
+        // Dual-auth: same validation endpoint as the OAuth flow — the token (API key
         // or OAuth access token) is sent as Authorization: Bearer.
         const url = KIMCHI_CONFIG.validationUrl || "https://api.cast.ai/v1/llm/openai/supported-providers";
         const res = await fetchWithConnectionProxy(url, {
@@ -890,28 +1181,122 @@ case "llm7": {
         return { valid: res.ok, error: res.ok ? null : "Invalid API key", refreshed: false };
       }
       case "gemini-web": {
-        // The credential is a browser session, so a chat completion is the wrong
-        // probe twice over: no API route accepts a raw cookie, and the web queue
-        // routinely runs past the 15s test budget, which surfaced as "cookie
-        // invalid" while the session was perfectly alive.
-        const probe = await probeGeminiWebCookie(connection.apiKey);
-        return { valid: probe.valid, error: probe.valid ? null : probe.error, warning: probe.warning || null, refreshed: false };
-      }
-      case "deepseek-web": {
-        const raw = String(connection?.apiKey || "").trim();
-        let token = raw;
-        if (raw.startsWith("{")) {
+        let cookie = connection.apiKey.trim();
+        if (cookie.startsWith("{")) {
           try {
-            const parsed = JSON.parse(raw);
-            token = parsed.value || parsed.userToken || parsed.token || raw;
-          } catch {
-            token = raw;
-          }
+            const parsed = JSON.parse(cookie);
+            const cookies =
+              parsed.cookies && typeof parsed.cookies === "object" && !Array.isArray(parsed.cookies)
+                ? parsed.cookies
+                : parsed;
+            const pairs = Object.entries(cookies)
+              .filter(([, v]) => typeof v === "string" && v.trim().length > 0)
+              .map(([k, v]) => `${k}=${String(v).trim()}`);
+            if (pairs.length > 0) cookie = pairs.join("; ");
+          } catch {}
         }
-        if (token.toLowerCase().startsWith("bearer ")) token = token.slice(7).trim();
-        token = token.replace(/^["']|["']$/g, "").trim();
-        if (!token) return { valid: false, error: "UserToken is required", refreshed: false };
-        return { valid: true, error: null, refreshed: false };
+        if (!cookie) return { valid: false, error: "Invalid cookie format" };
+        if (!cookie.includes("=")) {
+          cookie = `__Secure-1PSID=${cookie}`;
+        }
+
+        let dispatcher = undefined;
+        try {
+          const { Agent } = await import("undici");
+          dispatcher = new Agent({ maxHeaderSize: 64 * 1024 });
+        } catch {}
+
+        const res = await fetchWithConnectionProxy("https://gemini.google.com/app", {
+          method: "GET",
+          dispatcher,
+          headers: {
+            Cookie: cookie,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "sec-ch-ua": '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "none",
+            "sec-fetch-user": "?1",
+            "upgrade-insecure-requests": "1",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+          signal: AbortSignal.timeout(10000),
+        }, effectiveProxy).catch(() => null);
+
+        if (res && res.ok) {
+          const html = await res.text().catch(() => "");
+          if (html.includes("SNlM0e") || html.includes("BardChatUi")) {
+            return { valid: true, error: null };
+          }
+          return { valid: false, error: "Cookie kedaluwarsa atau parameter sesi SNlM0e tidak ditemukan." };
+        }
+
+        // Google blocks datacenter IPs directly. If cookie structure is valid, accept it.
+        const hasPsid = cookie.includes("__Secure-1PSID=") && cookie.match(/__Secure-1PSID=([^;]+)/)?.[1]?.length > 20;
+        if (hasPsid) {
+          return { valid: true, error: null };
+        }
+
+        return {
+          valid: false,
+          error: !cookie.includes("__Secure-1PSIDTS")
+            ? "Cookie ditolak oleh Google. Google Gemini mewajibkan kedua cookie: __Secure-1PSID dan __Secure-1PSIDTS."
+            : "Cookie ditolak oleh Google (IP diblokir atau sesi kedaluwarsa). Pastikan mengikat Proxy Pool.",
+        };
+      }
+      case "grok-web": {
+        let cookie = connection.apiKey.trim();
+        if (cookie.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(cookie);
+            const cookies =
+              parsed.cookies && typeof parsed.cookies === "object" && !Array.isArray(parsed.cookies)
+                ? parsed.cookies
+                : parsed;
+            const pairs = Object.entries(cookies)
+              .filter(([, v]) => typeof v === "string" && v.trim().length > 0)
+              .map(([k, v]) => `${k}=${String(v).trim()}`);
+            if (pairs.length > 0) cookie = pairs.join("; ");
+          } catch {}
+        }
+        if (!cookie) return { valid: false, error: "Invalid cookie format" };
+
+        const res = await fetchWithConnectionProxy("https://grok.com", {
+          method: "GET",
+          headers: {
+            Cookie: cookie,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+          signal: AbortSignal.timeout(10000),
+        }, effectiveProxy).catch(() => null);
+
+        return { valid: res && res.ok, error: res && res.ok ? null : "Grok cookie invalid or connection blocked" };
+      }
+      case "zai-web": {
+        const token = (connection.apiKey || connection.accessToken || "").trim().replace(/^Bearer\s+/i, "");
+        if (!token) return { valid: false, error: "Missing Z.ai token (from chat.z.ai localStorage)" };
+
+        const res = await fetchWithConnectionProxy("https://chat.z.ai/api/v1/users/user", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+          },
+          signal: AbortSignal.timeout(10000),
+        }, effectiveProxy).catch(() => null);
+
+        if (res && res.ok) {
+          return { valid: true, error: null };
+        }
+        if (res && (res.status === 401 || res.status === 403)) {
+          return { valid: false, error: "Token chat.z.ai tidak valid atau kedaluwarsa. Copy ulang token dari localStorage chat.z.ai." };
+        }
+        return { valid: false, error: res ? `Z.ai test failed (HTTP ${res.status})` : "Connection to chat.z.ai failed or timed out" };
       }
       default:
         return { valid: false, error: "Provider test not supported" };
@@ -970,8 +1355,8 @@ export async function testSingleConnection(id) {
 
   if (result.refreshed && result.newTokens) {
     if (result.newTokens.accessToken) updateData.accessToken = result.newTokens.accessToken;
-    if (result.newTokens.refreshToken) updateData.refreshToken = result.newTokens.refreshToken;
     if (result.newTokens.apiKey) updateData.apiKey = result.newTokens.apiKey;
+    if (result.newTokens.refreshToken) updateData.refreshToken = result.newTokens.refreshToken;
     if (result.newTokens.idToken) updateData.idToken = result.newTokens.idToken;
     if (result.newTokens.lastRefreshAt) updateData.lastRefreshAt = result.newTokens.lastRefreshAt;
     if (result.newTokens.expiresIn) updateData.expiresIn = result.newTokens.expiresIn;
@@ -986,6 +1371,20 @@ export async function testSingleConnection(id) {
         ...result.newTokens.providerSpecificData,
       };
     }
+  }
+
+  // Auto-delete invalid key
+  if (!result.valid && result.error && (
+    result.error.toLowerCase().includes("invalid api key") ||
+    result.error.toLowerCase().includes("unauthorized") ||
+    result.error.toLowerCase().includes("forbidden") ||
+    result.error.toLowerCase().includes("insufficient_quota") ||
+    result.error.toLowerCase().includes("out of credits")
+  )) {
+    try {
+      await deleteProviderConnection(id);
+      return { valid: false, error: `${result.error} (auto-deleted)`, refreshed: false, latencyMs, testedAt: new Date().toISOString() };
+    } catch {}
   }
 
   await updateProviderConnection(id, updateData);

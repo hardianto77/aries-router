@@ -51,21 +51,13 @@ const USAGE_EXTRACTORS = {
     return out;
   },
   ollama(raw) {
-    const input = n(raw.prompt_eval_count),
-      output = n(raw.eval_count),
-      // prompt_eval_cached_count is a cache-read subset of prompt_eval_count
-      // (Ollama reports prompt tokens cache-INCLUSIVE, matching OpenAI/Gemini).
-      cached = n(raw.prompt_eval_cached_count);
-    return { promptTokens: input, completionTokens: output, totalTokens: input + output, cachedTokens: cached };
+    const input = n(raw.prompt_eval_count), output = n(raw.eval_count);
+    return { promptTokens: input, completionTokens: output, totalTokens: input + output };
   },
   commandcode(raw) {
     const input = n(raw.inputTokens), output = n(raw.outputTokens);
     const total = typeof raw.totalTokens === "number" ? raw.totalTokens : input + output;
-    // AI SDK v5 usage carries the cache read as `cachedInputTokens` (nested
-    // `inputTokenDetails.cacheReadTokens` in some builds). Without this the
-    // upstream cache hit is recorded as 0 and billed at the full input rate.
-    const cached = n(raw.cachedInputTokens ?? raw.inputTokenDetails?.cacheReadTokens);
-    return { promptTokens: input, completionTokens: output, totalTokens: total, cachedTokens: cached };
+    return { promptTokens: input, completionTokens: output, totalTokens: total };
   },
 };
 

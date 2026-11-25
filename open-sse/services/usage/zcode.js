@@ -12,11 +12,14 @@
 
 import crypto from "node:crypto";
 import { proxyAwareFetch } from "../../utils/proxyFetch.js";
+import { ZCODE_APP_VERSION } from "../../config/zcodeIdentity.js";
 
 const ZCODE_BALANCE_URL = "https://zcode.z.ai/api/v1/zcode-plan/billing/balance";
-const ZCODE_APP_VERSION = "3.16.3";
 
 function stableDeviceMid(connection) {
+  // Prefer the identity minted at login; the hash keeps hand-written rows stable.
+  const stored = connection?.providerSpecificData?.deviceId || connection?.providerSpecificData?.deviceMid;
+  if (typeof stored === "string" && stored.trim()) return stored.trim();
   const seed = String(connection?.providerSpecificData?.userId || connection?.id || "zcode");
   const bytes = crypto.createHash("sha256").update(seed).digest().subarray(0, 16);
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -30,12 +33,15 @@ export function parseZcodeStartPlanBalance(json) {
   const plans = Array.isArray(data.plans) ? data.plans : [];
   const balances = Array.isArray(data.balances) ? data.balances : [];
 
-  const activePlan = plans.find((plan) => {
+  let activePlan = plans.find((plan) => {
     if (String(plan?.status || "").toLowerCase() !== "active") return false;
     const identity = `${plan?.plan_id || ""} ${plan?.name || ""}`.toLowerCase();
-    return identity.includes("start-plan") || identity.includes("start plan");
+    return identity.includes("start-plan") || identity.includes("start plan") || identity.includes("build") || identity.includes("gift");
   });
-  if (!activePlan) return { message: "No active ZCode Start Plan." };
+  if (!activePlan && plans.length > 0) {
+    activePlan = plans.find((p) => String(p?.status || "").toLowerCase() === "active") || plans[0];
+  }
+  if (!activePlan && balances.length === 0) return { message: "No active ZCode Start Plan." };
 
   const quotas = {};
   for (const balance of balances) {
@@ -47,7 +53,21 @@ export function parseZcodeStartPlanBalance(json) {
       .map((capability) => String(capability).trim())
       .filter((capability) => capability.toLowerCase().startsWith("model:"))
       .map((capability) => capability.slice(6).trim());
-    const name = balance?.show_name || models.join(", ") || balance?.entitlement_id || balance?.meter || "Quota";
+    const baseName = balance?.show_name || models.join(", ") || balance?.entitlement_id || balance?.meter || "Quota";
+
+    // Disambiguate by matching plan to avoid overwriting identical show_names (e.g. 500M Weekend Build vs 5M Start Plan)
+    const associatedPlan = plans.find((p) => p.plan_id === balance.plan_id || p.user_plan_id === balance.user_plan_id);
+    const planName = associatedPlan?.name || "";
+    const isStartPlan = !planName || /start[- ]?plan/i.test(planName);
+
+    let name = baseName;
+    if (!isStartPlan && planName) {
+      name = `${baseName} (${planName})`;
+    } else if (quotas[name]) {
+      const totalM = Math.round(total / 1000000);
+      name = `${baseName} (${totalM > 0 ? `${totalM}M` : total})`;
+    }
+
     const expiresAt = Number(balance?.expires_at);
     const resetAt = Number.isFinite(expiresAt) && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null;
     const remainingUnits = Number(balance?.remaining_units);
@@ -60,6 +80,8 @@ export function parseZcodeStartPlanBalance(json) {
     quotas[name] = {
       used: Number.isFinite(used) ? used : 0,
       total: Number.isFinite(total) ? total : 0,
+      totalTokens: Number.isFinite(total) ? total : 0,
+      usedTokens: Number.isFinite(used) ? used : 0,
       remaining: Number.isFinite(total) && total > 0 && Number.isFinite(remaining) ? Math.round((remaining / total) * 100) : 100,
       // Remaining share with decimals so small usage is not rounded up to 100%.
       ...(Number.isFinite(total) && total > 0 && Number.isFinite(remaining)
@@ -75,7 +97,7 @@ export function parseZcodeStartPlanBalance(json) {
   }
 
   if (!Object.keys(quotas).length) return { message: "ZCode Start Plan has no usage buckets." };
-  return { plan: activePlan.name || activePlan.plan_id || "Start Plan", quotas };
+  return { plan: activePlan?.name || activePlan?.plan_id || "Start Plan", quotas };
 }
 
 export function buildZcodeBalanceRequest(connection) {

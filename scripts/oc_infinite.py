@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""aries-router-oc-infinite: bawaan router.
-Watch log aries-router: kalau OpenCode lane kena 429/limit -> rotasi WARP fresh
-(warp_rotate.sh) -> kunci model otomatis lewat (lock 30s) -> request lanjut
-pakai egress WARP baru. Built-in systemd, bukan skrip terpisah.
+"""aries-router-oc-infinite: OpenCode Infinite Auto-Rotator (Stable Cursor)
+Watches Aries Router and OpenCode Bridge for fresh FreeUsageLimitError (429)
+Using --since window to completely prevent stale log thrashing.
 """
 import re, subprocess, time, os, sys
 
-LOG_CMD = ["journalctl", "-u", "aries-router", "-n", "40", "--no-pager", "-o", "cat"]
-PATTERNS = re.compile(r"\[429\]|rate.?limit|There is an error but this error is hidden|quota.*exceed", re.I)
-COOLDOWN = 300  # max 1 rotasi / 5 menit
+LOG_CMD = ["journalctl", "-u", "aries-router", "--since", "15 seconds ago", "--no-pager", "-o", "cat"]
+BRIDGE_LOG = "/tmp/opencode-bridge.log"
+PATTERNS = re.compile(
+    r"FreeUsageLimitError|allowance 429|quota.*exceed",
+    re.I
+)
+COOLDOWN = 30  # minimum 30s between rotations to allow connection to settle
 STATE = "/tmp/.oc-infinite.last"
 
 def warp_rotate():
-    subprocess.run(["/opt/aries-router/scripts/warp_rotate.sh"], timeout=200)
+    subprocess.run(["/opt/aries-router/scripts/warp_rotate.sh"], timeout=40)
 
 def last_rotate_age():
     try:
@@ -21,19 +24,22 @@ def last_rotate_age():
         return 1e9
 
 def main():
+    print("[oc-infinite] OpenCode Infinite Daemon started with 15s sliding window.", flush=True)
     while True:
         try:
-            out = subprocess.run(LOG_CMD, capture_output=True, text=True, timeout=30).stdout
+            out_ar = subprocess.run(LOG_CMD, capture_output=True, text=True, timeout=10).stdout or ""
         except Exception:
-            out = ""
-        if PATTERNS.search(out or "") and last_rotate_age() > COOLDOWN:
+            out_ar = ""
+        
+        if PATTERNS.search(out_ar) and last_rotate_age() > COOLDOWN:
             open(STATE, "w").write(str(time.time()))
-            print(f"[{time.strftime('%H:%M:%S')}] limit detected -> rotating WARP", flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}] Fresh FreeUsageLimit detected -> rotating WARP IP...", flush=True)
             try:
                 warp_rotate()
+                print(f"[{time.strftime('%H:%M:%S')}] WARP rotated and pool reset successfully.", flush=True)
             except Exception as e:
                 print("rotate failed:", e, flush=True)
-        time.sleep(20)
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()

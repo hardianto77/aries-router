@@ -2,9 +2,7 @@ export default {
   id: "opencode-zen",
   priority: 205,
   alias: "ocz",
-  aliases: [
-    "opencode-zen",
-  ],
+  aliases: [],
   uiAlias: "ocz",
   display: {
     name: "OpenCode Zen",
@@ -49,6 +47,7 @@ export default {
     { id: "claude-sonnet-4", name: "Claude Sonnet 4", supportedFormats: ["claude"] },
     { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", supportedFormats: ["claude"] },
     // Gemini (own path, via chat completions transport)
+    { id: "gemini-4-argon", name: "Gemini 4 Argon", supportedFormats: ["openai"] },
     { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", supportedFormats: ["openai"] },
     { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", supportedFormats: ["openai"] },
     { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash", supportedFormats: ["openai"] },
@@ -81,6 +80,7 @@ export default {
     { id: "grok-build-0.1", name: "Grok Build 0.1", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "grok-4.6", name: "Grok 4.6", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "grok-4.5", name: "Grok 4.5", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
+    { id: "muse-wonder-1.0", name: "Muse Wonder 1.0 (Flagship)", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "muse-spark-1.3", name: "Muse Spark 1.3", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "muse-spark-1.2", name: "Muse Spark 1.2", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     // Qwen paid (messages)
@@ -122,7 +122,7 @@ export default {
     baseUrl: "https://opencode.ai/zen/v1/systemone",
     headers: {
       "x-opencode-client": "desktop",
-      "User-Agent": "opencode/1.19.4 ai-sdk/provider-utils/4.0.23 runtime/bun/1.4.4",
+      "User-Agent": "opencode/1.18.31",
     },
   },
   modelsFetcher: { url: "https://opencode.ai/zen/v1/models", type: "opencode-free" },
