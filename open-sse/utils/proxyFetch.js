@@ -517,6 +517,28 @@ async function replayFreeTierRejectionDirect(url, options, proxied, proxyOptions
   }
 }
 
+
+let _lastAutoHealTrigger = 0;
+function triggerDeadProxyAutoHeal(badProxyUrl, reason) {
+  if (!badProxyUrl || badProxyUrl.includes("127.0.0.1:20188")) return;
+  try {
+    proxyDispatchers.delete(badProxyUrl);
+  } catch {}
+  try {
+    import("@/lib/network/residentialProxyEngine.js")
+      .then((m) => m.markProxyUrlDead?.(badProxyUrl, 10 * 60 * 1000, reason))
+      .catch(() => {});
+  } catch {}
+  const now = Date.now();
+  if (now - _lastAutoHealTrigger < 90000) return;
+  _lastAutoHealTrigger = now;
+  import("node:child_process")
+    .then(({ execFile }) => {
+      execFile("/usr/bin/python3", ["/opt/aries-router/scripts/refresh_fresh_residential.py"], { timeout: 90000 }, () => {});
+    })
+    .catch(() => {});
+}
+
 export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
 
@@ -581,10 +603,12 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
     try {
       const dispatcher = await getDispatcher(proxyUrl);
       const res = await originalFetch(url, { ...options, dispatcher });
-      if (res.status === 407) {
-        throw new Error("HTTP 407 Proxy Authentication Required (credentials invalid or plan expired)");
+      if (res.status === 402 || res.status === 407) {
+        triggerDeadProxyAutoHeal(proxyUrl, `HTTP ${res.status}`);
+        throw new Error(`HTTP ${res.status} Proxy rejected/auth required`);
       }
       if (res.status === 524 || res.status === 502 || res.status === 504) {
+        triggerDeadProxyAutoHeal(proxyUrl, `HTTP ${res.status}`);
         if (poolId) {
           try {
             const { quarantineProxy } = await import("@/lib/network/connectionProxy.js");
@@ -603,38 +627,38 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
           quarantineProxy(poolId, 15 * 60 * 1000);
         } catch {}
       }
-      // If strictProxy is enabled, fail hard so the caller can rotate!
-      // But for normal proxy pools, allow fallback to direct connection so requests aren't killed with 502.
+      triggerDeadProxyAutoHeal(proxyUrl, proxyError.message);
       if (proxyOptions?.strictProxy === true) {
         throw new Error(`[ProxyFetch] Proxy required but failed: ${proxyError.message}`);
       }
       // DEAD-PROXY AUTO-INJECT: dead egress -> verified Fresh Residential IP (NO Datacenter, NO WARP)
-      // First tries globalResidentialPool.hedgeFetch (verified ISP nodes), then falls back to
-      // Pure-Residential Rotating Gateway (127.0.0.1:20188).
+      // Cross-failover between hydrated globalResidentialPool.hedgeFetch and Pure-Residential Gateway (:20188).
       const RESI_GATEWAY = process.env.RESI_GATEWAY_URL || "http://127.0.0.1:20188";
-      if (proxyUrl && !proxyUrl.includes("127.0.0.1:20188")) {
+      const isGwPrimary = proxyUrl.includes("127.0.0.1:20188");
+      try {
+        console.warn(`[ProxyFetch] Proxy ${proxyUrl} failed, auto-injecting fresh residential IP: ${proxyError.message}`);
         try {
-          console.warn(`[ProxyFetch] Proxy ${proxyUrl} failed, auto-injecting fresh residential IP: ${proxyError.message}`);
-          try {
-            const { globalResidentialPool } = await import("@/lib/network/residentialProxyEngine.js");
-            if (globalResidentialPool.getEligibleNodes({ includeUnverified: false }).length > 0) {
-              return await globalResidentialPool.hedgeFetch(targetUrl, options, { sessionKey: poolId || null });
-            }
-          } catch {}
+          const { globalResidentialPool } = await import("@/lib/network/residentialProxyEngine.js");
+          globalResidentialPool.hydrateFromPoolFileIfNeeded?.();
+          if (globalResidentialPool.getEligibleNodes({ includeUnverified: false }).length > 0) {
+            return await globalResidentialPool.hedgeFetch(targetUrl, options, { sessionKey: poolId || null });
+          }
+        } catch {}
+        if (!isGwPrimary) {
           if (!globalThis.__resiAgent) {
             const { ProxyAgent } = await import("undici");
             globalThis.__resiAgent = new ProxyAgent({
               uri: RESI_GATEWAY,
               connect: { timeout: 3000 },
-              headersTimeout: 20000,
+              headersTimeout: 45000,
               bodyTimeout: 60000,
             });
           }
           const res = await originalFetch(url, { ...options, dispatcher: globalThis.__resiAgent });
           return res;
-        } catch (resiError) {
-          console.warn(`[ProxyFetch] Fresh residential inject failed: ${resiError.message}`);
         }
+      } catch (resiError) {
+        console.warn(`[ProxyFetch] Fresh residential inject failed: ${resiError.message}`);
       }
       return originalFetch(url, options);
     }

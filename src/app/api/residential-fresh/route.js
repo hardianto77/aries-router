@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -9,7 +10,34 @@ export const dynamic = "force-dynamic";
 
 const GATEWAY = process.env.RESI_GATEWAY_URL || "http://127.0.0.1:20188";
 const STATUS_URL = process.env.RESI_GATEWAY_STATUS_URL || "http://127.0.0.1:20189/status";
+const POOL_JSON = "/home/ubuntu/.aries-router/residential_fresh_pool.json";
 const REFRESH_PY = "/opt/aries-router/scripts/refresh_fresh_residential.py";
+const LOCAL_PROVIDERS = new Set(["local-device", "searxng", "edge-tts", "google-tts"]);
+const TRANSPORT_ERR_RE = /429|rate.?limit|502|503|504|524|407|402|proxy|timeout|tunnel|fetch failed|ECONNREFUSED|ETIMEDOUT|ECONNRESET/i;
+
+function maskProxyUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    const auth = u.username || u.password ? "***:***@" : "";
+    return `${u.protocol}//${auth}${u.hostname}${u.port ? `:${u.port}` : ""}`;
+  } catch {
+    return String(rawUrl || "").replace(/\/\/[^@]+@/, "//***@");
+  }
+}
+
+function readPoolFileMeta() {
+  try {
+    if (!fs.existsSync(POOL_JSON)) return null;
+    const raw = JSON.parse(fs.readFileSync(POOL_JSON, "utf8"));
+    const byUrl = new Map();
+    for (const n of raw?.nodes || []) {
+      if (n?.url) byUrl.set(n.url, n);
+    }
+    return { updatedAt: raw?.updatedAt || null, datacenterBlocked: raw?.datacenterBlocked || 0, nodes: raw?.nodes || [], byUrl };
+  } catch {
+    return null;
+  }
+}
 
 async function fetchGatewayStatus(timeoutMs = 3500) {
   const ctrl = new AbortController();
@@ -30,6 +58,7 @@ async function lookupIpMeta(ip) {
   try {
     const r = await fetch(`http://ip-api.com/json/${ip}?fields=status,countryCode,isp,org,as,hosting,mobile`, {
       cache: "no-store",
+      signal: AbortSignal.timeout(3000),
     });
     const d = await r.json();
     if (d?.status === "success") {
@@ -50,11 +79,28 @@ async function probeGatewayEgress(timeoutMs = 6000) {
   const started = Date.now();
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  let dispatcher = null;
   try {
-    const dispatcher = new ProxyAgent({ uri: GATEWAY, connect: { timeout: 2500 } });
-    const r = await undiciFetch("https://api.ipify.org?format=json", { signal: ctrl.signal, dispatcher });
-    const d = await r.json();
-    const ip = d?.ip || null;
+    dispatcher = new ProxyAgent({ uri: GATEWAY, connect: { timeout: 2500 } });
+    const endpoints = [
+      "https://httpbin.org/ip",
+      "https://checkip.amazonaws.com",
+      "https://icanhazip.com",
+      "https://api.seeip.org/jsonip",
+    ];
+    let ip = null;
+    for (const ep of endpoints) {
+      try {
+        const r = await undiciFetch(ep, { signal: ctrl.signal, dispatcher });
+        if (!r.ok) continue;
+        const txt = await r.text();
+        const m = txt.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/);
+        if (m) {
+          ip = m[1];
+          break;
+        }
+      } catch {}
+    }
     if (!ip) return null;
     const meta = await lookupIpMeta(ip);
     return {
@@ -70,6 +116,7 @@ async function probeGatewayEgress(timeoutMs = 6000) {
     return null;
   } finally {
     clearTimeout(t);
+    try { await dispatcher?.close?.(); } catch {}
   }
 }
 
@@ -82,26 +129,79 @@ export async function GET() {
       getProviderConnections().catch(() => []),
     ]);
 
-    const directConnections = conns.filter((c) => {
-      if (c.isActive === false) return false;
-      const psd = c.providerSpecificData || {};
-      const url = String(psd.connectionProxyUrl || "");
-      return psd.connectionProxyEnabled === true && url.includes("127.0.0.1:20188");
-    }).length;
+    const poolMeta = readPoolFileMeta();
+    const poolByUrl = poolMeta?.byUrl || new Map();
 
+    let directConnections = 0;
+    let deadOrErroredConnections = 0;
+    const uniqueUrls = new Set();
+    const providerMap = new Map();
+
+    for (const c of conns) {
+      if (c.isActive === false || LOCAL_PROVIDERS.has(c.provider)) continue;
+      const psd = c.providerSpecificData || {};
+      const enabled = psd.connectionProxyEnabled === true || psd.connectionProxyEnabled === 1;
+      const url = String(psd.connectionProxyUrl || "").trim();
+      const pid = psd.proxyPoolId || null;
+      const hasErr = typeof c.lastError === "string" && TRANSPORT_ERR_RE.test(c.lastError);
+
+      if (enabled && !pid && url) {
+        directConnections++;
+        uniqueUrls.add(url);
+      } else if (!enabled || !url) {
+        deadOrErroredConnections++;
+      }
+      if (hasErr) {
+        deadOrErroredConnections++;
+      }
+
+      if (!providerMap.has(c.provider)) {
+        const nodeMeta = poolByUrl.get(url) || null;
+        providerMap.set(c.provider, {
+          provider: c.provider,
+          activeConnections: 0,
+          proxiedConnections: 0,
+          maskedProxyUrl: url ? maskProxyUrl(url) : null,
+          egressIp: nodeMeta?.egressIp || (url.includes("127.0.0.1:20188") ? (egress?.ip || gw?.sampleEgress?.ip || null) : null),
+          countryCode: nodeMeta?.countryCode || null,
+          isp: nodeMeta?.isp || (url.includes("127.0.0.1:20188") ? "Pure-Residential Hedge Gateway" : null),
+          networkClass: nodeMeta?.networkClass || "residential",
+          latencyMs: nodeMeta?.latencyMs || null,
+          healthy: enabled && Boolean(url) && !hasErr,
+        });
+      }
+      const pEntry = providerMap.get(c.provider);
+      pEntry.activeConnections++;
+      if (enabled && url) pEntry.proxiedConnections++;
+      if (hasErr) pEntry.healthy = false;
+    }
+
+    const providerBindings = Array.from(providerMap.values()).sort(
+      (a, b) => b.activeConnections - a.activeConnections || a.provider.localeCompare(b.provider)
+    );
     const liveNodes = (gw?.nodes || []).filter((n) => n.alive && !n.datacenterBlocked);
 
     return NextResponse.json({
       success: true,
       module: "Residential Fresh Proxy",
       directConnections,
+      uniqueEndpointsUsed: uniqueUrls.size,
+      totalActiveProviders: providerBindings.length,
+      coveredProviders: providerBindings.filter((p) => p.proxiedConnections > 0 && p.healthy).length,
+      deadOrErroredConnections,
+      lastPoolRefreshAt: poolMeta?.updatedAt || gw?.lastRefreshAt || null,
+      providerBindings,
       gateway: {
         listening: Boolean(gw?.listening),
         engine: gw?.engine || null,
         upstreams: gw?.upstreams ?? liveNodes.length,
         alive: gw?.alive ?? liveNodes.length,
         quarantined: gw?.quarantined ?? 0,
+        datacenterBlocked: Math.max(gw?.datacenterBlocked ?? 0, poolMeta?.datacenterBlocked ?? 0),
+        deadEvicted: gw?.deadEvicted ?? 0,
+        rateLimitBlocked: gw?.rateLimitBlocked ?? 0,
         hedgeWins: gw?.hedgeWins ?? 0,
+        timeoutsPrevented: gw?.timeoutsPrevented ?? 0,
         nodes: liveNodes,
       },
       currentEgress: egress || {
@@ -144,7 +244,8 @@ export async function POST(request) {
       return NextResponse.json({
         success: true,
         action,
-        message: `Verified ${stats.verifiedResidential ?? 0} residential IP(s) · healed ${stats.healedDirectConnections ?? 0} direct provider connection(s) (0 group pools).`,
+        stats,
+        message: `Verified ${stats.verifiedResidential ?? 0} pure-residential IP(s) (blocked ${stats.datacenterBlocked ?? 0} datacenter) · injected directly across ${stats.perProviderUnique ?? 0}/${stats.activeProviders ?? 0} providers (${stats.healedDirectConnections ?? 0} connection(s) updated, 0 group pools).`,
       });
     } catch (e) {
       return NextResponse.json({ success: false, error: String(e?.message || e).slice(0, 200) }, { status: 500 });

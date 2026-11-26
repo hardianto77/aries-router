@@ -27,29 +27,32 @@ async function lookupLocal(hostname) {
 }
 
 /**
- * dns=local is opt-in: it exposes target lookups to the system resolver.
- * Keep the original request origin for HTTP Host, TLS SNI and certificate checks.
+ * Create an Undici dispatcher for HTTP/HTTPS or SOCKS5/SOCKS5H proxies.
+ * Keeps TCP/CONNECT timeout tight (3.5s) for fast dead-proxy failover while
+ * allowing realistic headersTimeout (45s) for slow-thinking LLM responses.
  */
 export async function createProxyDispatcher(options) {
   const url = new URL(options.uri);
   const modes = url.searchParams.getAll("dns");
-  const socks5 = url.protocol === "socks5:";
+  const socks5 = url.protocol === "socks5:" || url.protocol === "socks5h:";
   if (modes.length && (!socks5 || modes.length !== 1 || !["local", "remote"].includes(modes[0]))) {
     throw dnsModeError();
   }
   const { ProxyAgent, Socks5ProxyAgent } = await import("undici");
-  // Fast fail for dead proxies: 3.5s connect timeout + 6s headers timeout
-  // This allows aggressive pool rotation (trying 5-8 proxies) before Cloudflare 524 cuts the stream!
   const agentOptions = {
     ...options,
-    connect: { timeout: 3500, ecdhCurve: TLS_ECDH_CURVE },
-    requestTls: { ecdhCurve: TLS_ECDH_CURVE },
-    headersTimeout: 6000,
+    connect: { timeout: 3500, ecdhCurve: TLS_ECDH_CURVE, ...(options.connect || {}) },
+    requestTls: { ecdhCurve: TLS_ECDH_CURVE, ...(options.requestTls || {}) },
+    headersTimeout: options.headersTimeout || 45000,
     maxHeaderSize: 64 * 1024,
   };
-  if (modes[0] !== "local") return new ProxyAgent(agentOptions);
+  if (!socks5) return new ProxyAgent(agentOptions);
 
-  // Override only the tunnel destination, not the origin used by Undici's pool/TLS.
+  if (modes[0] !== "local") {
+    if (url.protocol === "socks5h:") url.protocol = "socks5:";
+    return new Socks5ProxyAgent(url, agentOptions);
+  }
+
   class LocalDnsSocksProxyAgent extends Socks5ProxyAgent {
     async createSocks5Connection(hostname, port) {
       const host = hostname.replace(/^\[|\]$/g, "");
@@ -58,5 +61,6 @@ export async function createProxyDispatcher(options) {
     }
   }
   url.searchParams.delete("dns");
-  return new LocalDnsSocksProxyAgent(url, options);
+  if (url.protocol === "socks5h:") url.protocol = "socks5:";
+  return new LocalDnsSocksProxyAgent(url, agentOptions);
 }

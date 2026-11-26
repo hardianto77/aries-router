@@ -6,6 +6,7 @@
  * Location: /opt/aries-router/src/lib/network/residentialProxyEngine.js
  */
 
+import fs from "node:fs";
 import { ProxyAgent, Socks5ProxyAgent, fetch as undiciFetch } from "undici";
 
 let TLS_ECDH_CURVE = "auto";
@@ -31,7 +32,8 @@ export const DATACENTER_KEYWORDS = [
   "cogento", "oneprovider", "brainstorm network", "ptisp", "almouroltec", "pvdatanet",
   "pvdata", "real time data", "servers tech", "franet", "warp", "mullvad", "nordvpn",
   "protonvpn", "surfshark", "expressvpn", "datacamp", "cdn77", "online sas",
-  "constant company", "church of cyberology", "tor exit", "emerald onion", "calyx", "quintex",
+  "constant company", "netcup", "zscaler", "natanetwork", "huawei", "servidores", "nexosystems",
+  "3xk", "antbox", "baykov", "church of cyberology", "tor exit", "emerald onion", "calyx", "quintex",
 ];
 
 export const FORBIDDEN_NON_RESI_HOSTS = new Set([
@@ -66,11 +68,33 @@ export const DEFAULT_RESIDENTIAL_CONFIG = {
 };
 
 const IPV4_REGEX = /\b(\d{1,3}(?:\.\d{1,3}){3})\b/;
+const POOL_JSON_PATH = "/home/ubuntu/.aries-router/residential_fresh_pool.json";
 const PROBE_ECHO_ENDPOINTS = [
-  "https://api.ipify.org?format=json",
+  "https://httpbin.org/ip",
   "https://checkip.amazonaws.com",
   "https://icanhazip.com",
+  "https://api.seeip.org/jsonip",
 ];
+
+const deadProxyMap = globalThis.__ariesDeadProxyUrls || (globalThis.__ariesDeadProxyUrls = new Map());
+
+export function markProxyUrlDead(proxyUrl, ttlMs = 10 * 60 * 1000, reason = "dead") {
+  const key = String(proxyUrl || "").trim();
+  if (!key || key.includes("127.0.0.1:20188")) return;
+  deadProxyMap.set(key, { expiresAt: Date.now() + ttlMs, reason });
+}
+
+export function isProxyUrlDead(proxyUrl) {
+  const key = String(proxyUrl || "").trim();
+  if (!key) return false;
+  const entry = deadProxyMap.get(key);
+  if (!entry) return false;
+  if (Date.now() > entry.expiresAt) {
+    deadProxyMap.delete(key);
+    return false;
+  }
+  return true;
+}
 
 export function sanitizeResidentialConfig(input = {}) {
   const clamp = (val, fallback, min, max) => {
@@ -173,21 +197,25 @@ export function parseProxyBatchText(text) {
   return { valid, invalid };
 }
 
-export function createBoundedDispatcher(proxyUrl, config = DEFAULT_RESIDENTIAL_CONFIG) {
+export function createBoundedDispatcher(proxyUrl, config = DEFAULT_RESIDENTIAL_CONFIG, { isProbe = false } = {}) {
   const parsed = new URL(proxyUrl);
+  const effectiveHeadersTimeout = isProbe
+    ? (config.headersTimeoutMs || 4500)
+    : Math.max(config.headersTimeoutMs || 15000, 35000);
   const common = {
     uri: proxyUrl,
     connect: {
-      timeout: config.connectTimeoutMs || 2400,
+      timeout: config.connectTimeoutMs || 2500,
       ecdhCurve: TLS_ECDH_CURVE,
     },
     requestTls: { ecdhCurve: TLS_ECDH_CURVE },
-    headersTimeout: config.headersTimeoutMs || 6000,
-    bodyTimeout: config.requestTimeoutMs || 20000,
+    headersTimeout: effectiveHeadersTimeout,
+    bodyTimeout: isProbe ? 8000 : Math.max(config.requestTimeoutMs || 20000, 60000),
     maxHeaderSize: 64 * 1024,
     pipelining: 1,
   };
-  if (parsed.protocol === "socks5:") {
+  if (parsed.protocol === "socks5:" || parsed.protocol === "socks5h:") {
+    if (parsed.protocol === "socks5h:") parsed.protocol = "socks5:";
     return new Socks5ProxyAgent(parsed, common);
   }
   return new ProxyAgent(common);
@@ -413,7 +441,7 @@ export class ResidentialNode {
   }
 
   get isAlive() {
-    return this.isActive && !this.isQuarantined && this.healthScore > 20;
+    return this.isActive && !this.isQuarantined && !isProxyUrlDead(this.url) && this.healthScore > 20;
   }
 
   get stabilityPct() {
@@ -535,6 +563,39 @@ export class ResidentialProxyPool {
     return this.gatewayAgent;
   }
 
+  hydrateFromPoolFileIfNeeded() {
+    try {
+      if (!fs.existsSync(POOL_JSON_PATH)) return false;
+      const st = fs.statSync(POOL_JSON_PATH);
+      if (this.nodes.length > 0 && this._lastFileMtimeMs === st.mtimeMs) return true;
+      const raw = JSON.parse(fs.readFileSync(POOL_JSON_PATH, "utf8"));
+      const nodes = Array.isArray(raw?.nodes) ? raw.nodes : [];
+      if (nodes.length > 0) {
+        this.syncNodes(nodes.map((n, i) => ({
+          id: `resi-file-${i}`,
+          name: `Resi-${n.egressIp || "node"} (${n.countryCode || "??"})`,
+          proxyUrl: n.url,
+          isActive: true,
+          isResidential: true,
+          ipType: "residential",
+          networkClass: n.networkClass || "residential",
+          egressIp: n.egressIp,
+          country: n.country,
+          countryCode: n.countryCode,
+          city: n.city,
+          isp: n.isp,
+          org: n.org,
+          asn: n.asn,
+          latencyMs: n.latencyMs,
+          lastTestedAt: n.verifiedAt,
+        })));
+        this._lastFileMtimeMs = st.mtimeMs;
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
   setConfig(nextConfig = {}) {
     this.config = sanitizeResidentialConfig({ ...this.config, ...nextConfig });
     for (const node of this.nodes) {
@@ -652,7 +713,7 @@ export class ResidentialProxyPool {
         ...this.config,
         connectTimeoutMs: Math.min(this.config.connectTimeoutMs || 2400, effectiveTimeout),
         headersTimeoutMs: effectiveTimeout,
-      });
+      }, { isProbe: true });
 
       let egressIp = null;
       let ipStatus = 0;
@@ -787,6 +848,7 @@ export class ResidentialProxyPool {
   }
 
   selectCandidates(count = 3, sessionKey = null) {
+    this.hydrateFromPoolFileIfNeeded();
     const eligible = this.getEligibleNodes({ includeUnverified: false });
     if (eligible.length === 0) return [];
 
@@ -877,8 +939,9 @@ export class ResidentialProxyPool {
           signal: combinedSignal,
         });
         const lat = Date.now() - t0;
-        if (res.status === 407 || res.status === 502 || res.status === 503 || res.status === 504 || res.status === 524) {
+        if (res.status === 402 || res.status === 407 || res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504 || res.status === 524) {
           node.recordFailure(`HTTP ${res.status} via ${node.maskedUrl}`);
+          markProxyUrlDead(node.url, res.status === 429 ? 5 * 60 * 1000 : 10 * 60 * 1000, `HTTP ${res.status}`);
           this.recordEvent("node_quarantined", `${node.maskedUrl} quarantined after HTTP ${res.status}`);
           throw new Error(`Upstream/proxy status ${res.status}`);
         }

@@ -695,7 +695,20 @@ export class FreePiExecutor extends DefaultExecutor {
             await launchSessionHandshake(cleanToken, sessionId, proxyOptions);
             result = await super.execute(params);
           } else if (text.includes("belongs to another free-pi account")) {
-            log?.warn?.("FREEPI", "Rejected: Conversation belongs to another FreePI account. New conversation required.");
+            log?.warn?.("FREEPI", "Rejected: Conversation belongs to another FreePI account — surfacing as 403 so routing rotates to the owning account");
+            releaseLock();
+            return {
+              response: new Response(
+                JSON.stringify({
+                  error: {
+                    message: "This conversation belongs to another free-pi account. Sharing or rotating accounts isn't allowed; use one account per person.",
+                    type: "free_pi_error",
+                    code: "conversation_ownership",
+                  },
+                }),
+                { status: 403, headers: { "Content-Type": "application/json" } },
+              ),
+            };
           }
         } catch {
           // Fall through to original result
