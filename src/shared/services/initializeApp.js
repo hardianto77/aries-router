@@ -8,8 +8,8 @@ import {
   enableTunnel, enableTailscale,
   isTunnelManuallyDisabled, isTunnelReconnecting, isTailscaleReconnecting,
   getTunnelService, getTailscaleService, setTunnelUnexpectedExitCallback,
-  killCloudflared, isCloudflaredRunning, ensureCloudflared,
-  isTailscaleRunning, isTailscaleRunningStrict, isDaemonAlive, startFunnel,
+  killCloudflared, isCloudflaredRunning, isCloudflaredTargetingPort, ensureCloudflared,
+  isTailscaleInstalled, isTailscaleRunning, isTailscaleRunningStrict, isTailscaleLoggedInStrict, isSystemDaemonRunning, isDaemonAlive, startFunnel, getActualFunnelUrl,
   checkInternet,
   RESTART_COOLDOWN_MS, NETWORK_SETTLE_MS,
   WATCHDOG_INTERVAL_MS, NETWORK_CHECK_INTERVAL_MS, VIRTUAL_IFACE_REGEX,
@@ -92,7 +92,7 @@ async function runHeavyStartup() {
   }
 
   // Auto-resume tailscale (once per process)
-  if (settings.tailscaleEnabled && !g.tailscaleAutoResumed) {
+  if (settings.tailscaleEnabled && isTailscaleInstalled() && !g.tailscaleAutoResumed) {
     g.tailscaleAutoResumed = true;
     console.log("[InitApp] Tailscale was enabled, auto-resuming...");
     safeRestartTailscale("startup").catch((e) => console.log("[InitApp] Tailscale resume failed:", e.message));
@@ -175,6 +175,11 @@ const FORCE_RESTART_REASONS = /^(startup|netchange|sleep|sleep\+netchange|online
 
 // ─── Safe restart (4 guards: spawn / cooldown / alive / internet) ────────────
 
+function getLocalPort() {
+  const p = Number(process.env.PORT);
+  return Number.isInteger(p) && p > 0 ? p : 20128;
+}
+
 async function safeRestartTunnel(reason) {
   const svc = getTunnelService();
   const settings = await getSettings();
@@ -183,10 +188,10 @@ async function safeRestartTunnel(reason) {
   if (svc.spawnInProgress) return;
 
   const force = FORCE_RESTART_REASONS.test(reason);
+  const localPort = getLocalPort();
 
-  // Process alive = trust cloudflared (self-reconnects via --retries 99, keeps same URL).
-  // Killing a live process on network change drops the tunnel and rotates the quick-tunnel URL.
-  if (isCloudflaredRunning()) return;
+  // Process alive & targeting our actual listening port = trust cloudflared.
+  if (isCloudflaredRunning() && isCloudflaredTargetingPort(localPort)) return;
 
   if (!force && Date.now() - svc.lastRestartAt < RESTART_COOLDOWN_MS) {
     console.log(`[Tunnel] degraded but cooldown active, skip (${reason})`);
@@ -207,23 +212,36 @@ async function safeRestartTunnel(reason) {
 }
 
 async function safeRestartTailscale(reason) {
+  if (!isTailscaleInstalled()) return;
   const svc = getTailscaleService();
   const settings = await getSettings();
   if (!settings.tailscaleEnabled) return;
   if (svc.cancelToken.cancelled) return;
   if (svc.spawnInProgress) return;
 
-  // Tailscale daemon is OS-level with built-in reconnect; trust it when running (even on netchange).
-  // Startup uses strict probe - cached state is cold after process/dev reload.
-  const running = reason === "startup" ? await isTailscaleRunningStrict() : isTailscaleRunning();
-  if (running) return;
+  const localPort = getLocalPort();
 
-  // Daemon alive but funnel dropped → recover funnel only; never full-restart (preserves login/daemon).
-  if (isDaemonAlive() && svc.activeLocalPort) {
+  // Tailscale daemon is OS-level with built-in reconnect; trust it when running on localPort.
+  // Startup uses strict probe - cached state is cold after process/dev reload.
+  const running = reason === "startup" ? await isTailscaleRunningStrict(localPort) : isTailscaleRunning(localPort);
+  if (running) {
+    if (!settings.tailscaleUrl) {
+      const actualUrl = getActualFunnelUrl();
+      if (actualUrl) await updateSettings({ tailscaleEnabled: true, tailscaleUrl: actualUrl }).catch(() => {});
+    }
+    return;
+  }
+
+  // Daemon alive (custom or OS system daemon) & logged in → recover funnel directly on localPort.
+  if ((isDaemonAlive() || isSystemDaemonRunning()) && await isTailscaleLoggedInStrict()) {
     try {
-      await startFunnel(svc.activeLocalPort);
+      const res = await startFunnel(localPort);
+      if (res?.tunnelUrl) {
+        await updateSettings({ tailscaleEnabled: true, tailscaleUrl: res.tunnelUrl }).catch(() => {});
+      }
+      svc.activeLocalPort = localPort;
       svc.lastRestartAt = Date.now();
-      console.log("[Tailscale] funnel re-established (daemon alive)");
+      console.log(`[Tailscale] funnel re-established on port ${localPort}`);
     } catch (err) {
       console.log("[Tailscale] funnel recovery failed:", err.message);
     }

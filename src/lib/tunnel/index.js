@@ -11,6 +11,7 @@ export {
 export {
   killCloudflared,
   isCloudflaredRunning,
+  isCloudflaredTargetingPort,
   ensureCloudflared,
   getDownloadStatus,
 } from "./cloudflare/cloudflared.js";
@@ -31,6 +32,7 @@ export {
   isTailscaleLoggedIn,
   isTailscaleLoggedInStrict,
   isSystemDaemonRunning,
+  getActualFunnelUrl,
   isDaemonAlive,
   startFunnel,
   getTailscaleBin,

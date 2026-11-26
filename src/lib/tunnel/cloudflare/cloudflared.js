@@ -417,6 +417,20 @@ function killCloudflaredByPort(port) {
   } catch (e) { /* ignore */ }
 }
 
+export function isCloudflaredTargetingPort(localPort) {
+  const pid = loadPid();
+  if (!pid || !localPort) return false;
+  try {
+    if (!IS_WINDOWS && fs.existsSync(`/proc/${pid}/cmdline`)) {
+      const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0/g, " ");
+      return new RegExp(`:${localPort}(?:\\D|$)`).test(cmd);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function killCloudflared(localPort) {
   intentionalKill = true;
   if (cloudflaredProcess) {
@@ -435,6 +449,9 @@ export function killCloudflared(localPort) {
   }
 
   killCloudflaredByPort(localPort);
+  if (localPort && Number(localPort) !== 20128) {
+    killCloudflaredByPort(20128);
+  }
 }
 
 export function isCloudflaredRunning() {

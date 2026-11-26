@@ -87,30 +87,60 @@ export function isTailscaleInstalled() {
   return getTailscaleBin() !== null;
 }
 
-/** Build tailscale CLI args with custom socket (no root needed) */
+const sysDaemonCache = { value: false, fetchedAt: 0 };
+
+function getActiveSocketFlag() {
+  if (IS_WINDOWS) return [];
+  if (Date.now() - sysDaemonCache.fetchedAt > PROBE_TTL_MS) {
+    sysDaemonCache.value = isSystemDaemonRunning();
+    sysDaemonCache.fetchedAt = Date.now();
+  }
+  return sysDaemonCache.value ? SYSTEM_SOCKET_FLAG : SOCKET_FLAG;
+}
+
+function funnelMatchesPort(json, expectedPort) {
+  if (!json || Object.keys(json.AllowFunnel || {}).length === 0) return false;
+  if (!expectedPort) return true;
+  const portRe = new RegExp(`:${expectedPort}(?:\\D|$)`);
+  for (const hostCfg of Object.values(json.Web || {})) {
+    for (const h of Object.values(hostCfg?.Handlers || {})) {
+      if (typeof h?.Proxy === "string" && portRe.test(h.Proxy)) return true;
+    }
+  }
+  return false;
+}
+
+/** Build tailscale CLI args with active socket (prefers live system daemon, falls back to custom socket) */
 function tsArgs(...args) {
-  return [...SOCKET_FLAG, ...args];
+  return [...getActiveSocketFlag(), ...args];
 }
 
 // Async strict probe: authoritative, awaitable (never blocks event loop). Updates cache.
 export async function isTailscaleLoggedInStrict() {
   const bin = getTailscaleBin();
   if (!bin) return false;
-  try {
-    const { stdout } = await execAsync(`"${bin}" ${SOCKET_FLAG.join(" ")} status --json`, {
-      windowsHide: true,
-      env: { ...process.env, PATH: EXTENDED_PATH },
-      timeout: 5000
-    });
-    const json = JSON.parse(stdout);
-    // BackendState=Running + Self.Online=true → device still exists in tailnet
-    const loggedIn = json.BackendState === "Running" && json.Self?.Online === true;
-    loggedInCache.value = loggedIn;
-    loggedInCache.fetchedAt = Date.now();
-    return loggedIn;
-  } catch {
-    return false;
+  const primary = getActiveSocketFlag();
+  const candidates = primary === SYSTEM_SOCKET_FLAG ? [SYSTEM_SOCKET_FLAG, SOCKET_FLAG] : [SOCKET_FLAG, SYSTEM_SOCKET_FLAG];
+  for (const sockFlag of candidates) {
+    if (!IS_WINDOWS && sockFlag.length >= 2 && !fs.existsSync(sockFlag[1])) continue;
+    try {
+      const { stdout } = await execAsync(`"${bin}" ${sockFlag.join(" ")} status --json`, {
+        windowsHide: true,
+        env: { ...process.env, PATH: EXTENDED_PATH },
+        timeout: 5000
+      });
+      const json = JSON.parse(stdout);
+      const loggedIn = json.BackendState === "Running" && json.Self?.Online === true;
+      if (loggedIn) {
+        loggedInCache.value = true;
+        loggedInCache.fetchedAt = Date.now();
+        return true;
+      }
+    } catch { /* try next */ }
   }
+  loggedInCache.value = false;
+  loggedInCache.fetchedAt = Date.now();
+  return false;
 }
 
 function bgRefreshLoggedIn() {
@@ -122,7 +152,7 @@ function bgRefreshLoggedIn() {
     return;
   }
   loggedInCache.refreshing = true;
-  // Dual-socket aware: probe custom socket first, then system socket
+  // Dual-socket aware: probe system socket and custom socket
   probeStatusAsync(bin)
     .then((json) => {
       loggedInCache.value = !!json && json.BackendState === "Running" && json.Self?.Online === true;
@@ -134,26 +164,38 @@ function bgRefreshLoggedIn() {
     });
 }
 
-// Probe `status --json` over custom then system socket. Resolves parsed JSON or null. Never blocks event loop.
+// Probe `status --json` over active then fallback socket. Resolves parsed JSON or null. Never blocks event loop.
 async function probeStatusAsync(bin) {
-  for (const socketArgs of [SOCKET_FLAG, SYSTEM_SOCKET_FLAG]) {
+  const primary = getActiveSocketFlag();
+  const candidates = primary === SYSTEM_SOCKET_FLAG ? [SYSTEM_SOCKET_FLAG, SOCKET_FLAG] : [SOCKET_FLAG, SYSTEM_SOCKET_FLAG];
+  for (const socketArgs of candidates) {
+    if (!IS_WINDOWS && socketArgs.length >= 2 && !fs.existsSync(socketArgs[1])) continue;
     try {
       const { stdout } = await execAsync(`"${bin}" ${socketArgs.join(" ")} status --json`, {
         windowsHide: true, env: { ...process.env, PATH: EXTENDED_PATH }, timeout: PROBE_TIMEOUT_MS,
       });
-      return JSON.parse(stdout);
+      const parsed = JSON.parse(stdout);
+      if (parsed?.BackendState === "Running") return parsed;
     } catch { /* try next socket */ }
   }
   return null;
 }
 
 // Sync getter: never blocks; returns last known state, refreshes in background
+export function hasTailscaleLoggedInCache() {
+  return loggedInCache.fetchedAt > 0;
+}
+
+export function hasTailscaleRunningCache() {
+  return runningCache.fetchedAt > 0;
+}
+
 export function isTailscaleLoggedIn() {
   if (Date.now() - loggedInCache.fetchedAt > PROBE_TTL_MS) bgRefreshLoggedIn();
   return loggedInCache.value;
 }
 
-function bgRefreshRunning() {
+function bgRefreshRunning(expectedPort = null) {
   if (runningCache.refreshing) return;
   const bin = getTailscaleBin();
   if (!bin) {
@@ -162,11 +204,12 @@ function bgRefreshRunning() {
     return;
   }
   runningCache.refreshing = true;
-  execAsync(`"${bin}" ${SOCKET_FLAG.join(" ")} funnel status --json`, { windowsHide: true, timeout: PROBE_TIMEOUT_MS })
+  const sockFlag = getActiveSocketFlag();
+  execAsync(`"${bin}" ${sockFlag.join(" ")} funnel status --json`, { windowsHide: true, timeout: PROBE_TIMEOUT_MS })
     .then(({ stdout }) => {
       try {
         const json = JSON.parse(stdout);
-        runningCache.value = Object.keys(json.AllowFunnel || {}).length > 0;
+        runningCache.value = funnelMatchesPort(json, expectedPort);
       } catch { runningCache.value = false; }
     })
     .catch(() => { runningCache.value = false; })
@@ -177,23 +220,24 @@ function bgRefreshRunning() {
 }
 
 // Sync getter: never blocks; returns last known state, refreshes in background
-export function isTailscaleRunning() {
-  if (Date.now() - runningCache.fetchedAt > PROBE_TTL_MS) bgRefreshRunning();
+export function isTailscaleRunning(expectedPort = null) {
+  if (Date.now() - runningCache.fetchedAt > PROBE_TTL_MS) bgRefreshRunning(expectedPort);
   return runningCache.value;
 }
 
 // Async strict probe for hot user-initiated paths (enable/connect flow).
 // Awaitable, never blocks event loop; updates cache as a side effect.
-export async function isTailscaleRunningStrict() {
+export async function isTailscaleRunningStrict(expectedPort = null) {
   const bin = getTailscaleBin();
   if (!bin) return false;
+  const sockFlag = getActiveSocketFlag();
   try {
-    const { stdout } = await execAsync(`"${bin}" ${SOCKET_FLAG.join(" ")} funnel status --json`, {
+    const { stdout } = await execAsync(`"${bin}" ${sockFlag.join(" ")} funnel status --json`, {
       windowsHide: true,
       timeout: PROBE_TIMEOUT_MS,
     });
     const json = JSON.parse(stdout);
-    const running = Object.keys(json.AllowFunnel || {}).length > 0;
+    const running = funnelMatchesPort(json, expectedPort);
     runningCache.value = running;
     runningCache.fetchedAt = Date.now();
     return running;
@@ -211,7 +255,11 @@ export function isSystemDaemonRunning() {
     const out = execSync(`"${bin}" ${SYSTEM_SOCKET_FLAG.join(" ")} status --json`, {
       encoding: "utf8", windowsHide: true, env: { ...process.env, PATH: EXTENDED_PATH }, timeout: PROBE_TIMEOUT_MS,
     });
-    return JSON.parse(out).BackendState === "Running";
+    const parsed = JSON.parse(out);
+    const ok = parsed.BackendState === "Running";
+    sysDaemonCache.value = ok;
+    sysDaemonCache.fetchedAt = Date.now();
+    return ok;
   } catch {
     return false;
   }
@@ -222,7 +270,8 @@ function bgRefreshFunnelUrl(port) {
   const bin = getTailscaleBin();
   if (!bin) return;
   funnelUrlCache.refreshing = true;
-  execAsync(`"${bin}" ${SOCKET_FLAG.join(" ")} status --json`, { windowsHide: true, timeout: PROBE_TIMEOUT_MS })
+  const sockFlag = getActiveSocketFlag();
+  execAsync(`"${bin}" ${sockFlag.join(" ")} status --json`, { windowsHide: true, timeout: PROBE_TIMEOUT_MS })
     .then(({ stdout }) => {
       try {
         const json = JSON.parse(stdout);
@@ -239,11 +288,12 @@ function bgRefreshFunnelUrl(port) {
 }
 
 /** Get actual funnel URL from Self.DNSName (sync, authoritative — avoids hostname-conflict suffix). */
-function getActualFunnelUrl() {
+export function getActualFunnelUrl() {
   const bin = getTailscaleBin();
   if (!bin) return null;
+  const sockFlag = getActiveSocketFlag();
   try {
-    const out = execSync(`"${bin}" ${SOCKET_FLAG.join(" ")} status --json`, {
+    const out = execSync(`"${bin}" ${sockFlag.join(" ")} status --json`, {
       encoding: "utf8",
       windowsHide: true,
       env: { ...process.env, PATH: EXTENDED_PATH },
@@ -555,6 +605,10 @@ export async function startDaemonWithPassword(sudoPassword) {
     return;
   }
 
+  if (isSystemDaemonRunning()) {
+    console.log("[Tailscale] system tailscaled daemon already active, reusing");
+    return;
+  }
   const currentMode = isDaemonTunMode(); // true=TUN, false=userspace, null=not running
   // No password but a healthy TUN daemon already runs → keep TUN, never downgrade-kill it.
   const wantTun = sudoPassword ? true : currentMode === true;
@@ -625,7 +679,7 @@ function getAuthUrlFromStatus() {
   const bin = getTailscaleBin();
   if (!bin) return null;
   try {
-    const out = execSync(`"${bin}" ${SOCKET_FLAG.join(" ")} status --json`, {
+    const out = execSync(`"${bin}" ${getActiveSocketFlag().join(" ")} status --json`, {
       encoding: "utf8", windowsHide: true, timeout: 2000
     });
     const j = JSON.parse(out);
@@ -743,7 +797,7 @@ export async function startFunnel(port) {
   if (!bin) throw new Error("Tailscale not installed");
 
   // Reset any existing funnel
-  try { execSync(`"${bin}" ${SOCKET_FLAG.join(" ")} funnel --bg reset`, { stdio: "ignore", windowsHide: true }); } catch (e) { /* ignore */ }
+  try { execSync(`"${bin}" ${getActiveSocketFlag().join(" ")} funnel --bg reset`, { stdio: "ignore", windowsHide: true }); } catch (e) { /* ignore */ }
 
   return new Promise((resolve, reject) => {
     const child = spawn(bin, tsArgs("funnel", "--bg", `${port}`), {
@@ -825,7 +879,7 @@ export async function provisionCert(hostname) {
   const keyFile = path.join(certsDir, `${hostname}.key`);
   try {
     await execAsync(
-      `"${bin}" ${SOCKET_FLAG.join(" ")} cert --cert-file "${certFile}" --key-file "${keyFile}" "${hostname}"`,
+      `"${bin}" ${getActiveSocketFlag().join(" ")} cert --cert-file "${certFile}" --key-file "${keyFile}" "${hostname}"`,
       { windowsHide: true, env: { ...process.env, PATH: EXTENDED_PATH }, timeout: 30000 }
     );
     console.log(`[Tailscale] cert provisioned for ${hostname}`);
@@ -838,7 +892,7 @@ export async function provisionCert(hostname) {
 export function stopFunnel() {
   const bin = getTailscaleBin();
   if (!bin) return;
-  try { execSync(`"${bin}" ${SOCKET_FLAG.join(" ")} funnel --bg reset`, { stdio: "ignore", windowsHide: true }); } catch (e) { /* ignore */ }
+  try { execSync(`"${bin}" ${getActiveSocketFlag().join(" ")} funnel --bg reset`, { stdio: "ignore", windowsHide: true }); } catch (e) { /* ignore */ }
 }
 
 /** Kill tailscaled daemon (runs as root, needs sudo) */

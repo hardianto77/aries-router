@@ -1,5 +1,5 @@
 import { loadState, saveState, generateShortId } from "../shared/state.js";
-import { spawnQuickTunnel, killCloudflared, isCloudflaredRunning, setUnexpectedExitHandler } from "./cloudflared.js";
+import { spawnQuickTunnel, killCloudflared, isCloudflaredRunning, isCloudflaredTargetingPort, setUnexpectedExitHandler } from "./cloudflared.js";
 import { clearPid } from "./pid.js";
 import { waitForHealth, probeUrlAlive } from "./healthCheck.js";
 import { WORKER_URL } from "./config.js";
@@ -31,7 +31,12 @@ function throwIfCancelled(token) {
   if (token.cancelled) throw new Error("tunnel cancelled");
 }
 
-export async function enableTunnel(localPort = 20128) {
+function getDefaultLocalPort() {
+  const p = Number(process.env.PORT);
+  return Number.isInteger(p) && p > 0 ? p : 20128;
+}
+
+export async function enableTunnel(localPort = getDefaultLocalPort()) {
   console.log(`[Tunnel] enable start (port=${localPort})`);
   svc.cancelToken = { cancelled: false };
   svc.activeLocalPort = localPort;
@@ -39,7 +44,7 @@ export async function enableTunnel(localPort = 20128) {
   const token = svc.cancelToken;
 
   try {
-    if (isCloudflaredRunning()) {
+    if (isCloudflaredRunning() && isCloudflaredTargetingPort(localPort)) {
       const existing = loadState();
       if (existing?.tunnelUrl && existing?.shortId) {
         const publicUrl = `https://r${existing.shortId}.abc-tunnel.us`;
@@ -138,7 +143,7 @@ export async function getTunnelStatus() {
   const tunnelUrl = state?.tunnelUrl || "";
 
   // Lazy: skip PID probe entirely when user disabled tunnel
-  const running = settingsEnabled ? isCloudflaredRunning() : false;
+  const running = settingsEnabled ? (isCloudflaredRunning() && isCloudflaredTargetingPort(getDefaultLocalPort())) : false;
 
   return {
     enabled: settingsEnabled && running,

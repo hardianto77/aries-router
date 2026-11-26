@@ -451,6 +451,7 @@ const scopedModelPatterns =
   // Browser-side reachable cache (independent of backend DNS quirks)
   const tunnelClientReachableRef = useRef(false);
   const tsClientReachableRef = useRef(false);
+  const tsServerHealthyRef = useRef(false);
   // Track whether reachable=true was ever observed in this session.
   // Distinguishes "Checking..." (initial cold cache) from "Reconnecting..." (lost connection).
   const tunnelEverReachableRef = useRef(false);
@@ -519,10 +520,17 @@ const scopedModelPatterns =
         tunnelClientReachableRef.current = false;
       }
       if (tsEnabled && tsUrl) {
-        const ok = await clientPingUrl(tsUrl);
-        tsClientReachableRef.current = ok;
-        if (ok) { tsMissRef.current = 0; setTsReachable(true); if (!tsEverReachableRef.current) { tsEverReachableRef.current = true; setTsEverReachable(true); } }
-        else { tsMissRef.current += 1; if (tsMissRef.current >= REACHABLE_MISS_THRESHOLD) setTsReachable(false); }
+        if (tsServerHealthyRef.current) {
+          tsClientReachableRef.current = true;
+          tsMissRef.current = 0;
+          setTsReachable(true);
+          if (!tsEverReachableRef.current) { tsEverReachableRef.current = true; setTsEverReachable(true); }
+        } else {
+          const ok = await clientPingUrl(tsUrl);
+          tsClientReachableRef.current = ok;
+          if (ok) { tsMissRef.current = 0; setTsReachable(true); if (!tsEverReachableRef.current) { tsEverReachableRef.current = true; setTsEverReachable(true); } }
+          else { tsMissRef.current += 1; if (tsMissRef.current >= REACHABLE_MISS_THRESHOLD) setTsReachable(false); }
+        }
       } else {
         tsClientReachableRef.current = false;
       }
@@ -554,24 +562,39 @@ const scopedModelPatterns =
     }
   }, []);
 
+  const applyTunnelStatusPayload = (data) => {
+    const tEnabled = data.tunnel?.settingsEnabled ?? data.tunnel?.enabled ?? false;
+    const tUrl = data.tunnel?.tunnelUrl || "";
+    const tPub = data.tunnel?.publicUrl || "";
+    setTunnelUrl(tUrl);
+    setTunnelPublicUrl(tPub);
+    setTunnelEnabled(tEnabled);
+    if (tEnabled && data.tunnel?.running && (tUrl || tPub) && !tunnelEverReachableRef.current) {
+      tunnelClientReachableRef.current = true;
+    }
+    updateReachable(null, tunnelClientReachableRef, tunnelMissRef, setTunnelReachable, tunnelEverReachableRef, setTunnelEverReachable);
+
+    const tsEn = data.tailscale?.settingsEnabled ?? data.tailscale?.enabled ?? false;
+    const tsUrlVal = data.tailscale?.tunnelUrl || "";
+    const tsServerHealthy = Boolean(tsEn && data.tailscale?.running && data.tailscale?.loggedIn && tsUrlVal);
+    tsServerHealthyRef.current = tsServerHealthy;
+    setTsUrl(tsUrlVal);
+    setTsEnabled(tsEn);
+    if (tsServerHealthy) {
+      tsClientReachableRef.current = true;
+    } else if (!tsEn || !tsUrlVal) {
+      tsClientReachableRef.current = false;
+    }
+    updateReachable(null, tsClientReachableRef, tsMissRef, setTsReachable, tsEverReachableRef, setTsEverReachable);
+  };
+
   // Trust user intent (settingsEnabled): UI stays "enabled" while watchdog restarts process
   const syncTunnelStatus = async () => {
     try {
       const statusRes = await fetch("/api/tunnel/status", { cache: "no-store" });
       if (!statusRes.ok) return;
       const data = await statusRes.json();
-      const tEnabled = data.tunnel?.settingsEnabled ?? data.tunnel?.enabled ?? false;
-      const tUrl = data.tunnel?.tunnelUrl || "";
-      setTunnelUrl(tUrl);
-      setTunnelPublicUrl(data.tunnel?.publicUrl || "");
-      setTunnelEnabled(tEnabled);
-      updateReachable(null, tunnelClientReachableRef, tunnelMissRef, setTunnelReachable, tunnelEverReachableRef, setTunnelEverReachable);
-
-      const tsEn = data.tailscale?.settingsEnabled ?? data.tailscale?.enabled ?? false;
-      const tsUrlVal = data.tailscale?.tunnelUrl || "";
-      setTsUrl(tsUrlVal);
-      setTsEnabled(tsEn);
-      updateReachable(null, tsClientReachableRef, tsMissRef, setTsReachable, tsEverReachableRef, setTsEverReachable);
+      applyTunnelStatusPayload(data);
     } catch { /* ignore poll errors */ }
   };
 
@@ -586,24 +609,11 @@ const scopedModelPatterns =
         setRequireApiKey(settingsData.requireApiKey || false);
         const savedPrefix = settingsData.apiKeyPrefix || "";
         setApiKeyPrefix(savedPrefix && savedPrefix !== "sk-" ? savedPrefix.replace(/[^a-zA-Z0-9]/g, "") : "");
-        setRequireLogin(settingsData.requireLogin !== false);
-        setHasPassword(settingsData.hasPassword || false);
         setTunnelDashboardAccess(settingsData.tunnelDashboardAccess || false);
       }
       if (statusRes.ok) {
         const data = await statusRes.json();
-        const tEnabled = data.tunnel?.settingsEnabled ?? data.tunnel?.enabled ?? false;
-        const tUrl = data.tunnel?.tunnelUrl || "";
-        setTunnelUrl(tUrl);
-        setTunnelPublicUrl(data.tunnel?.publicUrl || "");
-        setTunnelEnabled(tEnabled);
-        updateReachable(null, tunnelClientReachableRef, tunnelMissRef, setTunnelReachable, tunnelEverReachableRef, setTunnelEverReachable);
-
-        const tsEn = data.tailscale?.settingsEnabled ?? data.tailscale?.enabled ?? false;
-        const tsUrlVal = data.tailscale?.tunnelUrl || "";
-        setTsUrl(tsUrlVal);
-        setTsEnabled(tsEn);
-        updateReachable(null, tsClientReachableRef, tsMissRef, setTsReachable, tsEverReachableRef, setTsEverReachable);
+        applyTunnelStatusPayload(data);
       }
     } catch (error) {
       console.log("Error loading settings:", error);
@@ -827,10 +837,13 @@ const scopedModelPatterns =
     setTsInstalled(null);
     try {
       const res = await fetch("/api/tunnel/tailscale-check");
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setTsInstalled(data.installed);
         return data;
+      }
+      if (res.status === 403) {
+        return { installed: false, localOnly: true, error: data.error || "Localhost access required to configure Tailscale." };
       }
     } catch { /* ignore */ }
     setTsInstalled(false);
@@ -1039,7 +1052,11 @@ const scopedModelPatterns =
     setTsStatus(null);
     setTsInstallLog([]);
     const data = await checkTailscaleInstalled();
-    if (data?.installed && data?.hasCachedPassword) {
+    if (data?.localOnly) {
+      setTsStatus({ type: "error", message: data.error });
+      return;
+    }
+    if (data?.installed && (data?.loggedIn || data?.daemonRunning || data?.hasCachedPassword)) {
       handleConnectTailscale();
     } else {
       setShowTsModal(true);
@@ -1047,10 +1064,20 @@ const scopedModelPatterns =
   };
 
   const parseAllowedModelsList = (str) => {
-    if (!str || str.trim() === "*" || str.trim() === "") return [];
-    return str
+    if (!str || typeof str !== "string") return [];
+    const trimmed = str.trim();
+    if (!trimmed || trimmed === "*") return [];
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item).trim()).filter(Boolean);
+        }
+      } catch { /* fall through to comma split */ }
+    }
+    return trimmed
       .split(",")
-      .map((s) => s.trim())
+      .map((item) => item.trim())
       .filter(Boolean);
   };
 
@@ -1281,7 +1308,8 @@ const scopedModelPatterns =
 
   const maskKey = (fullKey) => {
     if (!fullKey || fullKey.length <= 10) return fullKey || "";
-    return fullKey.slice(0, 6) + "•".repeat(fullKey.length - 10) + fullKey.slice(-4);
+    const dots = Math.min(8, Math.max(4, fullKey.length - 10));
+    return fullKey.slice(0, 6) + "•".repeat(dots) + fullKey.slice(-4);
   };
 
   const toggleKeyVisibility = (keyId) => {
@@ -1324,14 +1352,14 @@ const scopedModelPatterns =
   return (
     <div className="flex flex-col gap-8">
       {/* Endpoint Card */}
-      <Card>
+      <Card className="p-4 sm:p-6">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <span className="material-symbols-outlined text-primary">api</span>
           API Endpoint
         </h2>
 
         {/* Endpoint rows */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3 sm:gap-2.5">
           {/* Local */}
           <EndpointRow
             label="Local"
@@ -1345,173 +1373,186 @@ const scopedModelPatterns =
           {!isApiKeyUser && (
           <>
           {/* Cloudflare Tunnel */}
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
-            <span className={`text-xs font-mono px-1.5 py-0.5 rounded shrink-0 min-w-[88px] max-w-[140px] truncate text-center ${
-              tunnelEnabled ? "bg-primary/10 text-primary" : "bg-surface-2 text-text-muted"
-            }`}>Tunnel</span>
-            {tunnelEnabled && !tunnelLoading && tunnelReachable ? (
-              <>
-                <Input value={`${tunnelPublicUrl || tunnelUrl}/v1`} readOnly className="flex-1 min-w-0 font-mono text-sm" inputClassName="truncate" />
-                <button
-                  onClick={() => copy(`${tunnelPublicUrl || tunnelUrl}/v1`, "tunnel_url")}
-                  className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors shrink-0"
-                >
-                  <span className="material-symbols-outlined text-[18px]">{copied === "tunnel_url" ? "check" : "content_copy"}</span>
-                </button>
+          {tunnelEnabled && !tunnelLoading && tunnelReachable ? (
+            <EndpointRow
+              label="Tunnel"
+              badge="CF"
+              url={`${tunnelPublicUrl || tunnelUrl}/v1`}
+              copyId="tunnel_url"
+              copied={copied}
+              onCopy={copy}
+              actions={(
                 <button
                   onClick={() => setShowDisableTunnelModal(true)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  className="p-2 hover:bg-red-500/10 rounded-[var(--r-control)] text-red-500 transition-colors shrink-0"
                   title="Disable Tunnel"
+                  aria-label="Disable Tunnel"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
                 </button>
-              </>
-            ) : tunnelEnabled && !tunnelLoading && !tunnelReachable ? (
-              <>
-                <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-500/5 text-sm text-amber-600 dark:text-amber-400">
-                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                  {tunnelEverReachable ? "Tunnel reconnecting..." : "Tunnel checking..."}
-                </div>
-                <button
-                  onClick={() => setShowDisableTunnelModal(true)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
-                  title="Disable Tunnel"
-                >
-                  <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
-                </button>
-              </>
-            ) : tunnelLoading ? (
-              <>
-                <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-sm text-text-muted">
-                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                  {tunnelProgress || "Creating tunnel..."}
-                </div>
-                <button
-                  onClick={() => { setTunnelLoading(false); setTunnelProgress(""); }}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
-                  title="Stop"
-                >
-                  <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
-                </button>
-              </>
-            ) : tunnelStatus?.type === "error" ? (
-              <>
-                <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 dark:border-red-800 bg-red-500/5 text-sm text-red-600 dark:text-red-400">
-                  <span className="material-symbols-outlined text-sm">error</span>
-                  {tunnelStatus.message}
-                </div>
-                <Button size="sm" icon="cloud_upload" onClick={() => setShowEnableTunnelModal(true)}>Enable</Button>
-              </>
-            ) : tunnelChecking ? (
-              <>
-                <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-sm text-text-muted">
-                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                  Checking...
-                </div>
-                <button
-                  onClick={() => setTunnelChecking(false)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
-                  title="Stop"
-                >
-                  <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
-                </button>
-              </>
-            ) : (
-              <Button
-                size="sm"
-                icon="cloud_upload"
-                onClick={() => {
-                  if (!requireApiKey) {
-                    setTunnelStatus({ type: "error", message: "Security required: Enable \"Require API key\" before activating the tunnel." });
-                    return;
-                  }
-                  setShowEnableTunnelModal(true);
-                }}
-              >
-                Enable
-              </Button>
-            )}
-          </div>
-          {/* Tailscale */}
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
-            <span className={`text-xs font-mono px-1.5 py-0.5 rounded shrink-0 min-w-[88px] max-w-[140px] truncate text-center ${
-              tsEnabled ? "bg-primary/10 text-primary" : "bg-surface-2 text-text-muted"
-            }`}>Tailscale</span>
-            {tsEnabled && !tsLoading && tsReachable ? (
-              <>
-                <Input value={`${tsUrl}/v1`} readOnly className="flex-1 min-w-0 font-mono text-sm" inputClassName="truncate" />
-                <button
-                  onClick={() => copy(`${tsUrl}/v1`, "ts_url")}
-                  className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors shrink-0"
-                >
-                  <span className="material-symbols-outlined text-[18px]">{copied === "ts_url" ? "check" : "content_copy"}</span>
-                </button>
-                <button
-                  onClick={() => setShowDisableTsModal(true)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
-                  title="Disable Tailscale"
-                >
-                  <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
-                </button>
-              </>
-            ) : tsEnabled && !tsLoading && !tsReachable ? (
-              <>
-                <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-500/5 text-sm text-amber-600 dark:text-amber-400">
-                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                  {tsEverReachable ? "Tailscale reconnecting..." : "Tailscale checking..."}
-                </div>
-                <button
-                  onClick={() => setShowDisableTsModal(true)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
-                  title="Disable Tailscale"
-                >
-                  <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
-                </button>
-              </>
-            ) : (tsLoading || tsConnecting) ? (
-              <>
-                <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-sm text-text-muted">
-                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                  {tsProgress || "Connecting..."}
-                </div>
-                {tsAuthUrl && (
+              )}
+            />
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 min-w-0">
+              <span className={`inline-flex items-center justify-center text-xs font-mono px-2 py-1 rounded shrink-0 w-[88px] text-center font-medium ${
+                tunnelEnabled ? "bg-primary/10 text-primary" : "bg-surface-2 text-text-muted"
+              }`}>Tunnel</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                {tunnelEnabled && !tunnelLoading && !tunnelReachable ? (
+                  <>
+                    <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-500/5 text-xs sm:text-sm text-amber-600 dark:text-amber-400">
+                      <span className="material-symbols-outlined animate-spin text-sm shrink-0">progress_activity</span>
+                      <span className="truncate">{tunnelEverReachable ? "Tunnel reconnecting..." : "Tunnel checking..."}</span>
+                    </div>
+                    <button
+                      onClick={() => setShowDisableTunnelModal(true)}
+                      className="p-2 hover:bg-red-500/10 rounded-[var(--r-control)] text-red-500 transition-colors shrink-0"
+                      title="Disable Tunnel"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                    </button>
+                  </>
+                ) : tunnelLoading ? (
+                  <>
+                    <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-xs sm:text-sm text-text-muted">
+                      <span className="material-symbols-outlined animate-spin text-sm shrink-0">progress_activity</span>
+                      <span className="truncate">{tunnelProgress || "Creating tunnel..."}</span>
+                    </div>
+                    <button
+                      onClick={() => { setTunnelLoading(false); setTunnelProgress(""); }}
+                      className="p-2 hover:bg-red-500/10 rounded-[var(--r-control)] text-red-500 transition-colors shrink-0"
+                      title="Stop"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                    </button>
+                  </>
+                ) : tunnelStatus?.type === "error" ? (
+                  <>
+                    <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 dark:border-red-800 bg-red-500/5 text-xs sm:text-sm text-red-600 dark:text-red-400">
+                      <span className="material-symbols-outlined text-sm shrink-0">error</span>
+                      <span className="truncate">{tunnelStatus.message}</span>
+                    </div>
+                    <Button size="sm" icon="cloud_upload" className="shrink-0" onClick={() => setShowEnableTunnelModal(true)}>Enable</Button>
+                  </>
+                ) : tunnelChecking ? (
+                  <>
+                    <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-xs sm:text-sm text-text-muted">
+                      <span className="material-symbols-outlined animate-spin text-sm shrink-0">progress_activity</span>
+                      <span>Checking...</span>
+                    </div>
+                    <button
+                      onClick={() => setTunnelChecking(false)}
+                      className="p-2 hover:bg-red-500/10 rounded-[var(--r-control)] text-red-500 transition-colors shrink-0"
+                      title="Stop"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                    </button>
+                  </>
+                ) : (
                   <Button
                     size="sm"
-                    icon="open_in_new"
-                    onClick={() => window.open(tsAuthUrl, "tailscale_auth", "width=600,height=700,noopener,noreferrer")}
+                    icon="cloud_upload"
+                    onClick={() => {
+                      if (!requireApiKey) {
+                        setTunnelStatus({ type: "error", message: "Security required: Enable \"Require API key\" before activating the tunnel." });
+                        return;
+                      }
+                      setShowEnableTunnelModal(true);
+                    }}
                   >
-                    {tsAuthLabel || "Open"}
+                    Enable
                   </Button>
                 )}
+              </div>
+            </div>
+          )}
+          {/* Tailscale */}
+          {tsEnabled && !tsLoading && tsReachable ? (
+            <EndpointRow
+              label="Tailscale"
+              badge="TS"
+              url={`${tsUrl}/v1`}
+              copyId="ts_url"
+              copied={copied}
+              onCopy={copy}
+              actions={(
                 <button
-                  onClick={() => { setTsLoading(false); setTsConnecting(false); setTsProgress(""); clearUserAuth(); }}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
-                  title="Stop"
+                  onClick={() => setShowDisableTsModal(true)}
+                  className="p-2 hover:bg-red-500/10 rounded-[var(--r-control)] text-red-500 transition-colors shrink-0"
+                  title="Disable Tailscale"
+                  aria-label="Disable Tailscale"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
                 </button>
-              </>
-            ) : tsStatus?.type === "error" ? (
-              <>
-                <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 dark:border-red-800 bg-red-500/5 text-sm text-red-600 dark:text-red-400">
-                  <span className="material-symbols-outlined text-sm">error</span>
-                  {tsStatus.message}
-                </div>
-                <Button size="sm" icon="vpn_lock" onClick={handleOpenTsModal}>Enable</Button>
-              </>
-            ) : (
-              <Button
-                size="sm"
-                icon="vpn_lock"
-                onClick={() => {
-                  handleOpenTsModal();
-                }}
-                className="bg-linear-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white!"
-              >
-                Enable
-              </Button>
-            )}
-          </div>
+              )}
+            />
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 min-w-0">
+              <span className={`inline-flex items-center justify-center text-xs font-mono px-2 py-1 rounded shrink-0 w-[88px] text-center font-medium ${
+                tsEnabled ? "bg-primary/10 text-primary" : "bg-surface-2 text-text-muted"
+              }`}>Tailscale</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                {tsEnabled && !tsLoading && !tsReachable ? (
+                  <>
+                    <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-500/5 text-xs sm:text-sm text-amber-600 dark:text-amber-400">
+                      <span className="material-symbols-outlined animate-spin text-sm shrink-0">progress_activity</span>
+                      <span className="truncate">{tsEverReachable ? "Tailscale reconnecting..." : "Tailscale checking..."}</span>
+                    </div>
+                    <button
+                      onClick={() => setShowDisableTsModal(true)}
+                      className="p-2 hover:bg-red-500/10 rounded-[var(--r-control)] text-red-500 transition-colors shrink-0"
+                      title="Disable Tailscale"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                    </button>
+                  </>
+                ) : (tsLoading || tsConnecting) ? (
+                  <>
+                    <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-xs sm:text-sm text-text-muted">
+                      <span className="material-symbols-outlined animate-spin text-sm shrink-0">progress_activity</span>
+                      <span className="truncate">{tsProgress || "Connecting..."}</span>
+                    </div>
+                    {tsAuthUrl && (
+                      <Button
+                        size="sm"
+                        icon="open_in_new"
+                        className="shrink-0"
+                        onClick={() => window.open(tsAuthUrl, "tailscale_auth", "width=600,height=700,noopener,noreferrer")}
+                      >
+                        {tsAuthLabel || "Open"}
+                      </Button>
+                    )}
+                    <button
+                      onClick={() => { setTsLoading(false); setTsConnecting(false); setTsProgress(""); clearUserAuth(); }}
+                      className="p-2 hover:bg-red-500/10 rounded-[var(--r-control)] text-red-500 transition-colors shrink-0"
+                      title="Stop"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                    </button>
+                  </>
+                ) : tsStatus?.type === "error" ? (
+                  <>
+                    <div className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 dark:border-red-800 bg-red-500/5 text-xs sm:text-sm text-red-600 dark:text-red-400">
+                      <span className="material-symbols-outlined text-sm shrink-0">error</span>
+                      <span className="truncate">{tsStatus.message}</span>
+                    </div>
+                    <Button size="sm" icon="vpn_lock" className="shrink-0" onClick={handleOpenTsModal}>Enable</Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    icon="vpn_lock"
+                    onClick={() => {
+                      handleOpenTsModal();
+                    }}
+                    className="bg-linear-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white!"
+                  >
+                    Enable
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
           </>
           )}
         </div>
@@ -1545,7 +1586,7 @@ const scopedModelPatterns =
       </Card>
 
       {/* API Keys */}
-      <Card id="require-api-key">
+      <Card id="require-api-key" className="p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <span className="material-symbols-outlined text-primary">vpn_key</span>
@@ -1626,31 +1667,39 @@ const scopedModelPatterns =
           </div>
         ) : (
           <div className="flex flex-col">
-            {keys.map((key) => (
+            {keys.map((key) => {
+              const allowedList = parseAllowedModelsList(key.allowedModels);
+              const modelsSummary = allowedList.length === 0
+                ? "All"
+                : allowedList.length === 1
+                  ? allowedList[0]
+                  : `${allowedList[0]} +${allowedList.length - 1} more`;
+              return (
               <div
                 key={key.id}
                 className={`group flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 py-3.5 border-b border-border/30 last:border-b-0 ${key.isActive === false ? "opacity-60" : ""}`}
               >
-                <div className="flex items-start gap-3 min-w-0 flex-1">
-                  {!isApiKeyUser && (
-                    <input
-                      type="checkbox"
-                      checked={selectedKeyIds.has(key.id)}
-                      onChange={() => {
-                        setSelectedKeyIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(key.id)) next.delete(key.id);
-                          else next.add(key.id);
-                          return next;
-                        });
-                      }}
-                      className="size-4 accent-brand-500 shrink-0 mt-1"
-                      aria-label={`Select ${key.name}`}
-                    />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between sm:justify-start gap-2">
-                      <p className="text-sm font-medium truncate min-w-0">{key.name}</p>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        {!isApiKeyUser && (
+                          <input
+                            type="checkbox"
+                            checked={selectedKeyIds.has(key.id)}
+                            onChange={() => {
+                              setSelectedKeyIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(key.id)) next.delete(key.id);
+                                else next.add(key.id);
+                                return next;
+                              });
+                            }}
+                            className="size-4 accent-brand-500 shrink-0"
+                            aria-label={`Select ${key.name}`}
+                          />
+                        )}
+                        <p className="text-sm font-medium truncate min-w-0">{key.name}</p>
+                      </div>
                       {/* Mobile-only toggle aligned with title */}
                       <div className="sm:hidden flex-shrink-0" title={key.isActive === false ? "Switch this key back on" : "Switch this key off"}>
                         <Toggle
@@ -1662,27 +1711,28 @@ const scopedModelPatterns =
                       </div>
                     </div>
                     {creatorLabelFor(key) && (
-                      <p className="text-xs text-text-muted truncate min-w-0">{creatorLabelFor(key)}</p>
+                      <p className="text-xs text-text-muted truncate min-w-0 mt-0.5">{creatorLabelFor(key)}</p>
                     )}
-                    <div className="flex items-center gap-1.5 mt-1 min-w-0 max-w-full">
-                      <code className="text-xs text-text-muted font-mono truncate min-w-0 max-w-[200px] sm:max-w-md">
+                    <div className="flex items-center gap-1.5 mt-1.5 min-w-0 max-w-full">
+                      <code className="text-xs text-text-muted font-mono truncate min-w-0 sm:max-w-md">
                         {visibleKeys.has(key.id) ? key.key : maskKey(key.key)}
                       </code>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => toggleKeyVisibility(key.id)}
-                          className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                          className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
                           title={visibleKeys.has(key.id) ? "Hide key" : "Show key"}
                         >
-                          <span className="material-symbols-outlined text-[14px]">
+                          <span className="material-symbols-outlined text-[15px]">
                             {visibleKeys.has(key.id) ? "visibility_off" : "visibility"}
                           </span>
                         </button>
                         <button
                           onClick={() => copy(key.key, key.id)}
-                          className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                          className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                          title="Copy key"
                         >
-                          <span className="material-symbols-outlined text-[14px]">
+                          <span className="material-symbols-outlined text-[15px]">
                             {copied === key.id ? "check" : "content_copy"}
                           </span>
                         </button>
@@ -1696,8 +1746,11 @@ const scopedModelPatterns =
                       {limitKindOf(key) !== "cost" && limitCapOf(key) > 0 && key.resetInterval && key.resetInterval !== "never" && (
                         <ResetCountdown resetInterval={key.resetInterval} lastResetAt={key.lastResetAt} />
                       )}
-                      <span className="text-xs max-w-full truncate px-2 py-0.5 rounded bg-blue-500/10 text-blue-500 font-medium">
-                        Models: {key.allowedModels && key.allowedModels !== "*" ? key.allowedModels : "All"}
+                      <span
+                        title={allowedList.length > 0 ? allowedList.join(", ") : "All models"}
+                        className="text-xs max-w-full truncate px-2 py-0.5 rounded bg-blue-500/10 text-blue-500 font-medium"
+                      >
+                        Models: {modelsSummary}
                       </span>
                       {(key.rpmLimit > 0 || key.tpmLimit > 0) && (
                         <span className="text-xs max-w-full truncate px-2 py-0.5 rounded bg-purple-500/10 text-purple-500 font-medium">
@@ -1722,7 +1775,6 @@ const scopedModelPatterns =
                         );
                       })()}
                     </div>
-                  </div>
                 </div>
 
                 {/* Desktop action row */}
@@ -1797,7 +1849,7 @@ const scopedModelPatterns =
                 </div>
 
                 {/* Mobile action bar */}
-                <div className="flex sm:hidden items-center justify-end gap-1.5 pt-2 border-t border-border/20 text-text-muted">
+                <div className="flex sm:hidden items-center justify-end gap-2 pt-2.5 mt-1 border-t border-border/30 text-text-muted">
                   <button
                     onClick={() => {
                       setEditingKey(key);
@@ -1820,45 +1872,46 @@ const scopedModelPatterns =
                       setEditPermissions(key.permissions || EMPTY_PERMISSIONS);
                     }}
                     disabled={isOwnKey(key)}
-                    className={cn("p-1.5 hover:bg-surface-2 rounded text-text-muted hover:text-primary transition-all", isOwnKey(key) && "opacity-40 cursor-not-allowed")}
+                    className={cn("p-2 bg-surface-2/60 hover:bg-surface-2 rounded-[var(--r-control)] text-text-muted hover:text-primary transition-all", isOwnKey(key) && "opacity-40 cursor-not-allowed")}
                     title="Edit key"
                   >
-                    <span className="material-symbols-outlined text-[16px]">edit</span>
+                    <span className="material-symbols-outlined text-[18px]">edit</span>
                   </button>
                   <button
                     onClick={() => handleDuplicateKey(key)}
                     disabled={isOwnKey(key)}
-                    className={cn("p-1.5 hover:bg-surface-2 rounded text-text-muted hover:text-primary transition-all", isOwnKey(key) && "opacity-40 cursor-not-allowed")}
+                    className={cn("p-2 bg-surface-2/60 hover:bg-surface-2 rounded-[var(--r-control)] text-text-muted hover:text-primary transition-all", isOwnKey(key) && "opacity-40 cursor-not-allowed")}
                     title="Duplicate key"
                   >
-                    <span className="material-symbols-outlined text-[16px]">library_add</span>
+                    <span className="material-symbols-outlined text-[18px]">library_add</span>
                   </button>
                   <button
                     onClick={() => handleManualResetUsage(key)}
                     disabled={isOwnKey(key)}
-                    className={cn("p-1.5 hover:bg-surface-2 rounded text-text-muted hover:text-primary transition-all", isOwnKey(key) && "opacity-40 cursor-not-allowed")}
+                    className={cn("p-2 bg-surface-2/60 hover:bg-surface-2 rounded-[var(--r-control)] text-text-muted hover:text-primary transition-all", isOwnKey(key) && "opacity-40 cursor-not-allowed")}
                     title="Reset used tokens"
                   >
-                    <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+                    <span className="material-symbols-outlined text-[18px]">restart_alt</span>
                   </button>
                   <button
                     onClick={() => { setShowSnippetModal(key); setSnippetLang("curl"); }}
-                    className="p-1.5 hover:bg-surface-2 rounded text-text-muted hover:text-primary transition-all"
+                    className="p-2 bg-surface-2/60 hover:bg-surface-2 rounded-[var(--r-control)] text-text-muted hover:text-primary transition-all"
                     title="Code snippet"
                   >
-                    <span className="material-symbols-outlined text-[16px]">code</span>
+                    <span className="material-symbols-outlined text-[18px]">code</span>
                   </button>
                   <button
                     onClick={() => handleDeleteKey(key.id)}
                     disabled={isOwnKey(key)}
-                    className={cn("p-1.5 hover:bg-red-500/10 rounded text-red-500 transition-all", isOwnKey(key) && "opacity-30 cursor-not-allowed")}
+                    className={cn("p-2 bg-red-500/10 hover:bg-red-500/20 rounded-[var(--r-control)] text-red-500 transition-all", isOwnKey(key) && "opacity-30 cursor-not-allowed")}
                     title="Delete key"
                   >
-                    <span className="material-symbols-outlined text-[16px]">delete</span>
+                    <span className="material-symbols-outlined text-[18px]">delete</span>
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>

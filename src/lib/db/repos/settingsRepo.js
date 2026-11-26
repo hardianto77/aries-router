@@ -7,10 +7,10 @@ const DEFAULT_HEADROOM_URL = process.env.HEADROOM_URL || "http://localhost:8787"
 
 const DEFAULT_SETTINGS = {
   cloudEnabled: false,
-  tunnelEnabled: false,
+  tunnelEnabled: true,
   tunnelUrl: "",
   tunnelProvider: "cloudflare",
-  tailscaleEnabled: false,
+  tailscaleEnabled: true,
   tailscaleUrl: "",
   stickyRoundRobinLimit: 3,
   providerStrategies: {},

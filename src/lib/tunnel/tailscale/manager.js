@@ -1,5 +1,5 @@
 import { loadState, generateShortId } from "../shared/state.js";
-import { startFunnel, stopFunnel, isTailscaleRunning, isTailscaleRunningStrict, isTailscaleLoggedIn, isTailscaleLoggedInStrict, startLogin, startDaemonWithPassword, provisionCert } from "./tailscale.js";
+import { startFunnel, stopFunnel, isTailscaleRunning, isTailscaleRunningStrict, isTailscaleLoggedIn, isTailscaleLoggedInStrict, hasTailscaleLoggedInCache, hasTailscaleRunningCache, startLogin, startDaemonWithPassword, provisionCert, getActualFunnelUrl } from "./tailscale.js";
 import { waitForHealth } from "./healthCheck.js";
 import { HEALTH_CHECK } from "./config.js";
 import { getSettings, updateSettings } from "@/lib/localDb";
@@ -21,7 +21,12 @@ function throwIfCancelled(token) {
   if (token.cancelled) throw new Error("tailscale cancelled");
 }
 
-export async function enableTailscale(localPort = 20128) {
+function getDefaultLocalPort() {
+  const p = Number(process.env.PORT);
+  return Number.isInteger(p) && p > 0 ? p : 20128;
+}
+
+export async function enableTailscale(localPort = getDefaultLocalPort()) {
   console.log(`[Tailscale] enable start (port=${localPort})`);
   svc.cancelToken = { cancelled: false };
   svc.activeLocalPort = localPort;
@@ -49,6 +54,15 @@ export async function enableTailscale(localPort = 20128) {
       console.log("[Tailscale] login resolved alreadyLoggedIn");
     }
     throwIfCancelled(token);
+
+    if (await isTailscaleRunningStrict(localPort)) {
+      const existingUrl = getActualFunnelUrl();
+      if (existingUrl) {
+        await updateSettings({ tailscaleEnabled: true, tailscaleUrl: existingUrl });
+        console.log(`[Tailscale] already active on port ${localPort}: ${existingUrl}`);
+        return { success: true, tunnelUrl: existingUrl, alreadyRunning: true };
+      }
+    }
 
     stopFunnel();
     let result;
@@ -116,10 +130,15 @@ export async function disableTailscale() {
 export async function getTailscaleStatus() {
   const settings = await getSettings();
   const settingsEnabled = settings.tailscaleEnabled === true;
-  const tunnelUrl = settings.tailscaleUrl || "";
-  // Skip probes entirely when disabled; check login before running (device removed = not logged in)
-  const loggedIn = settingsEnabled ? isTailscaleLoggedIn() : false;
-  const running = loggedIn ? isTailscaleRunning() : false;
+  const port = getDefaultLocalPort();
+  // Cold cache on first request after boot: run strict probe once so UI does not flash false
+  const loggedIn = settingsEnabled
+    ? (hasTailscaleLoggedInCache() ? isTailscaleLoggedIn() : await isTailscaleLoggedInStrict())
+    : false;
+  const running = loggedIn
+    ? (hasTailscaleRunningCache() ? isTailscaleRunning(port) : await isTailscaleRunningStrict(port))
+    : false;
+  const tunnelUrl = settings.tailscaleUrl || (running ? (getActualFunnelUrl() || "") : "");
   return {
     enabled: settingsEnabled && running,
     settingsEnabled,

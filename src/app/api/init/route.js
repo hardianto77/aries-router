@@ -1,3 +1,4 @@
+import "@/shared/services/bootstrap";
 
 export const dynamic = "force-dynamic";
 // This API route is called automatically to initialize app

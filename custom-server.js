@@ -477,6 +477,15 @@ http.createServer = (...args) => {
   server.once("listening", () => {
     startBackgroundTokenRefreshFromCustomServer();
     startAutoBackupFromCustomServer();
+    const addr = server.address();
+    const listenPort = addr && typeof addr === "object" ? addr.port : (Number(process.env.PORT) || 20128);
+    if (!global.__ariesInitTriggered) {
+      global.__ariesInitTriggered = true;
+      const t = setTimeout(() => {
+        http.get(`http://127.0.0.1:${listenPort}/api/init`, (res) => { res.resume(); }).on("error", () => {});
+      }, 300);
+      if (t.unref) t.unref();
+    }
   });
   const origEmit = server.emit;
   // JBR 25 sends h2c upgrades that the HTTP/1.1 server would otherwise close.

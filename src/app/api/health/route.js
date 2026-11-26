@@ -6,6 +6,7 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "*",
+  "Access-Control-Allow-Private-Network": "true",
 };
 
 // GET /api/health - anonymous liveness probe for tunnel + uptime checkers, hence CORS: *
