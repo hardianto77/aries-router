@@ -13,7 +13,7 @@ export const TRANSIENT_429_COOLDOWN_MS = 60 * 1000;
 
 function parseResetAfterMs(message) {
   if (!message || typeof message !== "string") return null;
-  const match = message.match(/reset after (\d+h)?(\d+m)?(\d+s)?/i);
+  const match = message.match(/(?:reset after|resets? in) (\d+h)?(\d+m)?(\d+s)?/i);
   if (!match) return null;
   let totalMs = 0;
   if (match[1]) totalMs += parseInt(match[1], 10) * 3600 * 1000;
@@ -33,6 +33,7 @@ export function classify429(message) {
   const resetAfterMs = parseResetAfterMs(text);
   if (
     /\bQUOTA_EXHAUSTED\b/i.test(text) ||
+    /\b(?:individual|model)?\s*quota\s+reached\b/i.test(text) ||
     /(?:daily|monthly|account|subscription|billing)[\s\S]{0,80}(?:quota|limit|credits?)[\s\S]{0,40}(?:exceeded|exhausted|reached|depleted)\b/i.test(text) ||
     /\b(insufficient[\s_-]+credits?|credits?[\s_-]+balance[\s_-]+is[\s_-]+too[\s_-]+low|quota[\s_-]+depleted)\b/i.test(text) ||
     /quota\s+will\s+reset/i.test(text)

@@ -83,6 +83,7 @@ export default function ProviderDetailPage() {
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
   const [selectedConnectionIds, setSelectedConnectionIds] = useState([]);
   const [bulkProxyPoolId, setBulkProxyPoolId] = useState("__none__");
+  const [bulkProxySearch, setBulkProxySearch] = useState("");
   const [bulkUpdatingProxy, setBulkUpdatingProxy] = useState(false);
   const [providerStrategy, setProviderStrategy] = useState(null);
   // OpenCode Free's lane switch: false = direct request, true = local CLI.
@@ -1189,25 +1190,29 @@ export default function ProviderDetailPage() {
   const runPvSync = async (mode) => {
     if (pvDirectSyncing) return;
     setPvDirectSyncing(mode);
-    setPvSyncStatusMsg(mode === "warp" ? "Checking WARP egress health..." : "Testing & refreshing proxy pool...");
+    setPvSyncStatusMsg(mode === "warp" ? "Rotating WARP egress..." : "Testing & refreshing pure-residential pool...");
     try {
-      const res = await fetch("/api/proxy-pools/pv-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: providerId || "",
-          mode,
-          allRotate: false,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPvSyncStatusMsg(mode === "warp"
-          ? `WARP rotate OK: egress ${data.warpOk ? "healthy" : "still rotating"}`
-          : `Proxy pool sync OK: ${data.poolAdded} healthy egress (residential ${data.resiAlive}/${data.resiTotal}) | ${data.rotatedProviders} accounts rotated`);
-        if (mode !== "warp") await fetchConnections();
+      if (mode === "warp") {
+        const res = await fetch("/api/proxy-pools/warp-rotate", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          setPvSyncStatusMsg(`WARP rotate OK: egress ${data.ip || "healthy"}`);
+        } else {
+          setPvSyncStatusMsg(`Failed: ${data.error || "WARP rotate failed"}`);
+        }
       } else {
-        setPvSyncStatusMsg(`Failed: ${data.error || "Sync failed"}`);
+        const res = await fetch("/api/residential-fresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "refresh" }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setPvSyncStatusMsg(data.message || "Pure-residential proxy pool refreshed");
+          await fetchConnections();
+        } else {
+          setPvSyncStatusMsg(`Failed: ${data.error || "Sync failed"}`);
+        }
       }
     } catch (err) {
       setPvSyncStatusMsg(`Error: ${String(err?.message || err).slice(0, 120)}`);
@@ -1378,11 +1383,24 @@ export default function ProviderDetailPage() {
     return "Selected connections have mixed proxy bindings";
   })();
 
+  const refreshActiveProxyPools = async () => {
+    try {
+      const res = await fetch("/api/proxy-pools?isActive=true", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.proxyPools)) {
+        setProxyPools(data.proxyPools);
+      }
+    } catch {}
+  };
+
   const openBulkProxyModal = () => {
-    if (selectedConnections.length === 0) return;
-    const uniquePoolIds = [...new Set(selectedConnections.map((conn) => conn.providerSpecificData?.proxyPoolId || "__none__"))];
-    setBulkProxyPoolId(uniquePoolIds.length === 1 ? uniquePoolIds[0] : "__none__");
+    setBulkProxySearch("");
+    if (selectedConnections.length > 0) {
+      const uniquePoolIds = [...new Set(selectedConnections.map((conn) => conn.providerSpecificData?.proxyPoolId || "__none__"))];
+      setBulkProxyPoolId(uniquePoolIds.length === 1 ? uniquePoolIds[0] : "__none__");
+    }
     setShowBulkProxyModal(true);
+    refreshActiveProxyPools();
   };
 
   const closeBulkProxyModal = () => {
@@ -1500,22 +1518,41 @@ export default function ProviderDetailPage() {
   );
 
   const activePools = proxyPools.filter((p) => p.isActive === true);
+  const filteredBulkPools = activePools.filter((pool) => {
+    const q = bulkProxySearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      String(pool.name || "").toLowerCase().includes(q) ||
+      String(pool.countryCode || "").toLowerCase().includes(q) ||
+      String(pool.type || "").toLowerCase().includes(q) ||
+      String(pool.isp || "").toLowerCase().includes(q)
+    );
+  });
 
   const bulkActionModal = (
     <Modal
       isOpen={showBulkProxyModal}
       onClose={closeBulkProxyModal}
-      title={`Apply Proxy (${connections.length} connections)`}
+      title={`Apply Proxy (${connections.length} connections · ${activePools.length} proxies)`}
     >
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col">
+        {activePools.length > 5 && (
+          <Input
+            placeholder="Filter proxies (name, country, socks5, ISP)..."
+            value={bulkProxySearch}
+            onChange={(e) => setBulkProxySearch(e.target.value)}
+            icon="search"
+            className="w-full"
+          />
+        )}
+        <div className="flex flex-col max-h-[340px] overflow-y-auto pr-1">
           <button
             onClick={handleApplyOneToOne}
             disabled={bulkUpdatingProxy || activePools.length === 0}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-text-muted text-[18px]">sync_alt</span>
-            <span className="text-sm text-text-main">One-to-one (rotate)</span>
+            <span className="text-sm text-text-main">One-to-one (rotate across {activePools.length} proxies)</span>
           </button>
           <button
             onClick={() => handleApplySinglePool(null)}
@@ -1525,27 +1562,33 @@ export default function ProviderDetailPage() {
             <span className="material-symbols-outlined text-text-muted text-[18px]">link_off</span>
             <span className="text-sm text-text-main">None (unbind all)</span>
           </button>
-          {proxyPools.filter((pool) => pool.isActive === true).map((pool) => (
-            <button
-              key={pool.id}
-              onClick={() => handleApplySinglePool(pool.id)}
-              disabled={bulkUpdatingProxy}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {pool.resiManager ? (
-                <span className="material-symbols-outlined text-emerald-500 text-[18px]">shield</span>
-              ) : (
-                <span className="material-symbols-outlined text-text-muted text-[18px]">lan</span>
-              )}
-              <span className="truncate text-sm text-text-main">{pool.name}</span>
-              {pool.resiManager && (
-                <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">Resi</span>
-              )}
-              {pool.latencyMs != null && (
-                <span className="shrink-0 text-[10px] text-text-muted">{pool.latencyMs}ms</span>
-              )}
-            </button>
-          ))}
+          {filteredBulkPools.map((pool) => {
+            const isResi = Boolean(pool.isResidential || pool.harvestedBy === "proxy-harvest" || pool.resiManager);
+            return (
+              <button
+                key={pool.id}
+                onClick={() => handleApplySinglePool(pool.id)}
+                disabled={bulkUpdatingProxy}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isResi ? (
+                  <span className="material-symbols-outlined text-emerald-500 text-[18px]">shield</span>
+                ) : (
+                  <span className="material-symbols-outlined text-text-muted text-[18px]">lan</span>
+                )}
+                <span className="truncate text-sm text-text-main">{pool.name}</span>
+                {pool.type === "socks5" && (
+                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">socks5</span>
+                )}
+                {isResi && (
+                  <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">Proxy</span>
+                )}
+                {pool.latencyMs != null && (
+                  <span className="shrink-0 ml-auto text-[10px] text-text-muted tabular-nums">{pool.latencyMs}ms</span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {bulkUpdatingProxy && <p className="text-xs text-text-muted">Applying...</p>}
@@ -2142,7 +2185,7 @@ export default function ProviderDetailPage() {
                     onClick={() => runPvSync("proxy")}
                     disabled={!!pvDirectSyncing}
                     className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/20"
-                    title="Test & refresh ProxyVault + residential egress pool, then rotate per-account proxy binding"
+                    title="Test & refresh pure-residential egress pool, then rotate per-account proxy binding"
                   >
                     {pvDirectSyncing === "proxy" ? "Syncing Proxy Pool..." : "Sync Proxy Pool"}
                   </Button>
@@ -2159,14 +2202,14 @@ export default function ProviderDetailPage() {
                   </Button>
                 </div>
               )}
-              {connections.length > 0 && proxyPools.length > 0 && (
+              {connections.length > 0 && (
                 <Button
                   size="sm"
                   variant="secondary"
                   icon="lan"
-                  onClick={() => setShowBulkProxyModal(true)}
+                  onClick={openBulkProxyModal}
                 >
-                  Apply Proxy
+                  Apply Proxy ({activePools.length})
                 </Button>
               )}
               {connections.length > 0 && (

@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
-import { getProviderConnections } from "@/models";
+import { getProviderConnections, getProxyPools, updateProviderConnection, updateProxyPool, deleteProxyPools } from "@/models";
+import { pruneAndVerifyHarvestedPools, syncHarvestedToResidentialFiles, distributeHarvestedFairlyToProviders } from "@/lib/network/pureResidentialHarvester.js";
 
 const run = promisify(execFile);
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ const GATEWAY = process.env.RESI_GATEWAY_URL || "http://127.0.0.1:20188";
 const STATUS_URL = process.env.RESI_GATEWAY_STATUS_URL || "http://127.0.0.1:20189/status";
 const POOL_JSON = "/home/ubuntu/.aries-router/residential_fresh_pool.json";
 const REFRESH_PY = "/opt/aries-router/scripts/refresh_fresh_residential.py";
-const LOCAL_PROVIDERS = new Set(["local-device", "searxng", "edge-tts", "google-tts"]);
+const LOCAL_PROVIDERS = new Set(["local-device", "searxng", "edge-tts", "google-tts", "devin-cli", "opencode", "openai-compatible-chat-openhop", "openai-compatible-chat-kilo"]);
 const TRANSPORT_ERR_RE = /429|rate.?limit|502|503|504|524|407|402|proxy|timeout|tunnel|fetch failed|ECONNREFUSED|ETIMEDOUT|ECONNRESET/i;
 
 function maskProxyUrl(rawUrl) {
@@ -64,7 +65,7 @@ async function lookupIpMeta(ip) {
     if (d?.status === "success") {
       const comb = `${d.isp || ""} ${d.org || ""}`.toLowerCase();
       return {
-        isResidential: d.hosting !== true,
+        isResidential: d.hosting !== true && d.proxy !== true,
         networkClass: d.mobile ? "mobile" : (comb.includes("university") || comb.includes(".edu") ? "education" : "residential"),
         isp: d.isp || "",
         asn: d.as || "",
@@ -183,7 +184,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      module: "Residential Fresh Proxy",
+      module: "Proxy Resi Gateway",
       directConnections,
       uniqueEndpointsUsed: uniqueUrls.size,
       totalActiveProviders: providerBindings.length,
@@ -230,22 +231,36 @@ export async function POST(request) {
 
   if (action === "refresh" || action === "scan-sources") {
     try {
-      const { stdout } = await run("/usr/bin/python3", [REFRESH_PY], { timeout: 120000 });
-      let stats = {};
-      for (const line of stdout.trim().split(/\r?\n/).reverse()) {
-        try {
-          const p = JSON.parse(line);
-          if (p && "verifiedResidential" in p) {
-            stats = p;
-            break;
-          }
-        } catch {}
+      const pruneStats = await pruneAndVerifyHarvestedPools({
+        getProxyPools,
+        updateProxyPool,
+        deleteProxyPools,
+        getProviderConnections,
+        strictNoProxyFlag: true,
+      });
+      const currentPools = await getProxyPools();
+      syncHarvestedToResidentialFiles(currentPools);
+      const distStats = await distributeHarvestedFairlyToProviders({
+        getProxyPools,
+        getProviderConnections,
+        updateProviderConnection,
+      });
+      if (pruneStats.kept < 3) {
+        // Trigger fresh background Python harvest only if pool is critically low
+        run("/usr/bin/python3", [REFRESH_PY], { timeout: 90000 }).catch(() => {});
       }
+      const stats = {
+        verifiedResidential: pruneStats.kept,
+        datacenterBlocked: pruneStats.datacenterBlocked,
+        perProviderUnique: distStats.distinctProxiesUsed,
+        activeProviders: distStats.providersCovered,
+        healedDirectConnections: distStats.updatedConnections || distStats.totalExternalConnections,
+      };
       return NextResponse.json({
         success: true,
         action,
         stats,
-        message: `Verified ${stats.verifiedResidential ?? 0} pure-residential IP(s) (blocked ${stats.datacenterBlocked ?? 0} datacenter) · injected directly across ${stats.perProviderUnique ?? 0}/${stats.activeProviders ?? 0} providers (${stats.healedDirectConnections ?? 0} connection(s) updated, 0 group pools).`,
+        message: `Verified ${stats.verifiedResidential} pure-residential IP(s) via Proxy Harvest (blocked ${stats.datacenterBlocked} datacenter) · fairly bound ${distStats.totalExternalConnections} conns across ${stats.activeProviders} providers (0 group pools).`,
       });
     } catch (e) {
       return NextResponse.json({ success: false, error: String(e?.message || e).slice(0, 200) }, { status: 500 });

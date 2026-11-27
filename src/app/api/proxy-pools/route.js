@@ -9,7 +9,7 @@ function toBoolean(value) {
   return undefined;
 }
 
-const VALID_PROXY_TYPES = ["http", "residential", "vercel", "cloudflare", "deno", "netlify"];
+const VALID_PROXY_TYPES = ["http", "socks5", "socks5h", "residential", "url-relay", "vercel", "cloudflare", "deno", "netlify"];
 
 function normalizeProxyPoolInput(body = {}) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";
@@ -34,6 +34,7 @@ function buildUsageMap(connections = []) {
   const usageMap = new Map();
 
   for (const connection of connections) {
+    if (connection?.isActive === false) continue;
     const proxyPoolId = connection?.providerSpecificData?.proxyPoolId;
     if (!proxyPoolId) continue;
 

@@ -33,6 +33,11 @@ export const AGENT_ERROR_MARKERS = [
 ];
 /** The same banners without their newlines, which is how they are matched. */
 export const AGENT_ERROR_CORES = AGENT_ERROR_MARKERS.map((marker) => marker.trim());
+export const DYNAMIC_ERROR_PREFIXES = [
+    "\u26a0 Individual quota reached",
+    "\u26a0 Model quota reached",
+    "\u26a0 Quota reached",
+];
 /** The credit-balance banner, which a caller reports as 402 rather than 429. */
 export const CREDITS_CORE = AGENT_ERROR_CORES[2];
 /** agy 1.5.8+: one line per failed attempt of a model call, then it tries again. */
@@ -47,7 +52,7 @@ const RETRY_CORE = RETRY_MARKER.trim();
  * The longest banner, minus its last character: the shortest tail that cannot
  * still be the beginning of one, so anything shorter is held.
  */
-const HOLD_MAX = Math.max(...AGENT_ERROR_MARKERS.map((marker) => marker.length)) - 1;
+const HOLD_MAX = Math.max(...AGENT_ERROR_MARKERS.map((marker) => marker.length), ...DYNAMIC_ERROR_PREFIXES.map((p) => p.length + 2)) - 1;
 /**
  * The bare 429 Antigravity sends for a system prompt it turns away, whatever
  * quota is left. agy retries it inside the same turn with a banner each time and
@@ -122,10 +127,16 @@ export class AgentTextFilter {
         const core = AGENT_ERROR_CORES.find((entry) => this.held.includes(entry));
         if (core) {
             this.held = "";
-            // A failed connection is in the reply's last attempt line, not in the
-            // banner; the generic banner says nothing the client can act on.
-            const detail = this.attemptDetail || (core !== AGENT_ERROR_CORES[0] ? core.replace(/^⚠ /, "") : "");
+            const detail = this.attemptDetail || (core !== AGENT_ERROR_CORES[0] ? core.replace(/^\u26a0 /, "") : "");
             this.fail(core, detail);
+            return { text: "", failed: true, core: this.failedCore, detail: this.failedDetail };
+        }
+        const dynPrefix = DYNAMIC_ERROR_PREFIXES.find((prefix) => this.held.includes(prefix));
+        if (dynPrefix) {
+            const line = this.held.split("\n").find((l) => l.includes(dynPrefix))?.trim() || dynPrefix;
+            this.held = "";
+            const detail = this.attemptDetail || line.replace(/^\u26a0 /, "");
+            this.fail(line, detail);
             return { text: "", failed: true, core: this.failedCore, detail: this.failedDetail };
         }
         const text = this.flush();
@@ -165,9 +176,18 @@ export class AgentTextFilter {
                 return this.emit(text.slice(0, start));
             }
         }
+        for (const prefix of DYNAMIC_ERROR_PREFIXES) {
+            const marker = text.lastIndexOf(prefix);
+            if (marker >= 0 && !/\n\S/.test(text.slice(marker))) {
+                const start = text[marker - 1] === "\n" ? marker - 1 : marker;
+                this.held = text.slice(start);
+                return this.emit(text.slice(0, start));
+            }
+        }
         for (let keep = Math.min(text.length, HOLD_MAX); keep > 0; keep--) {
             const tail = text.slice(-keep);
             if (AGENT_ERROR_MARKERS.some((marker) => marker.startsWith(tail)) ||
+                DYNAMIC_ERROR_PREFIXES.some((p) => ("\n" + p).startsWith(tail) || p.startsWith(tail)) ||
                 (keep > 1 && (RETRY_MARKER.startsWith(tail) || ATTEMPT_MARKER.startsWith(tail)))) {
                 this.held = tail;
                 text = text.slice(0, -keep);

@@ -287,4 +287,50 @@ describe("FreePI Parallel Stream Slot & Concurrency Tests", () => {
     evictFreePiSlot(accA);
     evictFreePiSlot(accB);
   });
+
+  it("distributes concurrent requests across 3 FreePI accounts and keeps persistent affinity", async () => {
+    const acc1 = "tok-freepi-1";
+    const acc2 = "tok-freepi-2";
+    const acc3 = "tok-freepi-3";
+    evictFreePiSlot(acc1);
+    evictFreePiSlot(acc2);
+    evictFreePiSlot(acc3);
+
+    const accounts = [
+      { id: "conn-1", token: acc1 },
+      { id: "conn-2", token: acc2 },
+      { id: "conn-3", token: acc3 },
+    ];
+
+    const pickLeastLoaded = () => {
+      let best = accounts[0];
+      let bestLoad = Infinity;
+      for (const acc of accounts) {
+        const pressure = getFreePiQueueStats(acc.token);
+        if (pressure.totalLoad < bestLoad) {
+          best = acc;
+          bestLoad = pressure.totalLoad;
+        }
+      }
+      reserveFreePiSlot(best.token);
+      return best;
+    };
+
+    const picks = [pickLeastLoaded(), pickLeastLoaded(), pickLeastLoaded(), pickLeastLoaded(), pickLeastLoaded(), pickLeastLoaded()];
+    assert.deepEqual(picks.map((p) => p.id), ["conn-1", "conn-2", "conn-3", "conn-1", "conn-2", "conn-3"]);
+
+    const releases = await Promise.all([
+      acquireFreePiQueueLock(acc1),
+      acquireFreePiQueueLock(acc2),
+      acquireFreePiQueueLock(acc3),
+    ]);
+    assert.equal(getFreePiQueueStats(acc1).running, true);
+    assert.equal(getFreePiQueueStats(acc2).running, true);
+    assert.equal(getFreePiQueueStats(acc3).running, true);
+    await Promise.all(releases.map((r) => r()));
+
+    evictFreePiSlot(acc1);
+    evictFreePiSlot(acc2);
+    evictFreePiSlot(acc3);
+  });
 });

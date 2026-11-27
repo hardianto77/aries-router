@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """
-Pure-Residential Fresh IP Harvester, 3-Stage Verifier & Direct Per-Provider Injector (v5.0)
-- Strictly Pure-Residential ONLY: blocks WARP, loopback, transparent (VPS IP leak),
-  VPN/Tor, and all Datacenter/Cloud/Hosting ASNs (fail-closed).
-- Multi-source harvesting: existing verified pool + ProxyVault DB (alive non-DC)
-  + local proxy lists + live public proxy feeds (cached 10m).
+Pure-Residential Fresh IP Harvester, 3-Stage Verifier & Direct Per-Provider Injector (v6.0)
+- Strictly Pure-Residential ONLY: checks BOTH ingress proxy host IP AND egress exit IP!
+  Blocks WARP, loopback, transparent (VPS IP leak), VPN/Tor, Compromised servers,
+  University/Campus (.edu/education), and all Datacenter/Cloud/Hosting/IPXO ASNs (fail-closed).
+- Multi-source harvesting: existing verified pool + expanded fresh live proxy feeds
+  (cached 10m) + local pure-residential seed files (zero ProxyVault, zero seren harvest).
 - 3-Stage Verification:
-  1) Fast asyncio TCP + HTTP CONNECT / SOCKS5 + TLS pre-screen (high concurrency)
+  1) Fast asyncio TCP + HTTP CONNECT / SOCKS5 + TLS pre-screen (high concurrency, pre-filtered against cached DC IPs)
   2) Strict 2/2 consecutive HTTPS TLS (:443) double-probe:
-     - Pass 1: IP echo (httpbin / aws checkip / icanhazip / seeip — avoids ipify 429)
-     - Pass 2: Global HTTPS reachability (gstatic/cloudflare generate_204 -> HTTP 204)
-     Both passes must succeed with avg latency <= 2800ms, no 402/403/407/429.
-  3) Multi-provider ASN verification (ip-api.com + ipwho.is + ipinfo.io fallback)
-     with disk cache (/home/ubuntu/.aries-router/asn_cache.json).
-- Instant dead-proxy deletion from active pool files, pool JSON, and proxyPools DB.
-- Direct 1-on-1 per-provider injection (proxyPoolId = NULL, zero group proxy pools)
-  and keeps pool_manager_sync in sync for manual Apply Proxy picker.
+     - Pass 1: IP echo (checkip.amazonaws.com / httpbin / icanhazip / seeip)
+     - Pass 2: Real AI edge reachability (generativelanguage.googleapis.com/generate_204 -> HTTP 204)
+     Primary threshold avg latency <= 1800ms (soft fallback <= 2200ms only if < 6 fast nodes found).
+  3) Multi-provider ASN verification on BOTH ingress IP & egress IP:
+     ip-api.com batch (with asname + reverse + hosting + proxy + mobile) + ipinfo.io + RDAP fallback
+     with 24h disk cache (/home/ubuntu/.aries-router/asn_cache.json).
+- Strict 1-node-per-ingress-IP and 1-node-per-egress-IP deduplication (stops multi-port single-host bottlenecks).
+- Instant dead/DC/slow deletion from managed pool files, pool JSON, and proxyPools DB.
+- Direct 1-on-1 per-provider injection (proxyPoolId = NULL, zero group proxy pools),
+  prioritizing cleanest (proxy=False) & fastest nodes for heaviest providers,
+  and keeping pool_manager_sync in sync for manual Apply Proxy picker.
 """
 import asyncio
 import base64
@@ -23,8 +27,10 @@ import concurrent.futures
 import datetime
 import ipaddress
 import json
+import logging
 import os
 import re
+import socket
 import sqlite3
 import ssl
 import struct
@@ -34,29 +40,31 @@ import time
 import urllib.parse
 import urllib.request
 
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
+
 DB_PATH = "/home/ubuntu/.aries-router/db/data.sqlite"
-PV_DB_PATH = "/home/ubuntu/proxyvault/proxyvault.db"
 OUT_TXT = "/home/ubuntu/resi-fresh-alive.txt"
 OUT_JSON = "/home/ubuntu/.aries-router/residential_fresh_pool.json"
 ASN_CACHE_PATH = "/home/ubuntu/.aries-router/asn_cache.json"
-FEED_CACHE_PATH = "/tmp/resi_feed_cache.json"
+FEED_CACHE_PATH = "/tmp/resi_feed_cache_v6.json"
 RESI_GW_URL = "http://127.0.0.1:20188"
 RESI_GW_RELOAD = "http://127.0.0.1:20189/reload"
 VPS_PUBLIC_IP = os.environ.get("VPS_PUBLIC_IP", "43.163.99.76")
 
-MAX_ACCEPTABLE_LATENCY_MS = 2800.0
-SCREEN_TIMEOUT = 2.8
-PROBE_TIMEOUT = 3.5
+PRIMARY_LATENCY_MS = 900.0
+FALLBACK_LATENCY_MS = 1250.0
+MAX_JITTER_MS = 750.0
+SCREEN_TIMEOUT = 2.5
+PROBE_TIMEOUT = 3.0
 FEED_CACHE_TTL_SEC = 600
 ASN_CACHE_TTL_SEC = 24 * 3600
-MAX_SCREEN_CANDIDATES = 2200
+MAX_SCREEN_CANDIDATES = 8500
 MAX_VERIFIED_POOL = 80
 IPV4_RE = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
 TLS_CTX = ssl.create_default_context()
 
-LOCAL_PROVIDERS = {"local-device", "searxng", "edge-tts", "google-tts"}
+LOCAL_PROVIDERS = {"local-device", "searxng", "edge-tts", "google-tts", "devin-cli", "opencode", "openai-compatible-chat-openhop", "openai-compatible-chat-kilo"}
 
-# Active managed residential pool files (dead entries pruned immediately)
 SOURCE_FILES = [
     "/home/ubuntu/live_floppy_fresh.txt",
     "/home/ubuntu/active_floppy_verified.txt",
@@ -71,49 +79,73 @@ SOURCE_FILES = [
     "/home/ubuntu/hunter_residential_fresh.txt",
 ]
 
-# Read-only seed/harvester files (never overwritten; fed into screening)
 READONLY_SEED_FILES = [
-    "/home/ubuntu/.aries-router/pv_pool.json",
-    "/home/ubuntu/farming/zai/proxies.txt",
-    "/home/ubuntu/proxyvault_live.txt",
     "/home/ubuntu/live_proxyscrape.txt",
     "/home/ubuntu/combined_fast_proxies.txt",
     "/home/ubuntu/fast_verified_pool.txt",
     "/home/ubuntu/mafia_working.txt",
-    "/home/ubuntu/working_proxy.txt",
     "/home/ubuntu/verified_live_proxies.txt",
     "/home/ubuntu/vps_rock_solid_proxies.txt",
     "/home/ubuntu/vps_verified_live_proxies.txt",
 ]
 
+AMP = chr(38)
 PUBLIC_FEEDS = [
-    ("http", "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=4000&country=all&ssl=yes&anonymity=all"),
-    ("socks5", "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=4000"),
-    ("http", "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt"),
-    ("socks5", "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks5/data.txt"),
+    ("http", f"https://api.proxyscrape.com/v2/?request=displayproxies{AMP}protocol=http{AMP}timeout=3000{AMP}country=all{AMP}ssl=yes{AMP}anonymity=all"),
+    ("socks5", f"https://api.proxyscrape.com/v2/?request=displayproxies{AMP}protocol=socks5{AMP}timeout=3000"),
+    ("http", "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/http.txt"),
+    ("https", "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/https.txt"),
+    ("socks5", "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/socks5.txt"),
+    ("http", "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt"),
+    ("socks5", "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS5_RAW.txt"),
+    ("http", "https://raw.githubusercontent.com/elliottophellia/yakumo/master/results/http/global/http_checked.txt"),
+    ("socks5", "https://raw.githubusercontent.com/elliottophellia/yakumo/master/results/socks5/global/socks5_checked.txt"),
+    ("http", "https://raw.githubusercontent.com/zloi-user/hideip.me/main/http.txt"),
+    ("https", "https://raw.githubusercontent.com/zloi-user/hideip.me/main/https.txt"),
+    ("socks5", "https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks5.txt"),
     ("http", "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"),
     ("socks5", "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt"),
+    ("http", "https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/generated/http_proxies.txt"),
+    ("socks5", "https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/generated/socks5_proxies.txt"),
+    ("http", f"https://proxylist.geonode.com/api/proxy-list?limit=500{AMP}page=1{AMP}sort_by=lastChecked{AMP}sort_type=desc{AMP}protocols=http%2Chttps"),
+    ("socks5", f"https://proxylist.geonode.com/api/proxy-list?limit=500{AMP}page=1{AMP}sort_by=lastChecked{AMP}sort_type=desc{AMP}protocols=socks5"),
+    ("http", "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt"),
+    ("socks5", "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks5/data.txt"),
     ("http", "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt"),
     ("socks5", "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt"),
     ("socks5", "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt"),
 ]
 
 DATACENTER_KEYWORDS = (
-    "amazon", "aws", "google", "microsoft", "azure", "alibaba", "aliyun", "oracle", "tencent",
-    "digitalocean", "linode", "akamai", "ovh", "hetzner", "choopa", "vultr", "cloudflare",
-    "fastly", "contabo", "leaseweb", "m247", "hostinger", "godaddy", "scaleway", "server",
-    "hosting", "datacenter", "data center", "cloud", "vps", "dedicated", "colocation", "colo",
-    "cdn", "telepoint", "cogent", "zenlayer", "ucloud", "rackspace", "softlayer", "psychz",
-    "layeronline", "hostkey", "quadranet", "estnoc", "realcloud", "serverius", "fdcservers",
-    "frantech", "buyvm", "limestone", "datapacket", "gcore", "kamatera", "ionos", "strato",
-    "upcloud", "cherry servers", "worldstream", "nforce", "xtom", "sharktech", "colocrossing",
-    "reliablesite", "gthost", "ctrls", "orion network", "bunny technology", "lixium",
-    "timeweb", "layershift", "haoxiangyun", "selectel", "akene", "cogento", "oneprovider",
-    "brainstorm network", "ptisp", "almouroltec", "pvdatanet", "pvdata", "real time data",
-    "servers tech", "franet", "warp", "mullvad", "nordvpn", "protonvpn", "surfshark",
-    "expressvpn", "datacamp", "cdn77", "online sas", "constant company", "netcup",
-    "zscaler", "natanetwork", "huawei", "servidores", "nexosystems", "3xk", "antbox", "baykov",
+    "amazon", "amazonaws", "google", "googleusercontent", "microsoft", "azure", "alibaba", "aliyun",
+    "oracle", "tencent", "digitalocean", "linode", "akamai", "hetzner", "choopa", "vultr",
+    "cloudflare", "fastly", "contabo", "leaseweb", "m247", "hostinger", "godaddy", "scaleway",
+    "hosting", "datacenter", "data center", "dedicated", "colocation", "telepoint", "cogent",
+    "zenlayer", "ucloud", "rackspace", "softlayer", "psychz", "layeronline", "hostkey", "quadranet",
+    "estnoc", "realcloud", "serverius", "fdcservers", "frantech", "buyvm", "limestone", "datapacket",
+    "gcore", "kamatera", "ionos", "strato", "upcloud", "cherry servers", "worldstream", "nforce",
+    "xtom", "sharktech", "colocrossing", "reliablesite", "gthost", "ctrls", "orion network",
+    "bunny technology", "lixium", "timeweb", "layershift", "haoxiangyun", "selectel", "akene",
+    "cogento", "oneprovider", "brainstorm network", "ptisp", "almouroltec", "pvdatanet", "pvdata",
+    "real time data", "servers tech", "franet", "mullvad", "nordvpn", "protonvpn", "surfshark",
+    "expressvpn", "datacamp", "cdn77", "online sas", "constant company", "netcup", "zscaler",
+    "natanetwork", "huawei", "servidores", "nexosystems", "3xk", "antbox", "baykov",
     "church of cyberology", "tor exit", "emerald onion", "calyx", "quintex",
+    "ipxo", "chunkserve", "nhanhoa", "datawagon", "hostpapa", "techties", "imaqliq",
+    "alucio", "superhub", "cloud net", "blsync", "it host", "aceville", "cognetcloud",
+    "reliable communications", "compromised", "floppydata", "stealthtunnel",
+    "brightdata", "oxylabs", "smartproxy", "iproyal", "proxyrack", "luminati",
+    "solusindo", "telematika", "selaras citra", "murni makmur", "vds", "sia veesp", "veesp", "netsec",
+)
+
+DATACENTER_WORD_RE = re.compile(
+    r"\b(aws|ovh|vps|vpn|tor|cdn|colo|cloud|server|servers|proxy|warp|dedi|hosted|wholesale|transit|backbone|your-server)\b",
+    re.I,
+)
+
+EDUCATION_RE = re.compile(
+    r"(\buniversity\b|\bcollege\b|\bschool\b|\beducational\b|\bacademi\b|\buniversitas\b|\bcampus\b|\bsurfnet\b|\bresearch\s+network\b|\.edu\b|\.ac\.[a-z]{2}\b)",
+    re.I,
 )
 
 FORBIDDEN_HOSTS = {
@@ -124,14 +156,15 @@ FORBIDDEN_HOSTS = {
 }
 
 IP_ECHO_ENDPOINTS = (
-    "https://httpbin.org/ip",
+    "https://1.1.1.1/cdn-cgi/trace",
     "https://checkip.amazonaws.com",
-    "https://icanhazip.com",
-    "https://api.seeip.org/jsonip",
+    "https://api.ipify.org?format=json",
+    "https://httpbin.org/ip",
 )
-REACHABILITY_ENDPOINT = "https://www.gstatic.com/generate_204"
+REACHABILITY_ENDPOINT = "https://generativelanguage.googleapis.com/generate_204"
+FALLBACK_REACHABILITY_ENDPOINT = "https://www.gstatic.com/generate_204"
 TRANSPORT_ERR_RE = re.compile(
-    r"429|rate.?limit|502|503|504|524|407|402|proxy|timeout|tunnel|fetch failed|ECONNREFUSED|ETIMEDOUT|ECONNRESET|socket",
+    r"429|rate.?limit|502|504|524|407|402|proxy|timeout|tunnel|fetch failed|ECONNREFUSED|ETIMEDOUT|ECONNRESET|socket",
     re.I,
 )
 
@@ -171,7 +204,7 @@ def is_forbidden(url: str) -> bool:
         host = (u.hostname or "").lower()
         if not host or host in FORBIDDEN_HOSTS:
             return True
-        if host.endswith((".pvdata.host", ".stealthtunnel.net", ".floppydata.com")):
+        if host.endswith((".pvdata.host", ".stealthtunnel.net", ".floppydata.com", ".edu", ".edu.tw", ".ac.th")):
             return True
         if any(p in url for p in (":8118", ":40000", ":20188")):
             return True
@@ -188,6 +221,20 @@ def endpoint_key(url: str) -> str:
     host = (u.hostname or "").lower()
     port = u.port or (1080 if proto.startswith("socks") else 8080)
     return f"{proto}://{host}:{port}"
+
+
+def resolve_host_ip(url: str) -> str:
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").strip()
+        if not host:
+            return ""
+        try:
+            ipaddress.ip_address(host)
+            return host
+        except ValueError:
+            return socket.gethostbyname(host)
+    except Exception:
+        return ""
 
 
 def mask_url(url: str) -> str:
@@ -228,33 +275,6 @@ def _read_file_candidates(fpath: str, out: list[str], seen_keys: set[str]):
         pass
 
 
-def _load_proxyvault_candidates(out: list[str], seen_keys: set[str]):
-    if not os.path.exists(PV_DB_PATH):
-        return
-    try:
-        con = sqlite3.connect(PV_DB_PATH, timeout=10)
-        rows = con.execute(
-            """SELECT protocol, ip, port, isp FROM proxies
-               WHERE alive = 1 AND protocol IN ('http', 'https', 'socks5')
-               ORDER BY https DESC, COALESCE(latency_ms, 9999) ASC
-               LIMIT 1500"""
-        ).fetchall()
-        con.close()
-        for proto, ip, port, isp in rows:
-            isp_low = (isp or "").lower()
-            if any(kw in isp_low for kw in DATACENTER_KEYWORDS):
-                continue
-            url = f"{proto}://{ip}:{port}"
-            if is_forbidden(url):
-                continue
-            ek = endpoint_key(url)
-            if ek not in seen_keys:
-                seen_keys.add(ek)
-                out.append(url)
-    except Exception:
-        pass
-
-
 def _load_public_feed_candidates(out: list[str], seen_keys: set[str]):
     now = time.time()
     feed_urls: list[str] = []
@@ -273,9 +293,20 @@ def _load_public_feed_candidates(out: list[str], seen_keys: set[str]):
             proto, url = item
             found = []
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": "curl/8.5"})
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    for ln in r.read().decode("utf-8", "ignore").splitlines():
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=7) as r:
+                    raw = r.read().decode("utf-8", "ignore")
+                if "geonode.com" in url:
+                    for row in (json.loads(raw).get("data") or []):
+                        ip, port = row.get("ip"), row.get("port")
+                        prots = row.get("protocols") or [proto]
+                        p = "socks5" if "socks5" in prots else "http"
+                        if ip and port:
+                            norm = f"{p}://{ip}:{port}"
+                            if not is_forbidden(norm):
+                                found.append(norm)
+                else:
+                    for ln in raw.splitlines():
                         norm = normalize_proxy_line(ln, default_proto=proto)
                         if norm and not is_forbidden(norm):
                             found.append(norm)
@@ -283,11 +314,11 @@ def _load_public_feed_candidates(out: list[str], seen_keys: set[str]):
                 pass
             return found
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_FEEDS)) as ex:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex:
             for batch in ex.map(fetch_one, PUBLIC_FEEDS):
                 feed_urls.extend(batch)
         try:
-            json.dump({"ts": now, "urls": feed_urls[:6000]}, open(FEED_CACHE_PATH, "w"))
+            json.dump({"ts": now, "urls": feed_urls[:14000]}, open(FEED_CACHE_PATH, "w"))
         except Exception:
             pass
 
@@ -300,23 +331,109 @@ def _load_public_feed_candidates(out: list[str], seen_keys: set[str]):
             out.append(u)
 
 
+def _load_asn_cache() -> dict:
+    if not os.path.exists(ASN_CACHE_PATH):
+        return {}
+    try:
+        raw = json.load(open(ASN_CACHE_PATH))
+        now = time.time()
+        return {ip: v for ip, v in raw.items() if now - float(v.get("_ts", 0)) < ASN_CACHE_TTL_SEC}
+    except Exception:
+        return {}
+
+
+def _save_asn_cache(cache: dict):
+    try:
+        os.makedirs(os.path.dirname(ASN_CACHE_PATH), exist_ok=True)
+        json.dump(cache, open(ASN_CACHE_PATH, "w"))
+    except Exception:
+        pass
+
+
+def classify_asn(info: dict | None) -> tuple[bool, str, str]:
+    if not info:
+        return False, "unverified", "ASN lookup unavailable"
+    if info.get("hosting") is True or info.get("security_hosting") is True or info.get("ipwho_type") == "hosting":
+        return False, "datacenter", f"Hosting/DC ASN ({info.get('isp', 'unknown')})"
+    if info.get("security_vpn") is True or info.get("security_tor") is True:
+        return False, "datacenter", f"VPN/Tor ASN ({info.get('isp', 'unknown')})"
+    if info.get("proxy") is True or info.get("security_proxy") is True:
+        return False, "proxy_flagged", f"Proxy-flagged IP ({info.get('isp', 'unknown')})"
+    comb = " ".join([
+        str(info.get("isp") or ""),
+        str(info.get("org") or ""),
+        str(info.get("as") or ""),
+        str(info.get("asname") or ""),
+        str(info.get("reverse") or ""),
+        str(info.get("domain") or ""),
+    ]).lower()
+    if not comb.strip():
+        return False, "unverified", "Empty ASN metadata"
+    if EDUCATION_RE.search(comb):
+        return False, "datacenter", f"Campus/Education proxy blocked ({info.get('isp', '')})"
+    for kw in DATACENTER_KEYWORDS:
+        if kw in comb:
+            return False, "datacenter", f"Datacenter keyword '{kw}' ({info.get('isp', '')})"
+    m_word = DATACENTER_WORD_RE.search(comb)
+    if m_word:
+        return False, "datacenter", f"Datacenter pattern '{m_word.group(1)}' ({info.get('isp', '')})"
+    if info.get("mobile"):
+        return True, "mobile", "Mobile ISP"
+    return True, "residential", "Pure Residential ISP"
+
+
 def gather_candidates() -> list[str]:
+    asn_cache = _load_asn_cache()
     seen_keys: set[str] = set()
     priority: list[str] = []
-    # 1. Existing verified pool + managed files first
+
+    # 1. Existing verified Proxy Harvest pools in SQLite + verified files first
+    if os.path.exists(DB_PATH):
+        try:
+            con = sqlite3.connect(DB_PATH, timeout=10)
+            for (raw,) in con.execute("SELECT data FROM proxyPools WHERE isActive=1").fetchall():
+                d = json.loads(raw) if raw else {}
+                u = normalize_proxy_line(d.get("proxyUrl") or "")
+                if u and not is_forbidden(u) and d.get("proxyFlagged") is not True:
+                    ek = endpoint_key(u)
+                    if ek not in seen_keys:
+                        seen_keys.add(ek)
+                        priority.append(u)
+            con.close()
+        except Exception:
+            pass
     _read_file_candidates(OUT_JSON, priority, seen_keys)
     for fp in SOURCE_FILES:
         _read_file_candidates(fp, priority, seen_keys)
-    # 2. ProxyVault alive non-DC proxies
-    _load_proxyvault_candidates(priority, seen_keys)
-    # 3. Local seed files
+
+    # 2. Fresh live public feeds BEFORE local seed files
+    _load_public_feed_candidates(priority, seen_keys)
+
+    # 3. Local pure-residential seed files
     for fp in READONLY_SEED_FILES:
         _read_file_candidates(fp, priority, seen_keys)
-    # 4. Live public feeds (capped to avoid excessive probing)
-    feed_list: list[str] = []
-    _load_public_feed_candidates(feed_list, seen_keys)
-    combined = priority + feed_list
-    return combined[:MAX_SCREEN_CANDIDATES]
+
+    # Pre-filter out candidates whose ingress IP is already known datacenter/education in asn_cache,
+    # and cap ports per ingress host to 2 during screening so one tunnel host doesn't hog slots.
+    filtered: list[str] = []
+    per_host_count: dict[str, int] = {}
+    for u in priority:
+        host = (urllib.parse.urlparse(u).hostname or "").lower()
+        if not host:
+            continue
+        cached = asn_cache.get(host)
+        if cached:
+            ok, _, _ = classify_asn(cached)
+            if not ok:
+                continue
+        cnt = per_host_count.get(host, 0)
+        if cnt >= 2:
+            continue
+        per_host_count[host] = cnt + 1
+        filtered.append(u)
+        if len(filtered) >= MAX_SCREEN_CANDIDATES:
+            break
+    return filtered
 
 
 async def _async_open_tunnel(url: str, target_host: str, target_port: int, timeout: float):
@@ -390,13 +507,13 @@ async def _fast_screen_one(url: str, sem: asyncio.Semaphore) -> str | None:
         loop = asyncio.get_running_loop()
         writer = None
         try:
-            reader, writer = await _async_open_tunnel(url, "httpbin.org", 443, SCREEN_TIMEOUT)
+            reader, writer = await _async_open_tunnel(url, "checkip.amazonaws.com", 443, SCREEN_TIMEOUT)
             new_tr = await asyncio.wait_for(
-                loop.start_tls(writer.transport, writer.transport.get_protocol(), TLS_CTX, server_hostname="httpbin.org"),
+                loop.start_tls(writer.transport, writer.transport.get_protocol(), TLS_CTX, server_hostname="checkip.amazonaws.com"),
                 timeout=SCREEN_TIMEOUT,
             )
             writer._transport = new_tr
-            writer.write(b"GET /ip HTTP/1.1\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n")
+            writer.write(b"GET / HTTP/1.1\r\nHost: checkip.amazonaws.com\r\nConnection: close\r\n\r\n")
             await writer.drain()
             raw = await asyncio.wait_for(reader.read(2048), timeout=SCREEN_TIMEOUT)
             txt = raw.decode(errors="ignore")
@@ -418,84 +535,90 @@ async def _fast_screen_one(url: str, sem: asyncio.Semaphore) -> str | None:
 
 
 async def fast_screen_candidates(cands: list[str]) -> list[str]:
-    sem = asyncio.Semaphore(140)
+    sem = asyncio.Semaphore(260)
     results = await asyncio.gather(*(_fast_screen_one(u, sem) for u in cands), return_exceptions=True)
     return [r for r in results if isinstance(r, str)]
 
 
 def single_https_probe(url: str) -> tuple[str | None, float | None]:
-    for endpoint in IP_ECHO_ENDPOINTS:
+    for endpoint in IP_ECHO_ENDPOINTS[:3]:
         t0 = time.monotonic()
         try:
             r = subprocess.run(
                 ["curl", "-sS", "-4", "--max-time", str(PROBE_TIMEOUT), "-w", "\nHTTP_CODE:%{http_code}", "-x", url, endpoint],
                 capture_output=True,
                 text=True,
-                timeout=PROBE_TIMEOUT + 1.5,
+                timeout=PROBE_TIMEOUT + 1.0,
             )
             lat_ms = (time.monotonic() - t0) * 1000.0
-            if r.returncode != 0 or lat_ms > MAX_ACCEPTABLE_LATENCY_MS:
+            if r.returncode != 0 or lat_ms > FALLBACK_LATENCY_MS:
                 continue
             body, _, code_line = (r.stdout or "").rpartition("HTTP_CODE:")
             code = int(code_line.strip()) if code_line.strip().isdigit() else 0
-            if code != 200:
+            if code in (429, 403, 407):
+                return None, None
+            if code != 200 or "<html" in body.lower():
                 continue
-            m = IPV4_RE.search(body)
-            if m and m.group(1) != VPS_PUBLIC_IP:
-                return m.group(1), lat_ms
+            extracted = None
+            if "/cdn-cgi/trace" in endpoint:
+                for ln in body.splitlines():
+                    if ln.startswith("ip="):
+                        extracted = ln[3:].strip()
+                        break
+            if not extracted:
+                m = IPV4_RE.search(body)
+                if m:
+                    extracted = m.group(1)
+            if extracted and extracted != VPS_PUBLIC_IP:
+                return extracted, lat_ms
         except Exception:
             continue
     return None, None
 
 
-def reachability_probe(url: str) -> float | None:
-    t0 = time.monotonic()
-    try:
-        r = subprocess.run(
-            ["curl", "-sS", "-4", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", str(PROBE_TIMEOUT), "-x", url, REACHABILITY_ENDPOINT],
-            capture_output=True,
-            text=True,
-            timeout=PROBE_TIMEOUT + 1.5,
-        )
-        lat_ms = (time.monotonic() - t0) * 1000.0
-        if r.returncode == 0 and r.stdout.strip() == "204" and lat_ms <= MAX_ACCEPTABLE_LATENCY_MS:
-            return lat_ms
-    except Exception:
-        pass
-    return None
+def reachability_probe(url: str) -> list[float] | None:
+    lats = []
+    for endpoint in (REACHABILITY_ENDPOINT, FALLBACK_REACHABILITY_ENDPOINT):
+        t0 = time.monotonic()
+        try:
+            r = subprocess.run(
+                ["curl", "-sS", "-4", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", str(PROBE_TIMEOUT), "-x", url, endpoint],
+                capture_output=True,
+                text=True,
+                timeout=PROBE_TIMEOUT + 1.0,
+            )
+            lat_ms = (time.monotonic() - t0) * 1000.0
+            if r.returncode != 0 or lat_ms > FALLBACK_LATENCY_MS:
+                return None
+            code = int(r.stdout.strip()) if r.stdout.strip().isdigit() else 0
+            if code not in (200, 204):
+                return None
+            lats.append(lat_ms)
+        except Exception:
+            return None
+    return lats
 
 
 def probe_candidate(url: str):
-    """Require 2/2 HTTPS TLS passes: IP echo (non-VPS IPv4) + global HTTP 204 reachability."""
+    """Require 3/3 HTTPS TLS passes (IP echo + Gemini TLS + gstatic TLS) with low latency & jitter."""
     ip1, lat1 = single_https_probe(url)
-    if not ip1:
+    if not ip1 or lat1 is None:
         return None
-    lat2 = reachability_probe(url)
-    if lat2 is None:
+    lats = reachability_probe(url)
+    if not lats or len(lats) < 2:
         return None
-    avg_lat = round((lat1 + lat2) / 2.0, 1)
-    if avg_lat > MAX_ACCEPTABLE_LATENCY_MS:
+    ip2, lat4 = single_https_probe(url)
+    if not ip2 or lat4 is None:
         return None
-    return {"url": url, "egressIp": ip1, "latencyMs": avg_lat}
-
-
-def _load_asn_cache() -> dict:
-    if not os.path.exists(ASN_CACHE_PATH):
-        return {}
-    try:
-        raw = json.load(open(ASN_CACHE_PATH))
-        now = time.time()
-        return {ip: v for ip, v in raw.items() if now - float(v.get("_ts", 0)) < ASN_CACHE_TTL_SEC}
-    except Exception:
-        return {}
-
-
-def _save_asn_cache(cache: dict):
-    try:
-        os.makedirs(os.path.dirname(ASN_CACHE_PATH), exist_ok=True)
-        json.dump(cache, open(ASN_CACHE_PATH, "w"))
-    except Exception:
-        pass
+    all_lats = [lat1, lats[0], lats[1], lat4]
+    avg_lat = round(sum(all_lats) / len(all_lats), 1)
+    jitter_ms = round(max(all_lats) - min(all_lats), 1)
+    if avg_lat > FALLBACK_LATENCY_MS or jitter_ms > MAX_JITTER_MS:
+        return None
+    in_ip = resolve_host_ip(url)
+    if not in_ip:
+        return None
+    return {"url": url, "inIp": in_ip, "egressIp": ip1, "latencyMs": avg_lat, "jitterMs": jitter_ms}
 
 
 def batch_lookup_ip(ips: list[str]) -> dict[str, dict]:
@@ -503,7 +626,9 @@ def batch_lookup_ip(ips: list[str]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     missing = []
     for ip in ips:
-        if ip in cache:
+        if not ip:
+            continue
+        if ip in cache and ("asname" in cache[ip] or "reverse" in cache[ip]):
             out[ip] = cache[ip]
         else:
             missing.append(ip)
@@ -515,7 +640,7 @@ def batch_lookup_ip(ips: list[str]) -> dict[str, dict]:
         batch = missing[i : i + 90]
         try:
             req = urllib.request.Request(
-                "http://ip-api.com/batch?fields=query,status,country,countryCode,city,isp,org,as,hosting,proxy,mobile",
+                "http://ip-api.com/batch?fields=query,status,country,countryCode,city,isp,org,as,asname,reverse,hosting,proxy,mobile",
                 data=json.dumps(batch).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
@@ -526,27 +651,28 @@ def batch_lookup_ip(ips: list[str]) -> dict[str, dict]:
         except Exception:
             pass
 
-    def enrich_one(ip: str):
+    def enrich_missing(ip: str):
         cur = dict(out.get(ip) or {"query": ip})
         try:
-            with urllib.request.urlopen(f"https://ipwho.is/{ip}", timeout=5) as resp:
+            with urllib.request.urlopen(f"https://ipwho.is/{ip}", timeout=3.5) as resp:
                 w = json.loads(resp.read().decode("utf-8"))
-            if w.get("success") is not False:
+            if isinstance(w, dict) and w.get("success") is not False:
                 conn = w.get("connection") or {}
                 sec = w.get("security") or {}
-                cur["isp"] = " | ".join(x for x in [cur.get("isp"), conn.get("isp")] if x)
-                cur["org"] = " | ".join(x for x in [cur.get("org"), conn.get("org")] if x)
-                cur["domain"] = conn.get("domain") or ""
-                if sec.get("hosting") is True or sec.get("vpn") is True or sec.get("tor") is True or sec.get("relay") is True or w.get("type") == "hosting":
-                    cur["hosting"] = True
-                if not cur.get("countryCode"):
-                    cur["countryCode"] = w.get("country_code")
-                if not cur.get("country"):
-                    cur["country"] = w.get("country")
-                if not cur.get("city"):
-                    cur["city"] = w.get("city")
+                cur["ipwho_checked"] = True
+                cur["ipwho_type"] = w.get("type") or ""
+                cur["country"] = cur.get("country") or w.get("country")
+                cur["countryCode"] = cur.get("countryCode") or w.get("country_code")
+                cur["city"] = cur.get("city") or w.get("city")
+                cur["isp"] = cur.get("isp") or conn.get("isp") or conn.get("org") or ""
+                cur["org"] = cur.get("org") or conn.get("org") or ""
+                cur["domain"] = cur.get("domain") or conn.get("domain") or ""
                 if not cur.get("as") and conn.get("asn"):
-                    cur["as"] = f"AS{conn.get('asn')} {conn.get('org') or ''}"
+                    cur["as"] = f"AS{conn.get('asn')} {cur['org'] or cur['isp']}".strip()
+                cur["security_hosting"] = bool(sec.get("hosting") or w.get("type") == "hosting")
+                cur["security_proxy"] = bool(sec.get("proxy"))
+                cur["security_vpn"] = bool(sec.get("vpn"))
+                cur["security_tor"] = bool(sec.get("tor"))
         except Exception:
             pass
         if not cur.get("isp") and not cur.get("as"):
@@ -557,44 +683,43 @@ def batch_lookup_ip(ips: list[str]) -> dict[str, dict]:
                     cur["isp"] = ii.get("org")
                     cur["org"] = ii.get("org")
                     cur["as"] = ii.get("org")
+                    cur["reverse"] = ii.get("hostname") or cur.get("reverse") or ""
                     cur["countryCode"] = cur.get("countryCode") or ii.get("country")
                     cur["country"] = cur.get("country") or ii.get("country")
+                    cur["city"] = cur.get("city") or ii.get("city")
+            except Exception:
+                pass
+        if not cur.get("isp") and not cur.get("as"):
+            try:
+                with urllib.request.urlopen(f"https://rdap.apnic.net/ip/{ip}", timeout=4) as resp:
+                    rd = json.loads(resp.read().decode("utf-8"))
+                name = rd.get("name") or ""
+                rems = []
+                for rem in rd.get("remarks", []):
+                    rems.extend(rem.get("description", []))
+                desc = " ".join(rems[:3])
+                if name or desc:
+                    cur["isp"] = name
+                    cur["org"] = desc or name
             except Exception:
                 pass
         return ip, cur
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex:
-        for ip, cur in ex.map(enrich_one, missing):
-            if cur.get("isp") or cur.get("as"):
-                cur["_ts"] = time.time()
-                out[ip] = cur
-                cache[ip] = cur
+    need_fallback = [ip for ip in missing if not (out.get(ip) or {}).get("ipwho_checked") or (not (out.get(ip) or {}).get("isp") and not (out.get(ip) or {}).get("as"))]
+    if need_fallback:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            for ip, cur in ex.map(enrich_missing, need_fallback):
+                if cur.get("isp") or cur.get("as"):
+                    out[ip] = cur
+
+    now_ts = time.time()
+    for ip in missing:
+        if ip in out and (out[ip].get("isp") or out[ip].get("as")):
+            out[ip]["_ts"] = now_ts
+            cache[ip] = out[ip]
 
     _save_asn_cache(cache)
     return out
-
-
-def classify_asn(info: dict | None) -> tuple[bool, str, str]:
-    if not info:
-        return False, "unverified", "ASN lookup unavailable"
-    if info.get("hosting") is True:
-        return False, "datacenter", f"Hosting/VPN ASN ({info.get('isp', 'unknown')})"
-    comb = " ".join([
-        str(info.get("isp") or ""),
-        str(info.get("org") or ""),
-        str(info.get("as") or ""),
-        str(info.get("domain") or ""),
-    ]).lower()
-    if not comb.strip():
-        return False, "unverified", "Empty ASN metadata"
-    for kw in DATACENTER_KEYWORDS:
-        if kw in comb:
-            return False, "datacenter", f"Datacenter keyword '{kw}' ({info.get('isp', '')})"
-    if info.get("mobile"):
-        return True, "mobile", "Mobile ISP"
-    if "university" in comb or ".edu" in comb or "educational" in comb:
-        return True, "education", "Campus ISP"
-    return True, "residential", "Pure Residential ISP"
 
 
 def sync_db_direct_only(verified_urls) -> dict:
@@ -602,10 +727,56 @@ def sync_db_direct_only(verified_urls) -> dict:
     ZERO group proxy pools. Each PROVIDER gets its OWN DEDICATED verified
     residential proxy endpoint (where pool size allows), bound directly on that
     provider's connections (proxyPoolId = NULL).
-    Dead / datacenter / WARP / disabled / errored bindings are replaced immediately.
+    Heaviest providers receive the cleanest & lowest-latency endpoints first.
+    Dead / datacenter / WARP / disabled / errored / stale bindings are replaced immediately.
     """
     verified_list = [u for u in (verified_urls or []) if u]
+    if os.path.exists(DB_PATH):
+        try:
+            _con = sqlite3.connect(DB_PATH, timeout=10)
+            _db_candidates = []
+            for (_pid, _raw) in _con.execute("SELECT id, data FROM proxyPools WHERE isActive=1").fetchall():
+                _d = json.loads(_raw) if _raw else {}
+                _u = str(_d.get("proxyUrl") or "").strip()
+                _lat = _d.get("latencyMs")
+                if (
+                    _u
+                    and _u not in verified_list
+                    and _d.get("isResidential") is True
+                    and _d.get("ipType") != "datacenter"
+                    and _d.get("proxyFlagged") is not True
+                    and (_lat is None or float(_lat) <= FALLBACK_LATENCY_MS)
+                    and not is_forbidden(_u)
+                ):
+                    _db_candidates.append((_pid, _u))
+            if _db_candidates:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=12) as _ex:
+                    _futs = {_ex.submit(reachability_probe, _u): (_pid, _u) for (_pid, _u) in _db_candidates}
+                    for _fut in concurrent.futures.as_completed(_futs):
+                        _pid, _u = _futs[_fut]
+                        _lats = None
+                        try:
+                            _lats = _fut.result()
+                        except Exception:
+                            _lats = None
+                        if _lats and max(_lats) <= FALLBACK_LATENCY_MS:
+                            verified_list.append(_u)
+                        else:
+                            # Mark truly dead/laggy DB pool inactive without punishing ipify hiccups
+                            _con.execute("UPDATE proxyPools SET isActive=0, testStatus='error' WHERE id=?", (_pid,))
+                _con.commit()
+            _con.close()
+        except Exception:
+            pass
+    if not verified_list and os.path.exists(OUT_JSON):
+        try:
+            cached_nodes = json.load(open(OUT_JSON)).get("nodes") or []
+            verified_list = [n.get("url") for n in cached_nodes if n.get("url") and not n.get("proxyFlagged")]
+        except Exception:
+            pass
     verified_set = set(verified_list)
+    if not verified_list:
+        return {"removedGroupPools": 0, "healedDirectConnections": 0, "clearedLocal": 0, "perProviderUnique": 0, "activeProviders": 0}
     if not os.path.exists(DB_PATH):
         return {"removedGroupPools": 0, "healedDirectConnections": 0, "clearedLocal": 0, "perProviderUnique": 0, "activeProviders": 0}
 
@@ -614,16 +785,19 @@ def sync_db_direct_only(verified_urls) -> dict:
     con.execute("PRAGMA journal_mode=WAL")
     cur = con.cursor()
 
-    # 1. Remove auto-created residential group proxy rows from proxyPools
     cur.execute(
         """DELETE FROM proxyPools
            WHERE id = 'residential-auto-hedge'
               OR json_extract(data, '$.name') = 'RESI-fresh-rotating'
-              OR json_extract(data, '$.name') = 'Fresh Residential Auto-Hedge Gateway'"""
+              OR json_extract(data, '$.name') = 'Fresh Residential Auto-Hedge Gateway'
+              OR json_extract(data, '$.name') LIKE 'seren-%'
+              OR json_extract(data, '$.name') LIKE 'FreeProxy-%'
+              OR json_extract(data, '$.name') LIKE 'PV-%'
+              OR json_extract(data, '$.name') = 'WARP-egress-fresh'
+              OR json_extract(data, '$.name') LIKE 'Proxy-cron-%'"""
     )
     removed_groups = cur.rowcount
 
-    # Retire any leftover WARP / datacenter / dead cron rows
     cur.execute(
         """UPDATE proxyPools
            SET isActive=0, testStatus='retired', updatedAt=?
@@ -637,7 +811,6 @@ def sync_db_direct_only(verified_urls) -> dict:
         (t,),
     )
 
-    # 2. Clear any proxyPoolId inside settings.providerStrategies (no group proxy per provider)
     s_row = cur.execute("SELECT id, data FROM settings WHERE id=1").fetchone()
     if s_row and s_row[1]:
         try:
@@ -654,24 +827,20 @@ def sync_db_direct_only(verified_urls) -> dict:
         except Exception:
             pass
 
-    # 3. Per-PROVIDER unique residential binding
     rows = cur.execute("SELECT id, provider, data FROM providerConnections WHERE isActive=1").fetchall()
     healed = 0
     cleared_local = 0
-    prov_url: dict[str, str] = {}
-    external_providers: list[str] = []
 
+    prov_counts: dict[str, int] = {}
     for _, prov, _ in rows:
-        if prov not in LOCAL_PROVIDERS and prov not in prov_url:
-            external_providers.append(prov)
-            if verified_list:
-                prov_url[prov] = verified_list[len(prov_url) % len(verified_list)]
-            else:
-                prov_url[prov] = RESI_GW_URL
+        if prov not in LOCAL_PROVIDERS:
+            prov_counts[prov] = prov_counts.get(prov, 0) + 1
 
-    # If a provider already has a healthy, newly-verified direct URL without errors, keep it
-    # (unless another provider already claimed it when we have enough unique nodes!)
+    # Prioritize heaviest providers first so they get cleanest/fastest dedicated endpoints
+    external_providers = sorted(prov_counts.keys(), key=lambda p: (-prov_counts[p], p))
+
     used_endpoints: set[str] = set()
+    used_hosts: set[str] = set()
     prov_existing_healthy: dict[str, str] = {}
     for cid, prov, raw in rows:
         if prov in LOCAL_PROVIDERS or prov in prov_existing_healthy:
@@ -686,12 +855,15 @@ def sync_db_direct_only(verified_urls) -> dict:
         curl = str(psd.get("connectionProxyUrl") or d.get("connectionProxyUrl") or "").strip()
         enabled = psd.get("connectionProxyEnabled") is True or psd.get("connectionProxyEnabled") == 1 or d.get("connectionProxyEnabled") is True
         has_err = bool(last_err and TRANSPORT_ERR_RE.search(str(last_err)))
+        chost = (urllib.parse.urlparse(curl).hostname or "").lower()
         if enabled and not pid and curl in verified_set and not has_err:
-            if len(verified_list) < len(external_providers) or curl not in used_endpoints:
+            if len(verified_list) < len(external_providers) or (curl not in used_endpoints and chost not in used_hosts):
                 prov_existing_healthy[prov] = curl
                 used_endpoints.add(curl)
+                if chost:
+                    used_hosts.add(chost)
 
-    # Assign remaining providers distinct unused endpoints from verified_list
+    prov_url: dict[str, str] = {}
     remaining_urls = [u for u in verified_list if u not in used_endpoints]
     rr = 0
     for prov in external_providers:
@@ -704,6 +876,16 @@ def sync_db_direct_only(verified_urls) -> dict:
             rr += 1
         else:
             prov_url[prov] = RESI_GW_URL
+
+    # Fair round-robin spread across ALL verified pure-residential IPs for every provider & connection
+    fair_providers = sorted(prov_counts.keys(), key=lambda p: (prov_counts[p], p))
+    prov_conn_rr: dict[str, int] = {}
+    prov_base_idx = {p: idx for idx, p in enumerate(fair_providers)}
+    def next_target_for_conn(prov: str) -> str:
+        cidx = prov_conn_rr.get(prov, 0)
+        prov_conn_rr[prov] = cidx + 1
+        slot = (prov_base_idx.get(prov, 0) + cidx) % len(verified_list)
+        return verified_list[slot]
 
     for cid, prov, raw in rows:
         try:
@@ -731,27 +913,9 @@ def sync_db_direct_only(verified_urls) -> dict:
 
         has_transport_err = bool(last_err and TRANSPORT_ERR_RE.search(str(last_err)))
 
-        # Respect healthy manual user-owned "Apply Proxy" pool bindings ONLY if pool is truly active & alive
-        if pid and pid != "__none__":
-            try:
-                pool_row = cur.execute(
-                    "SELECT isActive, testStatus, json_extract(data,'$.proxyUrl') FROM proxyPools WHERE id=?", (pid,)
-                ).fetchone()
-            except Exception:
-                pool_row = None
-            pool_url = str(pool_row[2] or "") if pool_row else ""
-            pool_status = (pool_row[1] or "active") if pool_row else "missing"
-            if (
-                pool_row
-                and pool_row[0]
-                and pool_status not in ("disabled", "retired", "error", "datacenter_blocked")
-                and not is_forbidden(pool_url)
-                and not has_transport_err
-                and (not verified_set or pool_url in verified_set)
-            ):
-                continue
+        # Group bindings (proxyPoolId) are never kept active; fall through to direct 1-on-1 binding below.
 
-        target = prov_url.get(prov, RESI_GW_URL)
+        target = next_target_for_conn(prov)
         is_current = (curl == target and pid is None and enabled)
         if is_current and not has_transport_err:
             continue
@@ -785,58 +949,85 @@ def sync_db_direct_only(verified_urls) -> dict:
     }
 
 
-import logging
-logging.getLogger("asyncio").setLevel(logging.CRITICAL)
-
 def main():
     cands = gather_candidates()
     print(f"[resi-refresh] stage-1 screening {len(cands)} candidates...")
     screened = asyncio.run(fast_screen_candidates(cands))
-    print(f"[resi-refresh] stage-2 double-probing {len(screened)} live HTTPS candidates (max {int(MAX_ACCEPTABLE_LATENCY_MS)}ms + 204)...")
+    print(f"[resi-refresh] stage-2 double-probing {len(screened)} live HTTPS candidates (target <= {int(PRIMARY_LATENCY_MS)}ms + genai 204)...")
 
     alive_raw = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=60) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=70) as ex:
         for res in ex.map(probe_candidate, screened):
             if res:
                 alive_raw.append(res)
 
-    ips = list({r["egressIp"] for r in alive_raw})
+    ips = list({ip for r in alive_raw for ip in (r["inIp"], r["egressIp"]) if ip})
     asn_map = batch_lookup_ip(ips)
 
-    verified = []
+    candidates_clean = []
     dc_blocked = []
-    seen_endpoints = set()
-    seen_egress_ips = set()
-    for r in sorted(alive_raw, key=lambda x: x["latencyMs"]):
-        info = asn_map.get(r["egressIp"])
-        ok, net_cls, reason = classify_asn(info)
-        if ok:
-            ekey = endpoint_key(r["url"])
-            if ekey in seen_endpoints or r["egressIp"] in seen_egress_ips:
-                continue
-            seen_endpoints.add(ekey)
-            seen_egress_ips.add(r["egressIp"])
-            verified.append({
-                "url": r["url"],
-                "maskedUrl": mask_url(r["url"]),
-                "egressIp": r["egressIp"],
-                "latencyMs": r["latencyMs"],
-                "country": info.get("country"),
-                "countryCode": info.get("countryCode"),
-                "city": info.get("city"),
-                "isp": (info.get("isp") or "").split(" | ")[0],
-                "org": (info.get("org") or "").split(" | ")[0],
-                "asn": info.get("as"),
-                "networkClass": net_cls,
-                "isResidential": True,
-                "verifiedAt": now_iso(),
-            })
-            if len(verified) >= MAX_VERIFIED_POOL:
-                break
-        else:
-            dc_blocked.append({"url": r["url"], "egressIp": r["egressIp"], "reason": reason})
+    for r in alive_raw:
+        in_info = asn_map.get(r["inIp"])
+        eg_info = asn_map.get(r["egressIp"])
+        ok_in, _, reason_in = classify_asn(in_info)
+        ok_eg, net_cls, reason_eg = classify_asn(eg_info)
+        if not ok_in:
+            dc_blocked.append({"url": r["url"], "egressIp": r["egressIp"], "reason": f"ingress: {reason_in}"})
+            continue
+        if not ok_eg:
+            dc_blocked.append({"url": r["url"], "egressIp": r["egressIp"], "reason": f"egress: {reason_eg}"})
+            continue
+        proxy_flagged = bool((in_info or {}).get("proxy") or (eg_info or {}).get("proxy"))
+        candidates_clean.append((r, eg_info, net_cls, proxy_flagged))
 
-    if verified:
+    # Prefer <= PRIMARY_LATENCY_MS (1800ms) first; only use 1800..2200ms if < 6 fast nodes exist.
+    fast_clean = [c for c in candidates_clean if c[0]["latencyMs"] <= PRIMARY_LATENCY_MS]
+    pool_source = fast_clean if len(fast_clean) >= 6 else candidates_clean
+
+    # Sort: clean proxy=False before proxy=True, then lowest latency first
+    pool_source.sort(key=lambda item: (0 if item[0]["latencyMs"] <= PRIMARY_LATENCY_MS else 1, 0 if not item[3] else 1, item[0]["latencyMs"]))
+
+    verified = []
+    seen_ingress_ips = set()
+    seen_egress_ips = set()
+    for r, info, net_cls, proxy_flagged in pool_source:
+        if r["inIp"] in seen_ingress_ips or r["egressIp"] in seen_egress_ips:
+            continue
+        seen_ingress_ips.add(r["inIp"])
+        seen_egress_ips.add(r["egressIp"])
+        verified.append({
+            "url": r["url"],
+            "maskedUrl": mask_url(r["url"]),
+            "ingressIp": r["inIp"],
+            "egressIp": r["egressIp"],
+            "latencyMs": r["latencyMs"],
+            "jitterMs": r.get("jitterMs", 0),
+            "country": info.get("country"),
+            "countryCode": info.get("countryCode"),
+            "city": info.get("city"),
+            "isp": (info.get("isp") or "").split(" | ")[0],
+            "org": (info.get("org") or "").split(" | ")[0],
+            "asn": info.get("as"),
+            "networkClass": net_cls,
+            "proxyFlagged": proxy_flagged,
+            "isResidential": True,
+            "verifiedAt": now_iso(),
+        })
+        if len(verified) >= MAX_VERIFIED_POOL:
+            break
+
+    existing_db_verified = []
+    if os.path.exists(DB_PATH):
+        try:
+            _con = sqlite3.connect(DB_PATH, timeout=10)
+            for (_raw,) in _con.execute("SELECT data FROM proxyPools WHERE isActive=1").fetchall():
+                _d = json.loads(_raw) if _raw else {}
+                if _d.get("isResidential") is True and _d.get("proxyFlagged") is not True and _d.get("proxyUrl"):
+                    existing_db_verified.append(_d)
+            _con.close()
+        except Exception:
+            pass
+    if verified and (len(verified) >= 5 or len(verified) >= len(existing_db_verified)):
         with open(OUT_TXT, "w") as f:
             for v in verified:
                 f.write(v["url"] + "\n")
@@ -849,7 +1040,6 @@ def main():
                 "nodes": verified,
             }, f, indent=2)
 
-    # Dead/slow/datacenter entries are deleted immediately from managed pool files
     verified_set = {v["url"] for v in verified}
     dead_deleted = 0
     for fpath in SOURCE_FILES:
@@ -874,15 +1064,67 @@ def main():
             pass
     print(f"[resi-refresh] deleted {dead_deleted} dead/stale proxy entries from source files")
 
+    if os.path.exists(DB_PATH) and verified:
+        try:
+            import uuid
+            _con_ins = sqlite3.connect(DB_PATH, timeout=30)
+            _existing_urls = set()
+            _active_cnt = 0
+            for (_act, _raw) in _con_ins.execute("SELECT isActive, data FROM proxyPools").fetchall():
+                _d = json.loads(_raw) if _raw else {}
+                _u = str(_d.get("proxyUrl") or "").strip().lower()
+                if _u:
+                    _existing_urls.add(_u)
+                if _act:
+                    _active_cnt += 1
+            _ts = now_iso()
+            for v in verified:
+                if _active_cnt >= 40:
+                    break
+                _u = str(v.get("url") or "").strip()
+                if not _u or _u.lower() in _existing_urls or v.get("proxyFlagged"):
+                    continue
+                _cc = v.get("countryCode") or "XX"
+                _proto = "socks5" if _u.startswith("socks5") else "http"
+                _payload = {
+                    "name": f"Resi-{v['egressIp']} ({_cc})",
+                    "proxyUrl": _u,
+                    "type": _proto,
+                    "strictProxy": False,
+                    "noProxy": "127.0.0.1,localhost,",
+                    "ingressIp": v.get("ingressIp"),
+                    "egressIp": v.get("egressIp"),
+                    "country": v.get("country"),
+                    "countryCode": _cc,
+                    "city": v.get("city"),
+                    "isp": (v.get("isp") or "Residential")[:28],
+                    "asn": v.get("asn"),
+                    "networkClass": v.get("networkClass") or "residential",
+                    "ipType": "residential",
+                    "isResidential": True,
+                    "proxyFlagged": False,
+                    "latencyMs": round(float(v.get("latencyMs") or 500)),
+                    "jitterMs": round(float(v.get("jitterMs") or 0)),
+                    "stabilityPct": 100,
+                    "lastError": None,
+                    "lastTestedAt": _ts,
+                    "harvestedBy": "proxy-harvest",
+                    "harvestRunId": _ts,
+                }
+                _con_ins.execute(
+                    "INSERT INTO proxyPools (id, isActive, testStatus, data, createdAt, updatedAt) VALUES (?, 1, 'active', ?, ?, ?)",
+                    (str(uuid.uuid4()), json.dumps(_payload, ensure_ascii=False), _ts, _ts),
+                )
+                _existing_urls.add(_u.lower())
+                _active_cnt += 1
+            _con_ins.commit()
+            _con_ins.close()
+        except Exception:
+            pass
+
     db_stats = sync_db_direct_only([v["url"] for v in verified])
 
-    # Keep manual Apply Proxy picker (proxyPools) synchronized immediately
-    try:
-        sys.path.insert(0, "/opt/aries-router/scripts")
-        import pool_manager_sync
-        pool_manager_sync.main()
-    except Exception as e:
-        print(f"[resi-refresh] pool_manager_sync warn: {e}")
+
 
     try:
         req = urllib.request.Request(RESI_GW_RELOAD, data=b"{}", method="POST")

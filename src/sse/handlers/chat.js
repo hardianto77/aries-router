@@ -731,7 +731,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         }
         continue;
       }
-      if (isFreepi && conversationKey && !result.emptyStream) {
+      const isMultiTurnThread = Array.isArray(body?.messages) && body.messages.some((m) => m?.role === "assistant");
+      const hasExplicitThread = Boolean(body?.session_id || body?.conversation_id);
+      if (isFreepi && conversationKey && (!result.emptyStream || isMultiTurnThread || hasExplicitThread)) {
         log.warn("FREEPI", `Prevented account rotation mid-conversation for ${credentials.connectionName || credentials.connectionId?.slice(0, 8)}`);
         return result.response;
       }

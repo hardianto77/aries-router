@@ -309,7 +309,7 @@ export function turnFailure(detail, core, instructions) {
     if (refused && turnsAway(instructions)) {
         return new AgyTurnError(`agy: Antigravity answered 429 to this system prompt: ${words} — ${hint(instructions)}`, 400);
     }
-    if (/QUOTA_EXHAUSTED|RESOURCE_EXHAUSTED|MODEL_CAPACITY_EXHAUSTED|code 429\b/i.test(words)) {
+    if (/QUOTA_EXHAUSTED|RESOURCE_EXHAUSTED|MODEL_CAPACITY_EXHAUSTED|Individual quota reached|quota reached|Resets in \d+|code 429\b/i.test(words)) {
         return new AgyTurnError(`agy: Antigravity quota or rate limit reached${words ? `: ${words}` : ""}` +
             (refused
                 ? " — Antigravity answers this same bare 429 to a system prompt it turns away whatever quota is left, so if quota remains it is not a quota and waiting will not help"

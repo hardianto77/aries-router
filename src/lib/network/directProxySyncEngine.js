@@ -3,7 +3,7 @@
  * directProxySyncEngine.js
  * 
  * Modul Engine Bundle Terintegrasi untuk Aries Router:
- * - Sinkronisasi otomatis ProxyVault (port 8022) + Residential IP Fresh + WARP Egress Rotation.
+ * - Sinkronisasi otomatis Pure-Residential IP Fresh (:20188 / residential_fresh_pool.json).
  * - Binding murni 1-on-1 direct proxy (`connectionProxyUrl`), TANPA group proxy pool (`proxyPoolId = null`).
  * - Monitoring & Auto-replace instan jika mendeteksi proxy/WARP yang mati/unreachable.
  * - Terintegrasi langsung dengan SQLite `providerConnections` dan database adapter Aries.

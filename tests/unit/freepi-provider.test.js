@@ -95,7 +95,7 @@ test("FreePI Provider Integration Tests", async (t) => {
   assert.ok(fpExecutor instanceof executorsModule.FreePiExecutor, "getExecutor('fp') must return FreePiExecutor instance");
 
   const headers = freepiExecutor.buildHeaders({ accessToken: "fake-jwt-token" });
-  assert.equal(headers["x-client-version"], "0.6.25");
+  assert.equal(headers["x-client-version"], "0.6.28");
   assert.ok(headers["x-session-id"], "headers must include x-session-id");
   assert.ok(headers["x-turn-id"], "headers must include x-turn-id");
   assert.equal(headers["x-ad-context"], "none", "headers must include x-ad-context: none");

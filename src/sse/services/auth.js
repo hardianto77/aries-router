@@ -303,6 +303,23 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
               } catch (_) {}
             }
           }
+        } else if (resolveProviderId(providerId) === "freepi") {
+          const isMultiTurn = Array.isArray(body?.messages) && body.messages.some((m) => m?.role === "assistant");
+          const hasExplicitSession = Boolean(body?.session_id || body?.conversation_id);
+          const mustStaySticky = isMultiTurn || hasExplicitSession;
+          const ownerConn = !excludeSet.has(affinityId) ? connections.find((c) => c.id === affinityId) : null;
+          if (mustStaySticky && ownerConn) {
+            const ownerLockUntil = getEarliestModelLockUntil(ownerConn) || new Date(Date.now() + 5000).toISOString();
+            log.warn("FREEPI", `${provider} | owning account ${affinityId.slice(0, 8)} temporarily locked — holding conversation affinity instead of rotating`);
+            return {
+              allRateLimited: true,
+              retryAfter: ownerLockUntil,
+              retryAfterHuman: formatRetryAfter(ownerLockUntil),
+              lastError: ownerConn.lastError || "FreePI owning account temporarily unavailable",
+              lastErrorCode: ownerConn.errorCode || 503,
+            };
+          }
+          clearAffinity(providerId, conversationKey);
         } else {
           clearAffinity(providerId, conversationKey);
         }
@@ -311,7 +328,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
 
     if (connection) {
       // skip strategy
-    } else if ((strategy === "least-loaded" || (strategy !== "round-robin" && availableConnections.length > 1)) && resolveProviderId(providerId) === "freepi") {
+    } else if (resolveProviderId(providerId) === "freepi" && (strategy === "least-loaded" || availableConnections.length > 0)) {
       // FreePI allows exactly one in-flight request per token, so recency is the
       // wrong signal — each account's own queue depth is. Pick the account nobody
       // is waiting on; when all are busy, take the shortest queue instead of
@@ -524,7 +541,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
 
   // If an account is permanently dead (401 invalid key, 403 forbidden/banned, 402 out of credits/insufficient balance),
   // auto-delete it immediately when autoDeleteDeadKeys is enabled.
-  const isDeadAuth = status === 401 || status === 403;
+  const isDeadAuth = status === 401 || (status === 403 && resolveProviderId(provider) !== "freepi");
   const isOutOfCredits = status === 402 || (typeof errorText === "string" && (
     errorText.toLowerCase().includes("insufficient_quota") ||
     errorText.toLowerCase().includes("quota exceeded") ||

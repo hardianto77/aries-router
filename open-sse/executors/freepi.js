@@ -3,7 +3,7 @@ import os from "node:os";
 import { DefaultExecutor } from "./default.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 
-const CLI_VERSION = "0.6.25";
+const CLI_VERSION = "0.6.28";
 const ADS_INTERVAL_MS = 60 * 1000;
 const LAUNCH_HANDSHAKE_TTL_MS = 55 * 60 * 1000; // 55m TTL (official FreePI CLI launch grace is 60m)
 // Post-stream grace before the slot is handed to the next request. 500ms is the
@@ -13,14 +13,14 @@ const LAUNCH_HANDSHAKE_TTL_MS = 55 * 60 * 1000; // 55m TTL (official FreePI CLI 
 const SETTLING_ENV = process.env.FREEPI_SETTLING_DELAY_MS;
 const SETTLING_DELAY_MS = Math.min(
   2000,
-  Math.max(0, SETTLING_ENV === undefined || SETTLING_ENV === "" ? 500 : Number(SETTLING_ENV) || 0),
+  Math.max(0, SETTLING_ENV === undefined || SETTLING_ENV === "" ? 250 : Number(SETTLING_ENV) || 0),
 );
 const MAX_QUEUE_SIZE = 10;
-const STREAM_INACTIVITY_TIMEOUT_MS = 60 * 1000; // 60s without chunk -> force abort
+const STREAM_INACTIVITY_TIMEOUT_MS = 25 * 1000; // 60s without chunk -> force abort
 // A request that cannot get the slot within this budget fails with QUEUE_TIMEOUT
 // instead of hanging: the queue used to wait until the client aborted, which on a
 // 1200-token stream ahead of it means tens of seconds of silence.
-const QUEUE_MAX_WAIT_MS = Number(process.env.FREEPI_QUEUE_MAX_WAIT_MS || 120000);
+const QUEUE_MAX_WAIT_MS = Number(process.env.FREEPI_QUEUE_MAX_WAIT_MS || 45000);
 
 // Housekeeping for the per-token maps below.
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000; // session id is cosmetic; drop after 6h idle
@@ -184,9 +184,10 @@ export async function launchSessionHandshake(token, sessionId = null, proxyOptio
           "x-client-arch": os.arch(),
           "x-ad-trigger": "launch",
           "x-ad-context": "none",
+          "x-ad-layout": "2",
           ...localeHeaders,
         },
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(3500),
       },
       proxyOptions
     );
@@ -258,9 +259,10 @@ async function fireAdCycle(token, sessionId, turnId, proxyOptions) {
           "x-client-arch": os.arch(),
           "x-ad-trigger": "user_message",
           "x-ad-context": "none",
+          "x-ad-layout": "2",
           ...localeHeaders,
         },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(2500),
       },
       proxyOptions
     );
@@ -520,6 +522,9 @@ export function wrapStreamWithQueueLock(response, releaseLock, signal = null) {
     inactivityTimer = setTimeout(() => {
       safeRelease();
       try {
+        response?.body?.cancel?.().catch?.(() => {});
+      } catch {}
+      try {
         controller.error(new Error("FreePI stream inactivity timeout: no chunk received for 60s"));
       } catch {}
     }, STREAM_INACTIVITY_TIMEOUT_MS);
@@ -603,7 +608,11 @@ export class FreePiExecutor extends DefaultExecutor {
     if (cleanToken) {
       const lastLaunch = launchHandshakeMap.get(tokenStateKey) || 0;
       if (Date.now() - lastLaunch >= LAUNCH_HANDSHAKE_TTL_MS) {
-        launchSessionHandshake(cleanToken, sessionId, proxyOptions).catch(() => {});
+        if (lastLaunch === 0) {
+          await launchSessionHandshake(cleanToken, sessionId, proxyOptions).catch(() => {});
+        } else {
+          launchSessionHandshake(cleanToken, sessionId, proxyOptions).catch(() => {});
+        }
       }
     }
 
@@ -659,21 +668,39 @@ export class FreePiExecutor extends DefaultExecutor {
     }
 
     let result;
+    const headersDeadlineController = new AbortController();
+    const headersDeadlineTimer = setTimeout(() => headersDeadlineController.abort(new Error("FreePI upstream response headers timeout (22s)")), 22000);
+    if (headersDeadlineTimer?.unref) headersDeadlineTimer.unref();
+    const upstreamSignal = signal && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([signal, headersDeadlineController.signal])
+      : (signal || headersDeadlineController.signal);
     try {
-      result = await super.execute(params);
+      result = await super.execute({ ...params, signal: upstreamSignal });
+      clearTimeout(headersDeadlineTimer);
 
-      // If upstream returns 429 concurrent ("one request at a time"), wait 2.1s and retry automatically (up to 2 times)
-      if (result?.response?.status === 429 && cleanToken) {
+      // If upstream returns 409/429 concurrent or stuck session, heal via /session/reset or short retry
+      if ((result?.response?.status === 429 || result?.response?.status === 409) && cleanToken) {
         for (let attempt = 1; attempt <= 2; attempt++) {
           try {
             const cloned = result.response.clone();
             const text = await cloned.text();
-            if (text.includes("concurrent") || text.includes("one request at a time")) {
+            if (text.includes("concurrent_session") || text.includes("another session is active") || text.includes("CLI session")) {
+              log?.warn?.("FREEPI", `Stuck upstream session (${result.response.status}). Resetting via /session/reset (${attempt}/2)...`);
+              await proxyAwareFetch("https://api.freepi.ai/session/reset", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${cleanToken}`, "Content-Type": "application/json", "x-client-version": CLI_VERSION },
+                body: "{}",
+                signal: AbortSignal.timeout(5000),
+              }, proxyOptions).catch(() => {});
+              await new Promise((r) => setTimeout(r, 600));
+              result = await super.execute(params);
+              if (result?.response?.ok) break;
+            } else if (text.includes("concurrent") || text.includes("one request at a time")) {
               counters.upstream429 += 1;
-              log?.info?.("FREEPI", `Detected concurrent lock (429: one request at a time). Waiting 2.1s before retry (${attempt}/2)...`);
+              log?.info?.("FREEPI", `Detected concurrent lock (${result.response.status}). Waiting 2.1s before retry (${attempt}/2)...`);
               await new Promise((r) => setTimeout(r, 2100));
               result = await super.execute(params);
-              if (result?.response?.ok || result?.response?.status !== 429) {
+              if (result?.response?.ok || (result?.response?.status !== 429 && result?.response?.status !== 409)) {
                 break;
               }
             } else {
@@ -708,6 +735,9 @@ export class FreePiExecutor extends DefaultExecutor {
                 }),
                 { status: 403, headers: { "Content-Type": "application/json" } },
               ),
+              url: result.url,
+              headers: result.headers,
+              transformedBody: result.transformedBody,
             };
           }
         } catch {
@@ -727,6 +757,7 @@ export class FreePiExecutor extends DefaultExecutor {
       releaseLock();
       return result;
     } catch (err) {
+      clearTimeout(headersDeadlineTimer);
       releaseLock();
       throw err;
     }

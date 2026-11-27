@@ -49,64 +49,19 @@ export default {
     clientSecret: process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET || ANTIGRAVITY_OAUTH_CLIENT.clientSecret,
   },
   models: [
-    // Catalogue restored verbatim from the pre-4a31766 table. That revision
-    // pruned entries after comparing against a single free-tier account's
-    // `v1internal:fetchAvailableModels`; the account is the narrowest tier, so
-    // "absent from this account" was recorded as "not served at all" and models
-    // a Pro/Ultra plan does serve were dropped from the dashboard. A free-tier
-    // fetch is the floor, not the ceiling.
-    //
-    // The gemini-4 generation is listed under its enabled names. Upstream
-    // advertises the `-disabled` suffixed spelling to accounts that cannot use
-    // it yet; a plan that does serve the model answers the plain name.
-    { id: "gemini-4-carbon-high", name: "Gemini 4 Carbon (High)", upstreamModelId: "gemini-4-carbon-high(high)" },
-    { id: "gemini-4-carbon-medium", name: "Gemini 4 Carbon (Medium)", upstreamModelId: "gemini-4-carbon-medium(medium)" },
-    { id: "gemini-4-carbon-low", name: "Gemini 4 Carbon (Low)", upstreamModelId: "gemini-4-carbon-low(low)" },
-    { id: "gemini-4-carbon", name: "Gemini 4 Carbon", upstreamModelId: "gemini-4-carbon-high(high)" },
-    { id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)", upstreamModelId: "gemini-4-argon-high(high)" },
-    { id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", upstreamModelId: "gemini-4-argon-medium(medium)" },
-    { id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)", upstreamModelId: "gemini-4-argon-low(low)" },
-    { id: "gemini-4-argon", name: "Gemini 4 Argon", upstreamModelId: "gemini-4-argon-high(high)" },
-    { id: "gemini-4-neon-xhigh", name: "Gemini 4 Neon (XHigh)", upstreamModelId: "gemini-4-neon-xhigh(xhigh)" },
-    { id: "gemini-4-neon-high", name: "Gemini 4 Neon (High)", upstreamModelId: "gemini-4-neon-high(high)" },
-    { id: "gemini-4-neon-medium", name: "Gemini 4 Neon (Medium)", upstreamModelId: "gemini-4-neon-medium(medium)" },
-    { id: "gemini-4-neon-low", name: "Gemini 4 Neon (Low)", upstreamModelId: "gemini-4-neon-low(low)" },
-    { id: "gemini-4-neon", name: "Gemini 4 Neon", upstreamModelId: "gemini-4-neon-high(high)" },
-    { id: "gemini-4-hydrogen-xhigh", name: "Gemini 4 Hydrogen (XHigh)", upstreamModelId: "gemini-4-hydrogen-xhigh(xhigh)" },
-    { id: "gemini-4-hydrogen-high", name: "Gemini 4 Hydrogen (High)", upstreamModelId: "gemini-4-hydrogen-high(high)" },
-    { id: "gemini-4-hydrogen-medium", name: "Gemini 4 Hydrogen (Medium)", upstreamModelId: "gemini-4-hydrogen-medium(medium)" },
-    { id: "gemini-4-hydrogen-low", name: "Gemini 4 Hydrogen (Low)", upstreamModelId: "gemini-4-hydrogen-low(low)" },
-    { id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen", upstreamModelId: "gemini-4-hydrogen-high(high)" },
-    { id: "gemini-pro-orchestrator", name: "Orchestrator (Carbon)", upstreamModelId: "gemini-pro-orchestrator" },
-    { id: "gemini-pro-orchestrator-argon", name: "Orchestrator (Argon)", upstreamModelId: "gemini-pro-orchestrator-argon" },
-    { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", upstreamModelId: "gemini-3.8-flash-tiered(high)" },
-    { id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", upstreamModelId: "gemini-3.8-flash-tiered(medium)" },
-    { id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)", upstreamModelId: "gemini-3.8-flash-tiered(low)" },
-    { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", upstreamModelId: "gemini-3.8-flash-tiered(medium)" },
-    { id: "gemini-3.7-flash-high", name: "Gemini 3.7 Flash (High)", upstreamModelId: "gemini-3.8-flash-tiered(high)" },
-    { id: "gemini-3.7-flash-medium", name: "Gemini 3.7 Flash (Medium)", upstreamModelId: "gemini-3.8-flash-tiered(medium)" },
-    { id: "gemini-3.7-flash-low", name: "Gemini 3.7 Flash (Low)", upstreamModelId: "gemini-3.8-flash-tiered(low)" },
-    { id: "gemini-3.6-flash-high", name: "Gemini 3.6 Flash (High)", upstreamModelId: "gemini-3.6-flash-tiered(high)" },
-    { id: "gemini-3.6-flash-medium", name: "Gemini 3.6 Flash (Medium)", upstreamModelId: "gemini-3.6-flash-tiered(medium)" },
-    { id: "gemini-3.6-flash-low", name: "Gemini 3.6 Flash (Low)", upstreamModelId: "gemini-3.6-flash-tiered(low)" },
-    { id: "gemini-3.1-pro-high", name: "Gemini 3.1 Pro (High)", upstreamModelId: "gemini-pro-agent" },
-    { id: "gemini-pro-agent", name: "Gemini 3.1 Pro (High)", upstreamModelId: "gemini-pro-agent" },
-    { id: "gemini-3.1-pro-low", name: "Gemini 3.1 Pro (Low)", upstreamModelId: "gemini-3.1-pro-low(low)" },
-    { id: "claude-sonnet-5-5-max", name: "Claude Sonnet 5.5 (Max)", upstreamModelId: "claude-sonnet-5-5-max(max)" },
-    { id: "claude-sonnet-5-5-high", name: "Claude Sonnet 5.5 (High)", upstreamModelId: "claude-sonnet-5-5-high(high)" },
-    { id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium)", upstreamModelId: "claude-sonnet-5-5-medium(medium)" },
-    { id: "claude-sonnet-5-5-low", name: "Claude Sonnet 5.5 (Low)", upstreamModelId: "claude-sonnet-5-5-low(low)" },
-    { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5 (Thinking)", upstreamModelId: "claude-sonnet-5-5-medium(medium)" },
-    { id: "claude-opus-5-5-max", name: "Claude Opus 5.5 (Max)", upstreamModelId: "claude-opus-5-5-max(max)" },
-    { id: "claude-opus-5-5-high", name: "Claude Opus 5.5 (High)", upstreamModelId: "claude-opus-5-5-high(high)" },
-    { id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)", upstreamModelId: "claude-opus-5-5-medium(medium)" },
-    { id: "claude-opus-5-5-low", name: "Claude Opus 5.5 (Low)", upstreamModelId: "claude-opus-5-5-low(low)" },
-    { id: "claude-opus-5-5", name: "Claude Opus 5.5 (Thinking)", upstreamModelId: "claude-opus-5-5-medium(medium)" },
-    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Thinking)" },
-    { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" },
-    { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)" },
-    // Image generation models
-    { id: "gemini-3.1-flash-image", name: "Gemini 3.1 Flash (Image)", kind: "image", imageGen: true, capabilities: ["textToImage"] },
+    // Account ground truth: `agy models` on every connected account returns
+    // exactly these ids. Nothing else is served, and the ACP executor passes
+    // the registry `id` straight through, so id == upstream id here.
+    { id: "gemini-4-hydrogen-xhigh", name: "Gemini 4 Hydrogen (XHigh)", upstreamModelId: "gemini-4-hydrogen-xhigh" },
+    { id: "gemini-4-hydrogen-high", name: "Gemini 4 Hydrogen (High)", upstreamModelId: "gemini-4-hydrogen-high" },
+    { id: "gemini-4-hydrogen-medium", name: "Gemini 4 Hydrogen (Medium)", upstreamModelId: "gemini-4-hydrogen-medium" },
+    { id: "gemini-4-hydrogen-low", name: "Gemini 4 Hydrogen (Low)", upstreamModelId: "gemini-4-hydrogen-low" },
+    { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", upstreamModelId: "gemini-3.8-flash-high" },
+    { id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", upstreamModelId: "gemini-3.8-flash-medium" },
+    { id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)", upstreamModelId: "gemini-3.8-flash-low" },
+    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Thinking)", upstreamModelId: "claude-sonnet-4-6" },
+    { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)", upstreamModelId: "claude-opus-4-6-thinking" },
+    { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)", upstreamModelId: "gpt-oss-120b-medium" },
   ],
   oauth: {
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",

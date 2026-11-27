@@ -121,11 +121,11 @@ export function getPageInfo(pathname) {
       icon: "lan",
       breadcrumbs: [],
     };
-  if (pathname.includes("/residential-fresh") || pathname.includes("/residential-proxy"))
+  if (pathname.includes("/auto-harvester"))
     return {
-      title: "Residential Fresh Proxy Manager",
-      description: "Central proxy manager: injects a dedicated fresh residential egress into every provider, syncs the proxy pool with the latest verified data, and deletes dead proxies immediately",
-      icon: "home_work",
+      title: "Proxy Harvest",
+      description: "Harvest, verify (3-pass TLS + dual ASN), and maintain pure-residential proxies with automatic dead/rate-limit/datacenter eviction",
+      icon: "travel_explore",
       breadcrumbs: [],
     };
   if (pathname.includes("/skills"))

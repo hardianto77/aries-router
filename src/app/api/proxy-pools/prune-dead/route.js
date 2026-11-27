@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getProxyPools, deleteProxyPools, getProviderConnections } from "@/models";
+import { getProxyPools, deleteProxyPools, getProviderConnections, updateProviderConnection } from "@/models";
+import { syncHarvestedToResidentialFiles, distributeHarvestedFairlyToProviders } from "@/lib/network/pureResidentialHarvester.js";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,13 @@ export async function DELETE(request) {
 
     const deadIds = deadPools.map((p) => p.id);
     const removed = await deleteProxyPools(deadIds);
+    const remaining = await getProxyPools().catch(() => []);
+    syncHarvestedToResidentialFiles(remaining);
+    await distributeHarvestedFairlyToProviders({
+      getProxyPools,
+      getProviderConnections,
+      updateProviderConnection,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,

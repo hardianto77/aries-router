@@ -33,7 +33,7 @@ export const DATACENTER_KEYWORDS = [
   "pvdata", "real time data", "servers tech", "franet", "warp", "mullvad", "nordvpn",
   "protonvpn", "surfshark", "expressvpn", "datacamp", "cdn77", "online sas",
   "constant company", "netcup", "zscaler", "natanetwork", "huawei", "servidores", "nexosystems",
-  "3xk", "antbox", "baykov", "church of cyberology", "tor exit", "emerald onion", "calyx", "quintex",
+  "3xk", "antbox", "baykov", "church of cyberology", "tor exit", "emerald onion", "calyx", "quintex", "ipxo", "chunkserve", "nhanhoa", "datawagon", "hostpapa", "techties", "imaqliq", "alucio", "superhub", "cloud net", "blsync", "it host", "aceville", "cognetcloud", "reliable communications", "compromised", "floppydata", "stealthtunnel",
 ];
 
 export const FORBIDDEN_NON_RESI_HOSTS = new Set([
@@ -216,7 +216,7 @@ export function createBoundedDispatcher(proxyUrl, config = DEFAULT_RESIDENTIAL_C
   };
   if (parsed.protocol === "socks5:" || parsed.protocol === "socks5h:") {
     if (parsed.protocol === "socks5h:") parsed.protocol = "socks5:";
-    return new Socks5ProxyAgent(parsed, common);
+    return new Socks5ProxyAgent(parsed.toString());
   }
   return new ProxyAgent(common);
 }
@@ -244,8 +244,8 @@ export function classifyAsnMetadata({
   }
 
   return {
-    isResidential: !isDatacenter,
-    ipType: isDatacenter ? "datacenter" : "residential",
+    isResidential: !isDatacenter && networkClass !== "education",
+    ipType: (isDatacenter || networkClass === "education") ? "datacenter" : "residential",
     networkClass,
     isHosting: Boolean(hosting),
     isMobile: Boolean(mobile),
@@ -569,7 +569,8 @@ export class ResidentialProxyPool {
       const st = fs.statSync(POOL_JSON_PATH);
       if (this.nodes.length > 0 && this._lastFileMtimeMs === st.mtimeMs) return true;
       const raw = JSON.parse(fs.readFileSync(POOL_JSON_PATH, "utf8"));
-      const nodes = Array.isArray(raw?.nodes) ? raw.nodes : [];
+      const rawNodes = Array.isArray(raw?.nodes) ? raw.nodes : [];
+      const nodes = rawNodes.filter((n) => n?.url && n?.isResidential !== false && n?.proxyFlagged !== true);
       if (nodes.length > 0) {
         this.syncNodes(nodes.map((n, i) => ({
           id: `resi-file-${i}`,
@@ -583,6 +584,7 @@ export class ResidentialProxyPool {
           country: n.country,
           countryCode: n.countryCode,
           city: n.city,
+          proxyFlagged: Boolean(n.proxyFlagged),
           isp: n.isp,
           org: n.org,
           asn: n.asn,
@@ -649,7 +651,7 @@ export class ResidentialProxyPool {
       if (!u || u.startsWith("residential://") || seenUrls.has(u)) continue;
       seenUrls.add(u);
 
-      if (isForbiddenNonResidentialUrl(u)) {
+      if (isForbiddenNonResidentialUrl(u) || rec.proxyFlagged === true) {
         dcBlocked++;
         continue;
       }

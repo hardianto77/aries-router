@@ -1,12 +1,4 @@
-# Bawaan Aries Router: ProxyVault + Residential + WARP egress rotation
-- pv_pool_sync.py (tiap 30 menit, timer aries-router-pv-sync):
-  ProxyVault export -> health-check -> pool proxyPools -> assignment per akun
-  (providerConnection.connectionProxyUrl, TANPA group proxy). Proxy/WARP mati
-  auto-diganti (health-check). Guard: skip bila koneksi >150k (indikasi banjir).
-- warp_rotate.sh (tiap hari 04:00, timer aries-router-warp-rotate): re-registration
-  WARP -> fresh egress, flock + poll egress siap.
-- seed_bridge.py: seed pool bridge OpenCode (:20129) dari proxy.json.
-- Failover runtime: open-sse/utils/proxyFetch.js PV-FAILOVER (spares dari
-  ~/.aries-router/pv_pool.json, lalu WARP; tidak pernah direct).
-- Residential fresh: ~/resi-fresh-alive.txt (49 proxy terverifikasi) diinjek ke
-  pool failover + bridge; klasifikasi via ip-api (hosting=false).
+# Active Proxy Harvest & Pure-Residential Scripts
+
+- `refresh_fresh_residential.py`: 3-stage pure-residential harvester & verifier (3/3 HTTPS TLS + jitter + dual-provider ASN + proxyFlagged=false), updates `residential_fresh_pool.json` & `/home/ubuntu/resi-fresh-alive.txt`, syncs per-connection round-robin direct bindings, and reloads `Proxy Resi` (`127.0.0.1:20189/reload`).
+- `sync_direct_proxies.py`: CLI wrapper/helper for direct per-connection pure-residential proxy synchronization.

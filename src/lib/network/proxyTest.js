@@ -1,7 +1,7 @@
-import { ProxyAgent, fetch as undiciFetch } from "undici";
+import { ProxyAgent, Socks5ProxyAgent, fetch as undiciFetch } from "undici";
 
-const DEFAULT_TEST_URL = "https://google.com/";
-const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_TEST_URL = "https://1.1.1.1/cdn-cgi/trace";
+const DEFAULT_TIMEOUT_MS = 6000;
 
 function getErrorMessage(err) {
   if (!err) return "Unknown error";
@@ -25,6 +25,15 @@ function normalizeString(value) {
   return String(value).trim();
 }
 
+function createAgentForProxy(normalizedProxyUrl) {
+  const parsed = new URL(normalizedProxyUrl);
+  if (parsed.protocol === "socks5:" || parsed.protocol === "socks5h:") {
+    const cleanUrl = normalizedProxyUrl.replace(/^socks5h:/i, "socks5:");
+    return new Socks5ProxyAgent(cleanUrl);
+  }
+  return new ProxyAgent({ uri: normalizedProxyUrl });
+}
+
 export async function testProxyUrl({ proxyUrl, testUrl, timeoutMs } = {}) {
   const normalizedProxyUrl = normalizeString(proxyUrl);
   if (!normalizedProxyUrl) {
@@ -42,7 +51,7 @@ export async function testProxyUrl({ proxyUrl, testUrl, timeoutMs } = {}) {
 
   try {
     try {
-      dispatcher = new ProxyAgent({ uri: normalizedProxyUrl });
+      dispatcher = createAgentForProxy(normalizedProxyUrl);
     } catch (err) {
       return {
         ok: false,
@@ -57,20 +66,21 @@ export async function testProxyUrl({ proxyUrl, testUrl, timeoutMs } = {}) {
 
     try {
       const res = await undiciFetch(normalizedTestUrl, {
-        method: "HEAD",
+        method: normalizedTestUrl.includes("/cdn-cgi/trace") || normalizedTestUrl.includes("generate_204") ? "GET" : "HEAD",
         dispatcher,
         signal: controller.signal,
         headers: {
-          "User-Agent": "Aries",
+          "User-Agent": "Aries-Router",
         },
       });
 
       return {
-        ok: res.ok,
+        ok: res.ok || res.status === 204,
         status: res.status,
         statusText: res.statusText,
         url: normalizedTestUrl,
         elapsedMs: Date.now() - startedAt,
+        latencyMs: Date.now() - startedAt,
       };
     } catch (err) {
       const message =
@@ -83,9 +93,7 @@ export async function testProxyUrl({ proxyUrl, testUrl, timeoutMs } = {}) {
     }
   } finally {
     try {
-      await dispatcher?.close?.();
-    } catch {
-      // ignore
-    }
+      Promise.resolve(dispatcher?.destroy?.()).catch(() => {});
+    } catch {}
   }
 }

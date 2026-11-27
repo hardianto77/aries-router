@@ -599,32 +599,35 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
 
   if (proxyUrl) {
     const poolId = proxyOptions?.connectionProxyPoolId || proxyOptions?.proxyPoolId;
+    const quarantineKey = poolId || proxyUrl;
     const isOpencode = targetUrl.includes("opencode.ai");
     try {
       const dispatcher = await getDispatcher(proxyUrl);
       const res = await originalFetch(url, { ...options, dispatcher });
       if (res.status === 402 || res.status === 407) {
         triggerDeadProxyAutoHeal(proxyUrl, `HTTP ${res.status}`);
+        try {
+          const { quarantineProxy } = await import("@/lib/network/connectionProxy.js");
+          quarantineProxy(quarantineKey, 15 * 60 * 1000);
+        } catch {}
         throw new Error(`HTTP ${res.status} Proxy rejected/auth required`);
       }
       if (res.status === 524 || res.status === 502 || res.status === 504) {
         triggerDeadProxyAutoHeal(proxyUrl, `HTTP ${res.status}`);
-        if (poolId) {
-          try {
-            const { quarantineProxy } = await import("@/lib/network/connectionProxy.js");
-            quarantineProxy(poolId, 15 * 60 * 1000);
-          } catch {}
-        }
+        try {
+          const { quarantineProxy } = await import("@/lib/network/connectionProxy.js");
+          quarantineProxy(quarantineKey, 15 * 60 * 1000);
+        } catch {}
         if (proxyOptions?.strictProxy === true || poolId || isOpencode) {
           throw new Error(`[ProxyFetch] Proxy returned HTTP ${res.status} timeout/bad gateway`);
         }
       }
       return await replayFreeTierRejectionDirect(url, options, res, proxyOptions);
     } catch (proxyError) {
-      if (poolId) {
+      if (quarantineKey) {
         try {
           const { quarantineProxy } = await import("@/lib/network/connectionProxy.js");
-          quarantineProxy(poolId, 15 * 60 * 1000);
+          quarantineProxy(quarantineKey, 15 * 60 * 1000);
         } catch {}
       }
       triggerDeadProxyAutoHeal(proxyUrl, proxyError.message);

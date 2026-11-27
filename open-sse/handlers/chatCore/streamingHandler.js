@@ -149,11 +149,30 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
       if (!trimmed || trimmed.startsWith(":")) return false;
       if (trimmed.startsWith("data:")) {
         const p = trimmed.slice(5).trim();
-        return p !== "" && p !== "[DONE]";
+        if (!p || p === "[DONE]") return false;
+        try {
+          const obj = JSON.parse(p);
+          if (Array.isArray(obj?.choices)) {
+            return obj.choices.some((c) => {
+              const d = c?.delta || {};
+              const m = c?.message || {};
+              return Boolean(
+                (typeof d.content === "string" && d.content.length > 0) ||
+                (typeof d.reasoning_content === "string" && d.reasoning_content.length > 0) ||
+                (typeof d.reasoning === "string" && d.reasoning.length > 0) ||
+                (Array.isArray(d.tool_calls) && d.tool_calls.length > 0) ||
+                (typeof m.content === "string" && m.content.length > 0) ||
+                (Array.isArray(m.tool_calls) && m.tool_calls.length > 0) ||
+                (c?.finish_reason && c.finish_reason !== "null")
+              );
+            });
+          }
+        } catch {}
+        return true;
       }
       return true;
     });
-    if (hasRealPayload) break;
+    if (hasRealPayload || bufferedChunks.length >= 16) break;
   }
   if (emptyStreamTriggered || sawEmptyErrorFrame || (peekDone && bufferedChunks.length === 0)) {
     try { await peekReader.cancel(); } catch {}

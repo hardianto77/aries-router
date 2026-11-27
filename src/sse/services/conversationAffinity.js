@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import * as log from "../utils/logger.js";
 
 /**
@@ -48,6 +50,58 @@ const MAX_AFFINITY_ENTRIES = 5000;
 
 // Key: `${provider}:${convKey}` -> { connectionId, lastUsedAt, expiresAt }
 const affinityStore = new Map();
+
+const PERSIST_PROVIDERS = new Set(["freepi", "fp"]);
+function resolveAffinityFile() {
+  const dir = process.env.FREEPI_AFFINITY_DIR || process.env.DATA_DIR || "";
+  if (!dir || !fs.existsSync(dir)) return null;
+  return path.join(dir, "freepi-affinity.json");
+}
+
+function loadPersistedAffinities() {
+  const file = resolveAffinityFile();
+  if (!file || !fs.existsSync(file)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    const now = Date.now();
+    if (raw && typeof raw === "object") {
+      for (const [k, v] of Object.entries(raw)) {
+        if (v && v.connectionId && v.expiresAt > now) {
+          affinityStore.set(k, v);
+        }
+      }
+    }
+  } catch (err) {
+    log?.warn?.("CACHE_AFFINITY", `Failed to load persisted freepi affinity: ${err.message}`);
+  }
+}
+
+let flushTimer = null;
+function schedulePersistAffinity(provider) {
+  if (!PERSIST_PROVIDERS.has(provider)) return;
+  const file = resolveAffinityFile();
+  if (!file) return;
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    try {
+      const now = Date.now();
+      const out = {};
+      for (const [k, v] of affinityStore) {
+        const prov = k.split(":")[0];
+        if (PERSIST_PROVIDERS.has(prov) && v && v.expiresAt > now) {
+          out[k] = v;
+        }
+      }
+      const tmp = `${file}.tmp.${process.pid}`;
+      fs.writeFileSync(tmp, JSON.stringify(out), "utf8");
+      fs.renameSync(tmp, file);
+    } catch { /* non-fatal */ }
+  }, 250);
+  flushTimer.unref?.();
+}
+
+loadPersistedAffinities();
 
 /**
  * Periodically purge expired affinities
@@ -166,6 +220,7 @@ export function setAffinityConnection(provider, convKey, connectionId) {
     expiresAt: now + ttl,
     ttlMs: ttl,
   });
+  schedulePersistAffinity(provider);
 }
 
 /**
@@ -181,6 +236,7 @@ export function touchAffinity(provider, convKey, connectionId) {
     entry.lastUsedAt = now;
     entry.expiresAt = now + ttl;
     if (connectionId) entry.connectionId = connectionId;
+    schedulePersistAffinity(provider);
   } else if (connectionId) {
     setAffinityConnection(provider, convKey, connectionId);
   }
@@ -193,4 +249,5 @@ export function clearAffinity(provider, convKey) {
   if (!provider || !convKey) return;
   const storeKey = `${provider}:${convKey}`;
   affinityStore.delete(storeKey);
+  schedulePersistAffinity(provider);
 }

@@ -187,6 +187,7 @@ export async function resolveConnectionProxyConfig(
       if (
         isForbiddenNonResidential(legacy.connectionProxyUrl) ||
         legacy.connectionProxyUrl.startsWith("residential://") ||
+        isProxyQuarantined(legacy.connectionProxyUrl) ||
         isProxyUrlDead(legacy.connectionProxyUrl)
       ) {
         return pickHealthyResidentialFallback(legacy.connectionNoProxy);

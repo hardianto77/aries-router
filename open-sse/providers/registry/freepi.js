@@ -31,8 +31,10 @@ export default {
     // "invalid or expired token" even when chat completions succeed (verified), so
     // any GET-based probe marks a healthy account dead. Validation is a 1-token
     // completion in app/api/providers/[id]/test/testUtils.js.
+    timeoutMs: 30000,
+    stallTimeoutMs: 90000,
     headers: {
-      "x-client-version": "0.6.25",
+      "x-client-version": "0.6.28",
     },
   },
   oauth: {
@@ -48,6 +50,8 @@ export default {
     { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", isFree: true },
     { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" },
     { id: "deepseek-v4.1-flash-1017-ultrafast", name: "DeepSeek V4.1 Flash 600tps" },
+    { id: "deepseek-v4.1-flash-abliterated", name: "DeepSeek V4.1 Flash Abliterated" },
+    { id: "inkling-2-mini", name: "Inkling 2 Mini" },
     { id: "gemini-4-carbon", name: "Gemini 4 Carbon" },
     { id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen" },
     { id: "gemini-4-neon", name: "Gemini 4 Neon" },

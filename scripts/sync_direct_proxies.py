@@ -19,7 +19,7 @@ LOG_PATH = Path("/home/ubuntu/sync_direct_proxies.log")
 RESI_ALIVE_TXT = Path("/home/ubuntu/resi-fresh-alive.txt")
 RESI_POOL_JSON = Path("/home/ubuntu/.aries-router/residential_fresh_pool.json")
 RESI_GW_URL = "http://127.0.0.1:20188"
-EXCLUDED_PROVIDERS = ("tokenharbor", "antigravity", "gemini", "gemini-cli", "opencode", "freepi", "local-device", "searxng", "edge-tts", "google-tts")
+EXCLUDED_PROVIDERS = ("local-device", "searxng", "edge-tts", "google-tts", "devin-cli", "opencode", "openai-compatible-chat-openhop", "openai-compatible-chat-kilo")
 
 
 def log(msg: str):

@@ -460,16 +460,32 @@ export default function ProvidersPage() {
   const handleGlobalDirectProxySync = async (mode = "proxy") => {
     setPvGlobalSyncing(mode);
     try {
-      const r = await fetch("/api/proxy-pools/pv-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, rotateWarp: mode !== "proxy", allRotate: false }),
-      });
-      const d = await r.json();
-      if (d.success) {
-        setPvSyncInfo(d);
-        notify.success(`Sync OK: ${d.poolAdded} egress sehat (residential ${d.resiAlive}/${d.resiTotal}) | ${d.rotatedProviders} akun ter-assign | WARP ${d.warpOk ? "OK" : "rotating"}`);
-      } else notify.error(d.error || "Sync failed");
+      if (mode === "warp") {
+        const r = await fetch("/api/proxy-pools/warp-rotate", { method: "POST" });
+        const d = await r.json();
+        if (d.success) {
+          setPvSyncInfo({ mode: "warp", warpOk: Boolean(d.ip) });
+          notify.success(`WARP fresh IP: ${d.ip || "rotating"}`);
+        } else notify.error(d.error || "WARP rotate failed");
+      } else {
+        const r = await fetch("/api/residential-fresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "refresh" }),
+        });
+        const d = await r.json();
+        if (d.success) {
+          const s = d.stats || {};
+          setPvSyncInfo({
+            mode: "proxy",
+            poolAdded: s.verifiedResidential ?? 0,
+            resiAlive: s.perProviderUnique ?? 0,
+            resiTotal: s.activeProviders ?? 0,
+            rotatedProviders: s.healedDirectConnections ?? 0,
+          });
+          notify.success(d.message || "Pure-residential proxy sync OK");
+        } else notify.error(d.error || "Sync failed");
+      }
     } catch (e) {
       notify.error(String(e).slice(0, 120));
     } finally {

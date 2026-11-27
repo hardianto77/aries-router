@@ -42,7 +42,7 @@ const debugItems = [
 ];
 
 const systemItems = [
-  { href: "/dashboard/residential-fresh", label: "Residential Fresh Proxy", icon: "home_work" },
+  { href: "/dashboard/auto-harvester", label: "Proxy Harvest", icon: "travel_explore" },
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
 { href: "/dashboard/vouchers", label: "Vouchers", icon: "confirmation_number" },
 { href: "/dashboard/prd-builder", label: "PRD Builder", icon: "description" },
@@ -141,7 +141,7 @@ export default function Sidebar({ onClose }) {
     if (item.href === "/dashboard/api-key-usage") return permissions.viewUsage || permissions.manageApiKeys;
     if (item.href === "/dashboard/quota") return permissions.manageProviders;
     if (item.href === "/dashboard/token-saver" || item.href === "/dashboard/cli-tools") return permissions.manageTools;
-    if (item.href === "/dashboard/residential-fresh") return permissions.manageProviders || permissions.manageAdvanced;
+    if (item.href === "/dashboard/auto-harvester") return permissions.manageProviders || permissions.manageAdvanced;
     return false;
   });
 

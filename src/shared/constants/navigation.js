@@ -40,7 +40,7 @@ export const DEBUG_ITEMS = [
 
 export const SYSTEM_ITEMS = [
   { href: "/dashboard/profile", label: "Settings", icon: "settings" },
-  { href: "/dashboard/residential-fresh", label: "Residential Fresh Proxy Mgr", icon: "home_work" },
+  { href: "/dashboard/auto-harvester", label: "Proxy Harvest", icon: "travel_explore" },
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
 { href: "/dashboard/vouchers", label: "Vouchers", icon: "confirmation_number" },
 ];
@@ -79,7 +79,7 @@ export function filterNavigation({ isApiKeyUser, permissions, enableTranslator }
     if (item.href === "/dashboard/quota") return p.manageProviders;
     if (item.href === "/dashboard/token-saver" || item.href === "/dashboard/cli-tools") return p.manageTools;
     if (item.href === "/dashboard/connection") return p.manageAdvanced || p.manageTools;
-    if (item.href === "/dashboard/residential-fresh") return p.manageProviders || p.manageAdvanced;
+    if (item.href === "/dashboard/auto-harvester") return p.manageProviders || p.manageAdvanced;
     return false;
   });
 

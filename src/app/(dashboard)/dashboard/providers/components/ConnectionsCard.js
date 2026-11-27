@@ -50,7 +50,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
   const proxyDisplayText = boundProxyPool
     ? `Pool: ${boundProxyPool.name}`
     : boundProxyPoolId ? `Pool: ${boundProxyPoolId} (inactive/missing)`
-    : hasLegacyProxy ? `Legacy: ${connection.providerSpecificData?.connectionProxyUrl}` : "";
+    : hasLegacyProxy ? `Proxy: ${connection.providerSpecificData?.connectionProxyUrl}` : "";
 
   let maskedProxyUrl = "";
   const rawProxyUrl = boundProxyPool?.proxyUrl || connection.providerSpecificData?.connectionProxyUrl;
@@ -62,7 +62,8 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
   }
 
   const noProxyText = boundProxyPool?.noProxy || connection.providerSpecificData?.connectionNoProxy || "";
-  const proxyBadgeVariant = boundProxyPool?.isActive === true ? "success" : (boundProxyPoolId || hasLegacyProxy) ? "error" : "default";
+  const isDirectResi = hasLegacyProxy && !boundProxyPoolId && /^(https?|socks5h?):\/\//i.test(String(connection.providerSpecificData?.connectionProxyUrl || ""));
+  const proxyBadgeVariant = (boundProxyPool?.isActive === true || isDirectResi) ? "success" : (boundProxyPoolId || hasLegacyProxy) ? "error" : "default";
 
   const modelLockUntil = Object.entries(connection)
     .filter(([k]) => k.startsWith("modelLock_"))

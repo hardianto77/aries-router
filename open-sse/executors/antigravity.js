@@ -667,6 +667,24 @@ export class AntigravityExecutor extends BaseExecutor {
     // The ACP transport is opt-in and off by default, so HTTP is unchanged for
     // every connection that has not asked for it (see agyCliExecutor.js).
     if (!isImageModel(input.model) && resolveAgyTransport(input.credentials) === "acp") {
+      const acpConnId = input.credentials?.connectionId || input.credentials?.email || "default";
+      const exhaustedUntil = getConnectionQuotaExhaustedUntil(acpConnId, input.model);
+      if (exhaustedUntil && exhaustedUntil > Date.now()) {
+        const retrySec = Math.max(15, Math.ceil((exhaustedUntil - Date.now()) / 1000));
+        return {
+          response: new Response(JSON.stringify({
+            error: {
+              message: `Antigravity account cooldown active for ${input.model} (${retrySec}s left). Rotating to next account.`,
+              code: "QUOTA_EXHAUSTED",
+              type: "rate_limit_error",
+            },
+          }), { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(retrySec) } }),
+          url: `agy-cli://${input.model}`,
+          headers: {},
+          transformedBody: input.body,
+          transport: "agy-cli",
+        };
+      }
       const { response, url } = await executeViaAgyCli({
         model: input.model,
         body: input.body,

@@ -132,11 +132,11 @@ const getPageInfo = (pathname) => {
       icon: "lan",
       breadcrumbs: [],
     };
-  if (pathname.includes("/residential-fresh") || pathname.includes("/residential-proxy"))
+  if (pathname.includes("/auto-harvester"))
     return {
-      title: "Residential Fresh Proxy",
-      description: "Pure ISP/residential egress with anti-datacenter ASN filtering, zero-timeout hedging, and dead-proxy auto-injection",
-      icon: "home_work",
+      title: "Proxy Harvest",
+      description: "Pure-Residential IP Harvester — 3-Pass TLS Probe & Dual-ASN Gate (Zero Datacenter, Zero Timeout, Anti-Rate-Limit)",
+      icon: "travel_explore",
       breadcrumbs: [],
     };
   if (pathname.includes("/skills"))

@@ -3,9 +3,7 @@
  * /opt/aries-router/src/lib/network/directProxySyncService.js
  * 
  * Unified 1-on-1 Direct Proxy Synchronization & Auto-Replacement Service:
- * - Direct ingestion from ProxyVault API (http://127.0.0.1:8022) with lowest latency sorting.
- * - Ingestion of verified residential fresh proxies (/home/ubuntu/resi-fresh-alive.txt).
- * - Automatic WARP egress rotation (/home/ubuntu/warp_rotate.sh).
+ * - Direct ingestion of verified Pure-Residential fresh proxies (/home/ubuntu/resi-fresh-alive.txt & :20188).
  * - Concurrent probe & auto-replacement of dead/unresponsive proxies.
  * - STRICT NON-POOL POLICY: proxyPoolId is guaranteed NULL; no group proxy pools created.
  */

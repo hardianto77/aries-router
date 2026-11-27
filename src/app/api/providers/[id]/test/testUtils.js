@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 import { getProviderConnectionById, updateProviderConnection, getProviderNodeById, deleteProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
-import { readFile as _readFile } from "node:fs";
+import { readFile as _readFile } from "node:fs/promises";
+import { getProxyPools } from "@/models";
+import { isHarvestManagedPool } from "@/lib/network/pureResidentialHarvester.js";
 import { testProxyUrl } from "@/lib/network/proxyTest";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
@@ -47,7 +49,7 @@ async function probeFreePi(connection, effectiveProxy = null) {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-          "x-client-version": "0.6.25",
+          "x-client-version": "0.6.28",
           "x-session-id": crypto.randomUUID(),
         },
         body: JSON.stringify({
@@ -1318,41 +1320,50 @@ export async function testSingleConnection(id) {
 
   if (effectiveProxy.connectionProxyEnabled && effectiveProxy.connectionProxyUrl && !effectiveProxy.vercelRelayUrl) {
     const proxyResult = await testProxyUrl({ proxyUrl: effectiveProxy.connectionProxyUrl });
-    if (!proxyResult.ok && effectiveProxy.connectionProxyUrl !== "127.0.0.1:20188") {
-      // Dead dedicated residential egress -> re-inject a FRESH one from the
-      // Residential Fresh Proxy pool, then re-test the new endpoint before
-      // declaring the connection dead (keeps proxy alive, responsive, consistent).
+    if (!proxyResult.ok && !effectiveProxy.connectionProxyUrl.includes("127.0.0.1:20188")) {
+      // Dead direct residential proxy -> fail over immediately to a fast, healthy
+      // pure-residential proxy from Proxy Harvest DB / residential_fresh_pool.json.
       try {
-        const { execFile } = await import("node:child_process");
-        const { promisify } = await import("node:util");
-        const runP = promisify(execFile);
-        await runP("/usr/bin/python3", ["/opt/aries-router/scripts/refresh_fresh_residential.py"], { timeout: 150000 });
-        const poolJson = JSON.parse(
-          await _readFile("/home/ubuntu/.aries-router/residential_fresh_pool.json", "utf8")
-        );
-        const nodes = (poolJson.nodes || []).filter((n) => n.url);
-        if (nodes.length > 0) {
-          const fresh = nodes[Math.floor(Math.random() * nodes.length)].url;
+        const allPools = await getProxyPools().catch(() => []);
+        const harvestCandidates = allPools
+          .filter((p) => isHarvestManagedPool(p) && p.isActive !== false && p.isResidential === true && p.proxyFlagged !== true && p.proxyUrl && p.proxyUrl !== effectiveProxy.connectionProxyUrl)
+          .sort((a, b) => (a.latencyMs || 9999) - (b.latencyMs || 9999))
+          .map((p) => p.proxyUrl);
+
+        let fileCandidates = [];
+        try {
+          const poolJson = JSON.parse(
+            await _readFile("/home/ubuntu/.aries-router/residential_fresh_pool.json", "utf8")
+          );
+          fileCandidates = (poolJson.nodes || [])
+            .filter((n) => n?.url && n.proxyFlagged !== true && n.url !== effectiveProxy.connectionProxyUrl)
+            .map((n) => n.url);
+        } catch {}
+
+        const candidates = Array.from(new Set([...harvestCandidates, ...fileCandidates])).slice(0, 6);
+        let healedUrl = null;
+        for (const cand of candidates) {
+          const chk = await testProxyUrl({ proxyUrl: cand, timeoutMs: 3000 });
+          if (chk.ok) {
+            healedUrl = cand;
+            break;
+          }
+        }
+        if (healedUrl) {
           const psd = { ...(connection.providerSpecificData || {}) };
           psd.connectionProxyEnabled = true;
           psd.proxyPoolId = null;
-          psd.connectionProxyUrl = fresh;
+          psd.connectionProxyUrl = healedUrl;
           await updateProviderConnection(id, {
             providerSpecificData: psd,
             updatedAt: new Date().toISOString(),
           });
-          const reResult = await testProxyUrl({ proxyUrl: fresh });
-          if (reResult.ok) {
-            effectiveProxy.connectionProxyUrl = fresh;
-          } else {
-            // Pool endpoints also failing -> fall back to the hedge gateway
-            effectiveProxy.connectionProxyUrl = "127.0.0.1:20188";
-          }
+          effectiveProxy.connectionProxyUrl = healedUrl;
         } else {
-          effectiveProxy.connectionProxyUrl = "127.0.0.1:20188";
+          effectiveProxy.connectionProxyUrl = "http://127.0.0.1:20188";
         }
       } catch {
-        effectiveProxy.connectionProxyUrl = "127.0.0.1:20188";
+        effectiveProxy.connectionProxyUrl = "http://127.0.0.1:20188";
       }
     }
     if (!proxyResult.ok) {

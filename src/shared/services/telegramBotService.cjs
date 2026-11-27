@@ -1664,9 +1664,7 @@ function renderVouchersView() {
 // MODULE 8: PROXY AUTOMATIONS
 // ──────────────────────────────────────────────
 function getProxyAutoMenuKeyboard(farmRunning, scanRunning) {
-  const farmBtn = farmRunning
-    ? { text: "Auto Farm: [OFF]", callback_data: "proxy_farm_toggle_off", style: "danger" }
-    : { text: "Auto Farm: [ON]", callback_data: "proxy_farm_toggle_on", style: "success" };
+  const farmBtn = { text: "Refresh Pure-Residential", callback_data: "proxy_farm_toggle_on", style: "success" };
 
   const scanBtn = scanRunning
     ? { text: "Auto Scan & Prune: [OFF]", callback_data: "proxy_scan_toggle_off", style: "danger" }
@@ -1692,13 +1690,16 @@ function getProxyAutoMenuKeyboard(farmRunning, scanRunning) {
 }
 
 async function renderProxyAutoView() {
-  const [farmRes, scanRes] = await Promise.all([
-    callInternalApi("/api/proxy-pools/harvest", "GET"),
+  const [resiRes, scanRes, harvRes] = await Promise.all([
+    callInternalApi("/api/residential-fresh", "GET"),
     callInternalApi("/api/proxy-pools/auto-scan", "GET"),
+    callInternalApi("/api/harvester", "GET"),
   ]);
 
-  const farm = farmRes.body || {};
+  const resi = resiRes.body || {};
+  const gw = resi.gateway || {};
   const scan = scanRes.body || {};
+  const harv = harvRes.body || {};
 
   let totalProxies = 0;
   let liveProxies = 0;
@@ -1708,25 +1709,26 @@ async function renderProxyAutoView() {
     const db = getDb();
     const rows = db.prepare("SELECT isActive, testStatus FROM proxyPools").all();
     totalProxies = rows.length;
-    liveProxies = rows.filter((r) => r.isActive !== 0 && r.testStatus !== "error").length;
-    deadProxies = rows.filter((r) => r.testStatus === "error" || r.isActive === 0).length;
+    liveProxies = rows.filter((r) => r.isActive !== 0 && r.testStatus !== "error" && r.testStatus !== "retired").length;
+    deadProxies = rows.filter((r) => r.testStatus === "error" || r.testStatus === "retired" || r.isActive === 0).length;
   } catch {}
 
-  const farmStatus = farm.running ? "ACTIVE (Looping)" : "STANDBY (Off)";
+  const resiStatus = gw.listening ? `ACTIVE (${gw.alive || 0}/${gw.upstreams || 0} alive)` : "OFFLINE";
   const scanStatus = scan.running ? `ACTIVE (Tiap ${scan.intervalMinutes || 1}m)` : "STANDBY (Off)";
 
   return {
     text:
       `<blockquote>[ PROXY AUTOMATION CONTROL ]</blockquote>\n\n` +
       `╭──[ STATUS AUTOMATION ]──\n` +
-      `│ Auto Farm Status : <b>${farmStatus}</b>\n` +
-      `│ Farm Target Pool : ${farm.targetCount || 5} proxies per cycle\n` +
+      `│ Pure-Residential : <b>${resiStatus}</b>\n` +
+      `│ Proxy Harvest    : <b>${harv.harvestedCount || 0}</b> fresh (${harv.avgLatencyMs ? `${harv.avgLatencyMs}ms avg` : "idle"})\n` +
+      `│ Covered Providers: ${resi.coveredProviders || 0}/${resi.totalActiveProviders || 0}\n` +
       `│ Auto Scan & Prune: <b>${scanStatus}</b>\n` +
-      `│ Total Proxy Pool : ${totalProxies} (${liveProxies} Live / ${deadProxies} Dead)\n` +
+      `│ Total Proxy Pool : ${totalProxies} (${liveProxies} Live / ${deadProxies} Inactive)\n` +
       `│ Last Scan Result : ${scan.lastPruned || 0} dead auto-pruned\n` +
       `╰─────────────────────────\n\n` +
-      `<i>Gunakan tombol di bawah untuk toggle harvester atau atur interval auto-prune.</i>`,
-    farmRunning: !!farm.running,
+      `<i>Gunakan tombol di bawah untuk refresh Pure-Residential atau atur interval auto-prune.</i>`,
+    farmRunning: !!gw.listening,
     scanRunning: !!scan.running,
   };
 }
@@ -4214,18 +4216,8 @@ Pilih fitur pemeriksaan model, arena perbandingan, atau latensi di bawah ini:`;
     // HANDLERS: PROXY AUTOMATIONS
     // ──────────────────────────────────────────
     bot.callbackQuery("proxy_farm_toggle_on", async (ctx) => {
-      await ctx.answerCallbackQuery({ text: "Mengaktifkan Auto Farm Proxy..." }).catch(() => {});
-      await callInternalApi("/api/proxy-pools/harvest", "POST", { action: "start", target: 5, loopMinutes: 10 });
-      const view = await renderProxyAutoView();
-      await ctx.editMessageText(view.text, {
-        parse_mode: "HTML",
-        reply_markup: getProxyAutoMenuKeyboard(view.farmRunning, view.scanRunning),
-      }).catch(() => {});
-    });
-
-    bot.callbackQuery("proxy_farm_toggle_off", async (ctx) => {
-      await ctx.answerCallbackQuery({ text: "Mematikan Auto Farm Proxy..." }).catch(() => {});
-      await callInternalApi("/api/proxy-pools/harvest", "POST", { action: "stop" });
+      await ctx.answerCallbackQuery({ text: "Menyegarkan Pure-Residential Pool..." }).catch(() => {});
+      await callInternalApi("/api/residential-fresh", "POST", { action: "refresh" });
       const view = await renderProxyAutoView();
       await ctx.editMessageText(view.text, {
         parse_mode: "HTML",

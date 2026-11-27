@@ -24,7 +24,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
     : boundProxyPoolId
       ? `Pool: ${boundProxyPoolId} (inactive/missing)`
       : hasLegacyProxy
-        ? `Legacy: ${connection.providerSpecificData?.connectionProxyUrl}`
+        ? `Proxy: ${connection.providerSpecificData?.connectionProxyUrl}`
         : "";
   const autoPingTooltip = (() => {
     if (!autoPing) return "";
@@ -57,15 +57,13 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   const directResiUrl = hasLegacyProxy ? String(connection.providerSpecificData?.connectionProxyUrl || "") : "";
   const isFreshResidential = hasLegacyProxy && !boundProxyPoolId && (
     directResiUrl.includes("127.0.0.1:20188") ||
-    // Any authenticated direct endpoint is a dedicated fresh residential egress
-    // injected by the Residential Fresh Proxy manager (proxyPoolId always NULL).
-    /^[a-z]+:\/\/[^@\s]+@/.test(directResiUrl)
+    /^(https?|socks5h?):\/\//i.test(directResiUrl)
   );
   if (boundProxyPool?.isActive === true) {
     proxyBadgeVariant = "success";
   } else if (isFreshResidential) {
     proxyBadgeVariant = "success";
-    proxyBadgeLabel = "Resi-Fresh";
+    proxyBadgeLabel = "Proxy";
   } else if (boundProxyPoolId || hasLegacyProxy) {
     proxyBadgeVariant = "error";
   }

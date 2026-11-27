@@ -41,16 +41,22 @@ export async function createProxyDispatcher(options) {
   const { ProxyAgent, Socks5ProxyAgent } = await import("undici");
   const agentOptions = {
     ...options,
-    connect: { timeout: 3500, ecdhCurve: TLS_ECDH_CURVE, ...(options.connect || {}) },
+    connect: { timeout: 2500, ecdhCurve: TLS_ECDH_CURVE, ...(options.connect || {}) },
     requestTls: { ecdhCurve: TLS_ECDH_CURVE, ...(options.requestTls || {}) },
-    headersTimeout: options.headersTimeout || 45000,
+    headersTimeout: options.headersTimeout || 25000,
     maxHeaderSize: 64 * 1024,
   };
   if (!socks5) return new ProxyAgent(agentOptions);
 
+  const socksOpts = {
+    connectTimeout: options.connect?.timeout || 3000,
+    headersTimeout: options.headersTimeout || 25000,
+    bodyTimeout: options.bodyTimeout || 60000,
+  };
+
   if (modes[0] !== "local") {
     if (url.protocol === "socks5h:") url.protocol = "socks5:";
-    return new Socks5ProxyAgent(url, agentOptions);
+    return new Socks5ProxyAgent(url.toString(), socksOpts);
   }
 
   class LocalDnsSocksProxyAgent extends Socks5ProxyAgent {
@@ -62,5 +68,5 @@ export async function createProxyDispatcher(options) {
   }
   url.searchParams.delete("dns");
   if (url.protocol === "socks5h:") url.protocol = "socks5:";
-  return new LocalDnsSocksProxyAgent(url, agentOptions);
+  return new LocalDnsSocksProxyAgent(url.toString(), socksOpts);
 }

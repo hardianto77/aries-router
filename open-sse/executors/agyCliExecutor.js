@@ -198,9 +198,13 @@ export function agyErrorResponse(error) {
         : status >= 500
             ? "provider_error"
             : "invalid_request_error";
+    const headers = { "Content-Type": "application/json" };
+    if (status === 429) {
+        headers["Retry-After"] = String(Math.max(15, Math.ceil(quotaCooldownMs(message) / 1000)));
+    }
     return new Response(JSON.stringify(buildErrorBody(status, message, undefined, { type })), {
         status,
-        headers: { "Content-Type": "application/json" },
+        headers,
     });
 }
 /** A stable conversation id so successive requests of one chat share a session. */

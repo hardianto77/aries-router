@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getProxyPools, deleteProxyPools, getProviderConnections, updateProxyPool } from "@/models";
+import { getProxyPools, deleteProxyPools, getProviderConnections, updateProviderConnection, updateProxyPool } from "@/models";
+import { syncHarvestedToResidentialFiles, distributeHarvestedFairlyToProviders } from "@/lib/network/pureResidentialHarvester.js";
 import { testProxyUrl } from "@/lib/network/proxyTest.js";
 
 export const dynamic = "force-dynamic";
@@ -84,6 +85,13 @@ export async function executeAutoScanCycle() {
 
     if (deadIds.length > 0) {
       await deleteProxyPools(deadIds);
+      const remaining = await getProxyPools().catch(() => []);
+      syncHarvestedToResidentialFiles(remaining);
+      await distributeHarvestedFairlyToProviders({
+        getProxyPools,
+        getProviderConnections,
+        updateProviderConnection,
+      }).catch(() => {});
     }
 
     scannerState.lastScanned = pools.length;

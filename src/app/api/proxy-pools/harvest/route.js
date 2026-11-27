@@ -1,323 +1,146 @@
 import { NextResponse } from "next/server";
-import net from "node:net";
-import { createProxyPool, getProxyPools } from "@/models";
-import { testProxyUrl } from "@/lib/network/proxyTest.js";
+import { createProxyPool, getProxyPools, getProviderConnections, updateProviderConnection, updateProxyPool, deleteProxyPools } from "@/models";
+import {
+  classifyAsnStrict,
+  distributeHarvestedFairlyToProviders,
+  fetchFeedCandidates,
+  lookupAsnBatch,
+  probeProxyStrict,
+  pruneAndVerifyHarvestedPools,
+  runWithConcurrency,
+  subnet24,
+  syncHarvestedToResidentialFiles,
+  tcpPrecheck,
+} from "@/lib/network/pureResidentialHarvester.js";
 
 export const dynamic = "force-dynamic";
 
-// Verified and active fresh proxy feeds (sorted by speed & working ratio)
-const HARVEST_FEEDS = [
-  // High-yield curated live feeds (tested working, refreshed every 30m)
-  "https://raw.githubusercontent.com/stormsia/proxy-list/main/working_proxies.txt",
-  "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-http.txt",
-  "https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/generated/http_proxies.txt",
-  "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
-  "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/http.txt",
-  "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
-  "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
-  "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text&timeout=2500",
-  "https://raw.githubusercontent.com/proxmint/free-proxy-list/main/proxies/http.txt",
-  "https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/http.txt",
-  "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master-Collection/main/http.txt",
-  "https://raw.githubusercontent.com/prxchk/proxy-list/main/http.txt",
-  "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/http.txt",
-  "https://raw.githubusercontent.com/officialputuid/KangProxy/KangProxy/http.txt",
-  "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
-];
-
-const CONCURRENCY_LIMIT = 50;
-const PROBE_TIMEOUT_MS = 2500;
-const TCP_PRECHECK_TIMEOUT_MS = 800;
-
-/**
- * Super-fast TCP handshake pre-check: filters out dead/offline IPs in <1s
- * using raw OS sockets, without paying Undici/HTTP connection setup overhead.
- */
-function tcpPrecheck(hostPort, timeoutMs = TCP_PRECHECK_TIMEOUT_MS) {
-  return new Promise((resolve) => {
-    const [host, portStr] = hostPort.split(":");
-    const port = Number(portStr);
-    if (!host || !port) return resolve(false);
-
-    const socket = new net.Socket();
-    let settled = false;
-
-    socket.setTimeout(timeoutMs);
-
-    socket.on("connect", () => {
-      if (!settled) {
-        settled = true;
-        socket.destroy();
-        resolve(true);
-      }
-    });
-
-    socket.on("timeout", () => {
-      if (!settled) {
-        settled = true;
-        socket.destroy();
-        resolve(false);
-      }
-    });
-
-    socket.on("error", () => {
-      if (!settled) {
-        settled = true;
-        socket.destroy();
-        resolve(false);
-      }
-    });
-
-    try {
-      socket.connect(port, host);
-    } catch {
-      resolve(false);
-    }
-  });
-}
-
-// In-memory state for background harvester worker
-if (!global._proxyHarvesterState) {
-  global._proxyHarvesterState = {
-    running: false,
-    loopIntervalMinutes: 0,
-    targetCount: 5,
-    timer: null,
-    lastRunAt: null,
-    lastAdded: 0,
-    lastTested: 0,
-    lastMessage: "Idle",
-    history: [],
-  };
-}
-
-const state = global._proxyHarvesterState;
-
-async function fetchCandidates(target = 50) {
-  const candidates = new Set();
-  const candidateLimit = Math.max(500, target * 15);
-
-  // Fetch all feeds in parallel with strict 4s timeout for maximum speed
-  await Promise.allSettled(
-    HARVEST_FEEDS.map(async (url) => {
-      try {
-        const res = await fetch(url, {
-          headers: { "User-Agent": "Mozilla/5.0" },
-          signal: AbortSignal.timeout(4000),
-        });
-        if (!res.ok) return;
-        const text = await res.text();
-        const lines = text.split("\n");
-        for (const line of lines) {
-          let clean = line.trim();
-          if (!clean || clean.startsWith("#")) continue;
-          // Strip protocol prefixes if present (e.g. http:// or socks5://)
-          clean = clean.replace(/^(?:https?|socks[45]):\/\//i, "").trim();
-          if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}$/.test(clean)) {
-            candidates.add(clean);
-          }
-        }
-      } catch {}
-    })
-  );
-
-  return Array.from(candidates).slice(0, candidateLimit);
-}
-
-async function runWithConcurrency(items, limit, fn, shouldStop) {
-  for (let i = 0; i < items.length; i += limit) {
-    if (shouldStop && shouldStop()) break;
-    const chunk = items.slice(i, i + limit);
-    await Promise.all(chunk.map((item) => fn(item)));
-    if (shouldStop && shouldStop()) break;
-  }
-}
-
-async function executeHarvestCycle(target = 5) {
-  if (state._inCycle) return;
-  state._inCycle = true;
-  state.lastRunAt = new Date().toISOString();
-  state.lastMessage = "Fetching fresh proxy candidate feeds...";
-
-  try {
-    const existingPools = await getProxyPools();
-    const existingUrls = new Set(
-      existingPools.map((p) => p.proxyUrl?.toLowerCase().trim())
-    );
-    const existingEgressIps = new Set(
-      existingPools.map((p) => p.egressIp?.toLowerCase().trim()).filter(Boolean)
-    );
-
-    const candidates = await fetchCandidates(target);
-    const unadded = candidates.filter(
-      (c) => !existingUrls.has(`http://${c}`) && !existingUrls.has(`https://${c}`)
-    );
-    state.lastMessage = `Scanning ${unadded.length} candidate proxies (found ${candidates.length} total)...`;
-
-    let addedCount = 0;
-    let scannedCount = 0;
-    const liveProxies = [];
-
-    await runWithConcurrency(
-      unadded,
-      CONCURRENCY_LIMIT,
-      async (hostPort) => {
-        if (!state.running && state.loopIntervalMinutes === 0) return;
-        if (addedCount >= target) return;
-
-        // Stage 1: Ultra-fast TCP socket ping (<1s). Skip dead IPs immediately!
-        const tcpAlive = await tcpPrecheck(hostPort);
-        if (!tcpAlive) {
-          scannedCount += 1;
-          if (scannedCount % 25 === 0) {
-            state.lastMessage = `Scanning: ${scannedCount}/${unadded.length} tested (${addedCount}/${target} live proxies imported)...`;
-          }
-          return;
-        }
-
-        // Stage 2: Full HTTP(S) proxy verification through Cloudflare trace
-        const proxyUrl = `http://${hostPort}`;
-        try {
-          const result = await testProxyUrl({
-            proxyUrl,
-            testUrl: "https://1.1.1.1/cdn-cgi/trace",
-            timeoutMs: PROBE_TIMEOUT_MS,
-          });
-
-          if (result?.ok && addedCount < target) {
-            const egressIp = result.egressIp ? String(result.egressIp).toLowerCase().trim() : null;
-            if (egressIp && existingEgressIps.has(egressIp)) {
-              // Egress IP collision: drop duplicate so quota buckets are distinct
-              return;
-            }
-            if (egressIp) existingEgressIps.add(egressIp);
-
-            const locSuffix = result.loc ? `-[${result.loc}]` : "";
-            const name = `FreeProxy-${hostPort.replace(":", "_")}${locSuffix}`;
-            await createProxyPool({
-              name,
-              proxyUrl,
-              type: "http",
-              isActive: true,
-              strictProxy: false,
-              noProxy: "",
-              egressIp: egressIp || null,
-              loc: result.loc || null,
-              testStatus: "working",
-              lastTestedAt: new Date().toISOString(),
-            });
-            addedCount += 1;
-            liveProxies.push({ hostPort, latencyMs: result.elapsedMs, egressIp });
-          }
-        } catch {
-          // Drop dead proxy silently
-        } finally {
-          scannedCount += 1;
-          if (scannedCount % 25 === 0 || addedCount > 0) {
-            state.lastAdded = addedCount;
-            state.lastMessage = `Scanning: ${scannedCount}/${unadded.length} tested (${addedCount}/${target} live proxies imported)...`;
-          }
-        }
-      },
-      () => addedCount >= target || (!state.running && state.loopIntervalMinutes === 0)
-    );
-
-    state.lastAdded = addedCount;
-    state.lastTested = unadded.length;
-    state.lastMessage = `Finished: Added ${addedCount} live proxies (tested ${unadded.length}).`;
-  } catch (err) {
-    state.lastMessage = `Cycle failed: ${err.message}`;
-  } finally {
-    state._inCycle = false;
-    // If not looping, set running to false when complete
-    if (state.loopIntervalMinutes === 0) {
-      state.running = false;
-    }
-  }
-}
-
-function scheduleNextLoop() {
-  if (state.timer) {
-    clearInterval(state.timer);
-    state.timer = null;
-  }
-  if (state.running && state.loopIntervalMinutes > 0) {
-    const ms = state.loopIntervalMinutes * 60 * 1000;
-    state.timer = setInterval(() => {
-      if (state.running) {
-        executeHarvestCycle(state.targetCount);
-      }
-    }, ms);
-  }
-}
-
-/**
- * GET /api/proxy-pools/harvest
- * Get current harvester daemon status
- */
-export async function GET() {
-  return NextResponse.json({
-    running: state.running,
-    targetCount: state.targetCount,
-    loopIntervalMinutes: state.loopIntervalMinutes,
-    lastRunAt: state.lastRunAt,
-    lastAdded: state.lastAdded,
-    lastTested: state.lastTested,
-    lastMessage: state.lastMessage,
-  });
-}
-
-/**
- * POST /api/proxy-pools/harvest
- * Start, configure, or stop the background harvester worker
- */
 export async function POST(request) {
   try {
     let body = {};
-    try {
-      body = await request.json();
-    } catch {
-      body = {};
+    try { body = await request.json(); } catch {}
+    const targetCount = Math.max(1, Math.min(Number(body.count) || 10, 80));
+    const maxScan = Math.max(100, Math.min(Number(body.maxScan) || 1500, 10000));
+    const strictNoProxyFlag = body.strictNoProxyFlag !== false;
+    const runId = new Date().toISOString();
+
+    const pruneStats = body.prune === true
+      ? await pruneAndVerifyHarvestedPools({
+          getProxyPools,
+          updateProxyPool,
+          deleteProxyPools,
+          getProviderConnections,
+          strictNoProxyFlag,
+        })
+      : { checked: 0, kept: 0, deleted: 0 };
+
+    const existingPools = await getProxyPools();
+    const existingUrls = new Set(existingPools.map((p) => p.proxyUrl?.toLowerCase().trim()).filter(Boolean));
+    const existingIngress = new Set(existingPools.map((p) => p.ingressIp).filter(Boolean));
+    const existingEgress = new Set(existingPools.map((p) => p.egressIp).filter(Boolean));
+    const subnetCounts = new Map();
+    for (const p of existingPools) {
+      const sub = subnet24(p.egressIp);
+      if (sub) subnetCounts.set(sub, (subnetCounts.get(sub) || 0) + 1);
     }
 
-    const { action, target = 5, loopMinutes = 0 } = body;
+    const candidates = await fetchFeedCandidates(maxScan);
+    const unadded = candidates.filter((u) => !existingUrls.has(u.toLowerCase()));
+    const probePassed = [];
+    const probeLimit = Math.max(targetCount * 4, 30);
 
-    if (action === "stop") {
-      state.running = false;
-      state.loopIntervalMinutes = 0;
-      if (state.timer) {
-        clearInterval(state.timer);
-        state.timer = null;
+    const scanDeadline = Date.now() + 28000;
+    await runWithConcurrency(
+      unadded.slice(0, 600),
+      60,
+      async (proxyUrl) => {
+        if (probePassed.length >= probeLimit || Date.now() >= scanDeadline) return;
+        if (!(await tcpPrecheck(proxyUrl, 700))) return;
+        if (Date.now() >= scanDeadline) return;
+        const res = await probeProxyStrict(proxyUrl, 1800);
+        if (res.ok) probePassed.push(res);
+      },
+      () => probePassed.length >= probeLimit || Date.now() >= scanDeadline
+    );
+
+    const ips = Array.from(new Set(probePassed.flatMap((r) => [r.ingressIp, r.egressIp]).filter(Boolean)));
+    const asnMap = ips.length ? await lookupAsnBatch(ips) : {};
+    probePassed.sort((a, b) => a.latencyMs - b.latencyMs || a.jitterMs - b.jitterMs);
+
+    const added = [];
+    let datacenterBlocked = 0;
+
+    for (const r of probePassed) {
+      if (added.length >= targetCount) break;
+      const inV = classifyAsnStrict(asnMap[r.ingressIp], { strictNoProxyFlag });
+      const egV = classifyAsnStrict(asnMap[r.egressIp], { strictNoProxyFlag });
+      if (!inV.ok || !egV.ok) {
+        datacenterBlocked++;
+        continue;
       }
-      state.lastMessage = "Harvester stopped by user.";
-      return NextResponse.json({ success: true, running: false, message: state.lastMessage });
+      if (existingIngress.has(r.ingressIp) || existingEgress.has(r.egressIp)) continue;
+      const sub = subnet24(r.egressIp);
+      if (sub && (subnetCounts.get(sub) || 0) >= 2) continue;
+
+      existingIngress.add(r.ingressIp);
+      existingEgress.add(r.egressIp);
+      if (sub) subnetCounts.set(sub, (subnetCounts.get(sub) || 0) + 1);
+
+      const egInfo = asnMap[r.egressIp] || {};
+      const pool = await createProxyPool({
+        name: `Resi-${r.egressIp} (${egInfo.countryCode || "XX"})`,
+        proxyUrl: r.proxyUrl,
+        type: r.protocol === "socks5" ? "socks5" : "http",
+        isActive: true,
+        strictProxy: false,
+        noProxy: "127.0.0.1,localhost,",
+        ingressIp: r.ingressIp,
+        egressIp: r.egressIp,
+        country: egInfo.country || null,
+        countryCode: egInfo.countryCode || "XX",
+        city: egInfo.city || null,
+        isp: (egInfo.isp || "Residential").slice(0, 28),
+        asn: egInfo.as || null,
+        networkClass: egV.networkClass,
+        ipType: "residential",
+        isResidential: true,
+        proxyFlagged: egV.proxyFlagged || inV.proxyFlagged,
+        latencyMs: r.latencyMs,
+        jitterMs: r.jitterMs,
+        stabilityPct: 100,
+        testStatus: "active",
+        lastError: null,
+        lastTestedAt: new Date().toISOString(),
+        harvestedBy: "proxy-harvest",
+        harvestRunId: runId,
+      });
+      added.push(pool);
     }
 
-    // Configure and start
-    const numericTarget = Math.max(1, Math.min(Number(target) || 5, 200));
-    const numericLoop = Number(loopMinutes) >= 0 ? Number(loopMinutes) : 0;
-
-    state.targetCount = numericTarget;
-    state.loopIntervalMinutes = numericLoop;
-    state.running = true;
-
-    scheduleNextLoop();
-
-    // Trigger cycle in background asynchronously without blocking HTTP response
-    executeHarvestCycle(numericTarget);
+    syncHarvestedToResidentialFiles(await getProxyPools());
+    const distStats = await distributeHarvestedFairlyToProviders({
+      getProxyPools,
+      getProviderConnections,
+      updateProviderConnection,
+    }).catch(() => null);
+    if (global._ariesHarvesterState && added.length > 0) {
+      global._ariesHarvesterState.currentRunId = runId;
+      global._ariesHarvesterState.lastRunAt = runId;
+      global._ariesHarvesterState.lastAdded = added.length;
+      global._ariesHarvesterState.lastMessage = `Added ${added.length} pure-residential proxies from Proxy Pools (${distStats ? `${distStats.providersCovered} providers synced` : "synced"}).`;
+    }
 
     return NextResponse.json({
       success: true,
-      running: true,
-      targetCount: numericTarget,
-      loopIntervalMinutes: numericLoop,
-      message: `Harvester started: Target ${numericTarget} proxies${numericLoop > 0 ? `, looping every ${numericLoop}m` : ""}. Running in background.`,
+      addedCount: added.length,
+      testedCount: unadded.length,
+      datacenterBlocked,
+      prunedDead: pruneStats.deleted,
+      runId,
+      distributed: distStats,
+      pools: added,
     });
   } catch (error) {
-    console.error("Proxy harvest error:", error);
-    return NextResponse.json(
-      { error: error?.message || "Failed to control proxy harvester" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error?.message || "Harvest failed" }, { status: 500 });
   }
 }

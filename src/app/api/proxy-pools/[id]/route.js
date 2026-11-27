@@ -40,7 +40,7 @@ function normalizeProxyPoolUpdate(body = {}) {
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "type")) {
-    const validTypes = ["http", "vercel", "cloudflare", "deno", "netlify"];
+    const validTypes = ["http", "socks5", "socks5h", "residential", "url-relay", "vercel", "cloudflare", "deno", "netlify"];
     updates.type = validTypes.includes(body?.type) ? body.type : "http";
   }
 
@@ -48,7 +48,7 @@ function normalizeProxyPoolUpdate(body = {}) {
 }
 
 function countBoundConnections(connections = [], proxyPoolId) {
-  return connections.filter((connection) => connection?.providerSpecificData?.proxyPoolId === proxyPoolId).length;
+  return connections.filter((connection) => connection?.isActive !== false && connection?.providerSpecificData?.proxyPoolId === proxyPoolId).length;
 }
 
 // GET /api/proxy-pools/[id] - Get proxy pool
